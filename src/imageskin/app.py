@@ -111,6 +111,7 @@ from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
+from imageskin.host_disk import SERVICE as SERVICE_FILES
 from imageskin.host_disk import count as count_disk
 from imageskin.hosts import (
     ACT_PREFIX,
@@ -165,7 +166,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import Service, make_service
+from imageskin.sites import Service, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -925,7 +926,13 @@ def create_app(
             refuse(401, NOT_SIGNED_IN, "not signed in")
         elif wanted != host.email:
             refuse(403, "A host can only see their own disk space.", "another host's")
-        amounts = count_disk(data_home, owners, wanted)
+        # The whole of the host's site's folder (R65b): theirs here, or any host's for the
+        # administrator at the main address.
+        site = host_site if host is not None and wanted == host.email else None
+        site = site or host_accounts.site_of(wanted) or DEFAULT_SITE
+        folder = data_home if site == host_site else site_home(site, service.home)
+        leave_out = SERVICE_FILES if site == DEFAULT_SITE else frozenset()
+        amounts = count_disk(folder, wanted, leave_out)
         if opened:
             logger.info("Resource view opened", extra={"email": wanted, **amounts})
         return amounts

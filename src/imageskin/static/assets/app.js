@@ -10233,17 +10233,37 @@ var ROWS = [
 	[
 		"images_and_recordings",
 		"Images and voice recordings",
-		"The photos and recordings you added."
+		"Your photos and recordings, with the faces, voice and videos made from them."
 	],
 	[
 		"pdfs",
 		"PDFs",
-		"The PDFs you added."
+		"Your PDFs, with what was read from them and the wiki."
+	],
+	[
+		"guidelines",
+		"Guidelines",
+		"The identity, goals and guidelines, with their saved versions."
+	],
+	[
+		"conversations",
+		"Conversations and history",
+		"Every visitor's conversation on your site."
+	],
+	[
+		"preferences",
+		"Preferences",
+		"Your site's settings and its LLM."
+	],
+	[
+		"other",
+		"Other",
+		"Everything else your site keeps, such as the setup's progress."
 	],
 	[
 		"total",
 		"Total",
-		"All the disk space your files take."
+		"All the disk space your site takes."
 	]
 ];
 function ResourcesPage() {
@@ -10270,7 +10290,7 @@ function ResourcesPage() {
 			/* @__PURE__ */ u("p", {
 				className: "lead",
 				children: [
-					"The disk space used by the files you added, as ",
+					"The disk space your site's files take, as ",
 					session.email,
 					"."
 				]

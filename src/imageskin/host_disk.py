@@ -1,13 +1,18 @@
-"""The disk space a host has used (roadmap R192, item 152).
+"""The disk space a host has used (roadmap R192, item 152; R65b).
 
-Each photo, recording and PDF stored is recorded with the host signed in when it was added, in
-`owners.json` in the app's home folder. For now only those files count (Larry, 2026-10-30): a
-host's photos and recordings as stored, their PDFs, and the total of the two. What is made from
-them, and files stored before host accounts, count for no host.
+A host's disk space is the whole of their site's folder (R61), every file counted once, in one of
+six lines: images and voice recordings, PDFs, guidelines, conversations and history, preferences,
+and other, so the total always matches the folder (R65b, in place of Larry's choice of 2026-10-30
+that only the uploaded files count). At the main address, whose folder is also the service's
+home, what serves every site counts for no host.
+
+Each photo, recording and PDF stored is still recorded with the host signed in when it was added,
+in `owners.json`, so R61e and R61f could move each host's files to their own site.
 """
 
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -89,28 +94,92 @@ class Owners:
         return moved
 
 
-def count(home: Path, owners: Owners, email: str) -> dict[str, int]:
-    """The host's photos and recordings, PDFs and total, in bytes."""
-    started = time.perf_counter()
-    try:
-        recorded = owners.read()
-    except OwnersUnreadable:
-        recorded = {}  # counted for no host until the file is fixed; it is left as it is
+# Each line of the Resources page, by the first part of a path in the site's folder; anything
+# else is "other" (R65b).
+LINES: dict[str, str] = {
+    # The photos and recordings, with what is made from them: the voice sample and converted
+    # copies (uploads), the prepared faces, the sample video, Goodbye and Welcome back, and the
+    # reply and idle videos.
+    "uploads": "images_and_recordings",
+    "photoreal": "images_and_recordings",
+    "clips": "images_and_recordings",
+    "replies": "images_and_recordings",
+    # The PDFs, what was read from them, the wiki and the lessons written ahead.
+    "content": "pdfs",
+    # Customization's identity, goals and guidelines, with their saved versions and draft.
+    "customization.json": "guidelines",
+    "customization.history.json": "guidelines",
+    "customization.generated": "guidelines",
+    # The site's own conversation and each visitor's (R65a).
+    "conversation.json": "conversations",
+    "conversation.saving.json": "conversations",
+    "conversations": "conversations",
+    # The site's settings, its LLM choice and its ChatGPT sign-in.
+    "ui-settings.json": "preferences",
+    "llm.json": "preferences",
+    "chatgpt.json": "preferences",
+}
+AMOUNTS = ("images_and_recordings", "pdfs", "guidelines", "conversations", "preferences", "other")
+# At the main address, whose folder is the service's home: what serves every site, counted for no
+# host (R61). Every other site's folder holds only its own.
+SERVICE = frozenset(
+    {
+        "sites",
+        "sites.json",
+        "hosts.json",
+        "admin.toml",
+        "admin-laptops.toml",
+        "admin-settings.json",
+        "admin-guidelines.json",
+        "admin-guidelines.history.json",
+        "network-month.json",
+        "outbox",
+        "models",
+        "default-people",
+        "default-person-times.json",
+        "config.toml",
+        "speed",
+    }
+)
 
-    def added(kind: Kind, folder: Path, suffixes: tuple[str, ...]) -> int:
-        """Bytes in the files of `folder` the host added, by their ids."""
-        theirs = {item for item, who in recorded.get(kind, {}).items() if who == email}
-        if not theirs or not folder.is_dir():
-            return 0
-        return sum(
-            p.stat().st_size
-            for p in folder.iterdir()
-            if p.is_file() and p.suffix not in suffixes and p.stem in theirs
+
+def line_of(relative: Path) -> str:
+    first = relative.parts[0]
+    if first.startswith("customization."):  # a saved or written-aside copy of it
+        return "guidelines"
+    return LINES.get(first, "other")
+
+
+def count(folder: Path, email: str, leave_out: frozenset[str] = frozenset()) -> dict[str, int]:
+    """The bytes in each line and the total for the site whose folder this is, leaving out the
+    names at its top in `leave_out`. A file linked twice counts once, and a link to another
+    folder is not followed. A file that can't be read is logged and left out."""
+    started = time.perf_counter()
+    amounts = dict.fromkeys(AMOUNTS, 0)
+    seen: set[tuple[int, int]] = set()
+
+    def failed(e: OSError) -> None:
+        logger.error(
+            "Could not count a file of the site", extra={"path": e.filename, "error": str(e)}
         )
 
-    media = sum(added(kind, home / "uploads" / kind, (".json",)) for kind in ("photos", "sounds"))
-    pdfs = added("pdfs", home / "content" / "pdfs", (".json", ".old", ".writing"))
-    amounts = {"images_and_recordings": media, "pdfs": pdfs, "total": media + pdfs}
+    for top, dirs, names in os.walk(folder, onerror=failed):
+        here = Path(top)
+        if here == folder:
+            dirs[:] = [d for d in dirs if d not in leave_out]
+            names = [n for n in names if n not in leave_out]
+        for name in names:
+            path = here / name
+            try:
+                stat = path.lstat()
+            except OSError as e:
+                failed(e)
+                continue
+            if (stat.st_dev, stat.st_ino) in seen:
+                continue
+            seen.add((stat.st_dev, stat.st_ino))
+            amounts[line_of(path.relative_to(folder))] += stat.st_size
+    amounts["total"] = sum(amounts[k] for k in AMOUNTS)
     logger.info(
         "Host disk space counted",
         extra={

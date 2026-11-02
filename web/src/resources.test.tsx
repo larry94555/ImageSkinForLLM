@@ -50,8 +50,17 @@ test("sizes are in MB below a GB, else in GB", () => {
   expect(size(1_250_000_000)).toBe("1.25 GB");
 });
 
-test("a signed-in host opens Resources from the top bar and sees the three amounts", async () => {
-  const disk = { images_and_recordings: 96_078, pdfs: 12_500_000, total: 12_596_078 };
+test("a signed-in host opens Resources from the top bar and sees every line", async () => {
+  // Every file of the site (R65b), in six lines and their total.
+  const disk = {
+    images_and_recordings: 96_078,
+    pdfs: 12_500_000,
+    guidelines: 4_000,
+    conversations: 250_000,
+    preferences: 1_000,
+    other: 2_000,
+    total: 12_853_078,
+  };
   const { asked } = server(true, disk);
   window.location.hash = "#/resources";
   render(<App />);
@@ -61,8 +70,18 @@ test("a signed-in host opens Resources from the top bar and sees the three amoun
   );
   const amounts = within(await screen.findByRole("region", { name: "Disk space used" }));
   const rows = amounts.getAllByRole("definition").map((d) => d.textContent);
-  expect(rows).toEqual(["0.1 MB", "12.5 MB", "12.6 MB"]);
-  expect(amounts.getByText("Images and voice recordings")).toBeTruthy();
+  expect(rows).toEqual(["0.1 MB", "12.5 MB", "0.0 MB", "0.3 MB", "0.0 MB", "0.0 MB", "12.9 MB"]);
+  for (const label of [
+    "Images and voice recordings",
+    "PDFs",
+    "Guidelines",
+    "Conversations and history",
+    "Preferences",
+    "Other",
+    "Total",
+  ]) {
+    expect(amounts.getByText(label)).toBeTruthy();
+  }
   expect(asked).toEqual(["/api/host/disk?opened=true"]);
   expect(console.info).toHaveBeenCalledWith(`Resource view opened: ${JSON.stringify(disk)}`);
 });

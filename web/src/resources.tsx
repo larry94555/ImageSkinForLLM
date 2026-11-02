@@ -1,5 +1,6 @@
 // The host's resource view (roadmap R193, item 152): the disk space the signed-in host has used,
-// counted by the server (R192) each time the page is opened.
+// counted by the server (R192) each time the page is opened. Every file of their site counts,
+// in six lines (R65b).
 
 import { useEffect, useState } from "preact/hooks";
 
@@ -16,9 +17,17 @@ export function size(bytes: number): string {
 }
 
 const ROWS: [keyof HostDisk, string, string][] = [
-  ["images_and_recordings", "Images and voice recordings", "The photos and recordings you added."],
-  ["pdfs", "PDFs", "The PDFs you added."],
-  ["total", "Total", "All the disk space your files take."],
+  [
+    "images_and_recordings",
+    "Images and voice recordings",
+    "Your photos and recordings, with the faces, voice and videos made from them.",
+  ],
+  ["pdfs", "PDFs", "Your PDFs, with what was read from them and the wiki."],
+  ["guidelines", "Guidelines", "The identity, goals and guidelines, with their saved versions."],
+  ["conversations", "Conversations and history", "Every visitor's conversation on your site."],
+  ["preferences", "Preferences", "Your site's settings and its LLM."],
+  ["other", "Other", "Everything else your site keeps, such as the setup's progress."],
+  ["total", "Total", "All the disk space your site takes."],
 ];
 
 export function ResourcesPage() {
@@ -46,7 +55,7 @@ export function ResourcesPage() {
   return (
     <div className="host-page resources-page">
       <h1>Resources</h1>
-      <p className="lead">The disk space used by the files you added, as {session.email}.</p>
+      <p className="lead">The disk space your site's files take, as {session.email}.</p>
       {failed && (
         <p className="error">The disk space used could not be read. Reload to try again.</p>
       )}
