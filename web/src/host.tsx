@@ -12,6 +12,7 @@ import {
   getHostSession,
   hostPageOpened,
   type HostSession,
+  sendConfirmationAgain,
   ServerRefusal,
   signInAsHost,
   signOutAsHost,
@@ -273,6 +274,78 @@ export function HostOnlyPage() {
           Host sign in
         </a>{" "}
         or <a href="#/chat">go to the chat</a>
+      </p>
+    </div>
+  );
+}
+
+// Every page of a customer's site until they confirm their email (R62b): where the link was sent,
+// and Send it again. `failed` when a confirmation link didn't work.
+export function ConfirmEmailPage({ email, failed = false }: { email: string; failed?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => console.info(`Confirm your email shown (link failed: ${failed})`), [failed]);
+
+  async function again() {
+    setBusy(true);
+    setNote(null);
+    setError(null);
+    try {
+      await sendConfirmationAgain();
+      console.info("Confirmation email sent again");
+      setNote(`A new link is on its way to ${email}.`);
+    } catch (e) {
+      console.error("Could not send the confirmation email again", e);
+      setError(e instanceof ServerRefusal ? e.message : "That didn't work. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="host-page host-account">
+      <h1>Confirm your email</h1>
+      {failed && (
+        <p className="error" role="alert">
+          {LINK_FAILED}
+        </p>
+      )}
+      <p className="lead">
+        We sent a link to <strong>{email}</strong>. Open it to start setting up your site. The link
+        works for 7 days.
+      </p>
+      {note && <p role="status">{note}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button type="button" disabled={busy} onClick={() => void again()}>
+        Send it again
+      </button>
+    </div>
+  );
+}
+
+const LINK_FAILED =
+  "That confirmation link didn't work: it was already used, a newer one was sent, or it is" +
+  " more than 7 days old.";
+
+// Where a confirmation link that didn't work goes, for someone not signed in here (R62b).
+export function ConfirmFailedPage() {
+  useEffect(() => console.info("Confirmation link failed page shown"), []);
+  return (
+    <div className="host-page host-account">
+      <h1>Confirm your email</h1>
+      <p className="error" role="alert">
+        {LINK_FAILED}
+      </p>
+      <p>
+        <a className="button" href="#/host/sign-in">
+          Host sign in
+        </a>{" "}
+        to send a new one.
       </p>
     </div>
   );

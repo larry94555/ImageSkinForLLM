@@ -627,6 +627,10 @@ async function signOutAsHost() {
 	const response = await fetch("/api/host/sign-out", { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
+async function sendConfirmationAgain() {
+	const response = await fetch("/api/host/confirm/send", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
 async function hostPageOpened(page) {
 	const response = await fetch("/api/host/page", {
 		method: "POST",
@@ -1431,6 +1435,7 @@ var PAGES = {
 	"/admin/guidelines": "admin",
 	"/host/sign-up": "host-sign-up",
 	"/host/sign-in": "host-sign-in",
+	"/host/confirm-failed": "confirm-failed",
 	"/resources": "resources",
 	"/customization": "customization"
 };
@@ -3186,6 +3191,85 @@ function HostOnlyPage() {
 					href: "#/chat",
 					children: "go to the chat"
 				})
+			] })
+		]
+	});
+}
+function ConfirmEmailPage({ email, failed = false }) {
+	const [busy, setBusy] = d(false);
+	const [note, setNote] = d(null);
+	const [error, setError] = d(null);
+	h(() => console.info(`Confirm your email shown (link failed: ${failed})`), [failed]);
+	async function again() {
+		setBusy(true);
+		setNote(null);
+		setError(null);
+		try {
+			await sendConfirmationAgain();
+			console.info("Confirmation email sent again");
+			setNote(`A new link is on its way to ${email}.`);
+		} catch (e) {
+			console.error("Could not send the confirmation email again", e);
+			setError(e instanceof ServerRefusal ? e.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Confirm your email" }),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: LINK_FAILED
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: [
+					"We sent a link to ",
+					/* @__PURE__ */ u("strong", { children: email }),
+					". Open it to start setting up your site. The link works for 7 days."
+				]
+			}),
+			note && /* @__PURE__ */ u("p", {
+				role: "status",
+				children: note
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				disabled: busy,
+				onClick: () => void again(),
+				children: "Send it again"
+			})
+		]
+	});
+}
+var LINK_FAILED = "That confirmation link didn't work: it was already used, a newer one was sent, or it is more than 7 days old.";
+function ConfirmFailedPage() {
+	h(() => console.info("Confirmation link failed page shown"), []);
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Confirm your email" }),
+			/* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: LINK_FAILED
+			}),
+			/* @__PURE__ */ u("p", { children: [
+				/* @__PURE__ */ u("a", {
+					className: "button",
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				}),
+				" ",
+				"to send a new one."
 			] })
 		]
 	});
@@ -11858,9 +11942,10 @@ function Shell() {
 	}, []);
 	const defaultPerson = useDefaultPerson(hash, host);
 	const hostSession = useHost().session;
-	const visitor = hostSession?.signed_in !== true;
+	const unconfirmed = hostSession?.signed_in === true && hostSession.confirmed === false;
+	const visitor = hostSession?.signed_in !== true || unconfirmed;
 	const settingsShown = useSettingsShown();
-	const { use: customUse, fresh } = useCustomUseOf(hash, hostSession?.signed_in);
+	const { use: customUse, fresh } = useCustomUseOf(hash, hostSession === null ? void 0 : !visitor);
 	const route = consented === null || !settingsLoaded || hostSession === null || customUse === null ? null : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
@@ -11872,7 +11957,11 @@ function Shell() {
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
-	if (route) content = {
+	if (unconfirmed) content = /* @__PURE__ */ u(ConfirmEmailPage, {
+		email: hostSession.email ?? "",
+		failed: route?.page === "confirm-failed"
+	});
+	else if (route) content = {
 		home: /* @__PURE__ */ u(HomePage, {
 			consented: consented === true,
 			landing: landing.current
@@ -11908,6 +11997,7 @@ function Shell() {
 		"host-sign-up": /* @__PURE__ */ u(HostAccountPage, { kind: "up" }),
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
+		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
 		resources: /* @__PURE__ */ u(ResourcesPage, {}),
 		customization: /* @__PURE__ */ u(CustomizationPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})

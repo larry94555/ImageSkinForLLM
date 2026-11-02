@@ -11,14 +11,34 @@ vi.unmock("./api");
 // A server with consent given and the host accounts of R188: "host@example.com" with the
 // password "a long secret" can sign in; `state` says who is signed in.
 function server(signedIn: string | null = null) {
-  const state = { email: signedIn, taken: new Set(["host@example.com"]), signOutFails: false };
+  const state = {
+    email: signedIn,
+    taken: new Set(["host@example.com"]),
+    signOutFails: false,
+    confirmed: true,
+    sent: 0,
+  };
   const pages: string[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, string>) : {};
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json({});
     if (url === "/api/host/session") {
-      return Response.json({ signed_in: state.email !== null, email: state.email });
+      return Response.json({
+        signed_in: state.email !== null,
+        email: state.email,
+        confirmed: state.confirmed,
+      });
+    }
+    if (url === "/api/host/confirm/send") {
+      state.sent += 1;
+      if (state.sent === 1) {
+        return Response.json(
+          { detail: "The email was sent less than a minute ago." },
+          { status: 429 },
+        );
+      }
+      return Response.json({ sent: true });
     }
     if (url === "/api/host/page") {
       pages.push(body.page);
@@ -231,5 +251,54 @@ test("opening a host page logs no error about logging it", async () => {
   expect(console.error).not.toHaveBeenCalledWith(
     "Could not log the host page opened",
     expect.anything(),
+  );
+});
+
+test("a customer who hasn't confirmed their email is asked to, and can send it again (R62b)", async () => {
+  const { state, fetchMock } = server("new@example.com");
+  state.confirmed = false;
+  window.location.hash = "#/setup";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Confirm your email" });
+  const main = document.querySelector(".host-page") as HTMLElement;
+  expect(within(main).getByText("new@example.com")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  // Not yet the site's host: the host-only call isn't made.
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/host/me")).toBe(false);
+
+  fireEvent.click(screen.getByRole("button", { name: "Send it again" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "The email was sent less than a minute ago.",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send it again" }));
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "A new link is on its way to new@example.com.",
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(state.sent).toBe(2);
+});
+
+test("a confirmation link that didn't work says so (R62b)", async () => {
+  const { state } = server("new@example.com");
+  state.confirmed = false;
+  window.location.hash = "#/host/confirm-failed";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Confirm your email" });
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "That confirmation link didn't work",
+  );
+  expect(screen.getByRole("button", { name: "Send it again" })).toBeTruthy();
+});
+
+test("a failed confirmation link opened while signed out says to sign in (R62b)", async () => {
+  server();
+  window.location.hash = "#/host/confirm-failed";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Confirm your email" });
+  expect(screen.getByRole("alert").textContent).toContain("more than 7 days old");
+  const main = document.querySelector(".host-page") as HTMLElement;
+  expect(within(main).getByRole("link", { name: "Host sign in" })).toHaveProperty(
+    "hash",
+    "#/host/sign-in",
   );
 });

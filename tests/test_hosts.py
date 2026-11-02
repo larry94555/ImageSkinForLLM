@@ -215,10 +215,14 @@ def test_a_reset_while_signing_in_refuses_the_old_password(
 
 def test_the_api_signs_up_in_and_out(tmp_path: Path) -> None:
     browser = TestClient(create_app(tmp_path))
-    assert browser.get("/api/host/session").json() == {"signed_in": False, "email": None}
+    assert browser.get("/api/host/session").json() == {
+        "signed_in": False,
+        "email": None,
+        "confirmed": True,
+    }
     assert browser.get("/api/host/me").status_code == 401
     up = browser.post("/api/host/sign-up", json={"email": "Host@example.com", "password": PASSWORD})
-    assert up.json() == {"signed_in": True, "email": "host@example.com"}
+    assert up.json() == {"signed_in": True, "email": "host@example.com", "confirmed": True}
     cookie = up.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie and "Max-Age=" in cookie
     assert browser.get("/api/host/me").json()["email"] == "host@example.com"
@@ -242,6 +246,7 @@ def test_the_api_signs_up_in_and_out(tmp_path: Path) -> None:
     assert browser.get("/api/host/session").json() == {
         "signed_in": True,
         "email": "host@example.com",
+        "confirmed": True,
     }
 
 

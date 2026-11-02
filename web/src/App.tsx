@@ -10,7 +10,15 @@ import { ContentPage } from "./content";
 import { ALLOWED, CustomUseProvider, useCustomUseOf } from "./custom-use";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
-import { HostAccountPage, HostLinks, HostOnlyPage, HostProvider, useHost } from "./host";
+import {
+  ConfirmEmailPage,
+  ConfirmFailedPage,
+  HostAccountPage,
+  HostLinks,
+  HostOnlyPage,
+  HostProvider,
+  useHost,
+} from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
 import {
@@ -96,10 +104,16 @@ function Shell() {
 
   // Anyone not signed in as a host has the participant view (R190), and a host page says so.
   const hostSession = useHost().session;
-  const visitor = hostSession?.signed_in !== true;
+  // A customer who hasn't confirmed their email yet is not yet their site's host (R62b): every
+  // page says to confirm it.
+  const unconfirmed = hostSession?.signed_in === true && hostSession.confirmed === false;
+  const visitor = hostSession?.signed_in !== true || unconfirmed;
   const settingsShown = useSettingsShown();
   // What the host may use of their own photo and voice (R240b), asked again on each page.
-  const { use: customUse, fresh } = useCustomUseOf(hash, hostSession?.signed_in);
+  const { use: customUse, fresh } = useCustomUseOf(
+    hash,
+    hostSession === null ? undefined : !visitor,
+  );
   const route =
     consented === null || !settingsLoaded || hostSession === null || customUse === null
       ? null
@@ -126,7 +140,14 @@ function Shell() {
   if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 
   let content = <p>Loading…</p>;
-  if (route) {
+  if (unconfirmed) {
+    content = (
+      <ConfirmEmailPage
+        email={hostSession.email ?? ""}
+        failed={route?.page === "confirm-failed"}
+      />
+    );
+  } else if (route) {
     content = {
       home: <HomePage consented={consented === true} landing={landing.current} />,
       consent: (
@@ -172,6 +193,7 @@ function Shell() {
       "host-sign-up": <HostAccountPage kind="up" />,
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
+      "confirm-failed": <ConfirmFailedPage />,
       resources: <ResourcesPage />,
       customization: <CustomizationPage />,
       "not-found": <NotFoundPage />,
