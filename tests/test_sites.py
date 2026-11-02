@@ -243,3 +243,42 @@ def test_the_server_starts_and_stops_with_no_site_made() -> None:
 
     asyncio.run(sites({"type": "lifespan"}, receive, send))
     assert sent == [{"type": "lifespan.startup.complete"}, {"type": "lifespan.shutdown.complete"}]
+
+
+def test_a_site_being_made_holds_up_no_other_site() -> None:
+    # Codex's review of PR #271: making one site must not stall another's requests or making.
+    release = threading.Event()
+    started = threading.Event()
+    made: list[str] = []
+
+    def make(name: str) -> Asgi:
+        if name == "a":
+            started.set()
+            assert release.wait(5)
+        made.append(name)
+        app = FastAPI()
+        app.get("/name")(lambda: name)
+        return app
+
+    def by_host(scope: Scope) -> str:
+        host: bytes = dict(scope["headers"])[b"host"]
+        return host.decode().split(".")[0]
+
+    sites = SiteApps(make, by_host)
+    TestClient(sites, base_url="http://b.localhost").get("/name")  # site b is made first
+    answers: dict[str, str] = {}
+
+    def ask(name: str) -> None:
+        answers[name] = TestClient(sites, base_url=f"http://{name}.localhost").get("/name").json()
+
+    slow = [threading.Thread(target=ask, args=("a",)) for _ in range(2)]
+    for t in slow:
+        t.start()
+    assert started.wait(5)
+    ask("b")  # an app already made answers while site a is still being made
+    ask("c")  # and another site is made meanwhile
+    assert answers == {"b": "b", "c": "c"} and made == ["b", "c"]
+    release.set()
+    for t in slow:
+        t.join(5)
+    assert answers["a"] == "a" and made == ["b", "c", "a"]  # a made once for its two requests

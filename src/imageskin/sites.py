@@ -105,12 +105,22 @@ class SiteApps:
         self._make = make
         self._site_of = site_of
         self._apps: dict[str, Asgi] = {}
+        # Held only to look in or change the two dicts, never while a site is made, so a site
+        # being made never holds up another (Codex's review of PR #271).
         self._lock = threading.Lock()
+        # One lock per site being made, so it is made once however many requests ask for it.
+        self._making: dict[str, threading.Lock] = {}
 
     def app(self, site: str) -> Asgi:
         """The site's app, made now if it hasn't been. Making one can take seconds."""
         with self._lock:
             made = self._apps.get(site)
+            if made is not None:
+                return made
+            making = self._making.setdefault(site, threading.Lock())
+        with making:
+            with self._lock:  # made by another request while this one waited
+                made = self._apps.get(site)
             if made is not None:
                 return made
             start = time.perf_counter()
@@ -119,7 +129,9 @@ class SiteApps:
             except Exception:
                 logger.exception("Site state not made", extra={"site": site})
                 raise
-            self._apps[site] = made
+            with self._lock:
+                self._apps[site] = made
+                del self._making[site]
         logger.info(
             "Site state made",
             extra={"site": site, "duration_ms": round((time.perf_counter() - start) * 1000, 1)},
