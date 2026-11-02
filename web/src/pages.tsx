@@ -67,7 +67,7 @@ import { DetailBar } from "./detail-bar";
 import { ExitScreen } from "./exit";
 import { FaceMovementChoice } from "./face-movement";
 import { goWithoutAsking, useLeaveGuard } from "./leave-guard";
-import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
+import { ASSESSMENT_KEY, LESSON_KEY, progressKey, QUIZ_KEY } from "./progress";
 import { OWN_CONSENT, type SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
@@ -1301,7 +1301,7 @@ const SOUND_KEY = "imageskin.sound";
 
 export function loadLesson(): Lesson | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null") as Partial<Lesson> | null;
+    const saved = JSON.parse(localStorage.getItem(progressKey(LESSON_KEY)) ?? "null") as Partial<Lesson> | null;
     if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part! < 0)
       return null;
     const parts = Number.isInteger(saved.parts) ? saved.parts : undefined;
@@ -1315,7 +1315,7 @@ export function loadLesson(): Lesson | null {
 
 export function loadQuiz(): Quiz | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(QUIZ_KEY) ?? "null") as Partial<Quiz> | null;
+    const saved = JSON.parse(localStorage.getItem(progressKey(QUIZ_KEY)) ?? "null") as Partial<Quiz> | null;
     if (
       typeof saved?.topic !== "string" ||
       typeof saved.question !== "string" ||
@@ -1347,7 +1347,7 @@ export function loadQuiz(): Quiz | null {
 
 export function loadAssessment(): Assessment | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(ASSESSMENT_KEY) ?? "null") as Assessment | null;
+    const saved = JSON.parse(localStorage.getItem(progressKey(ASSESSMENT_KEY)) ?? "null") as Assessment | null;
     const whole =
       typeof saved?.topic === "string" &&
       typeof saved.question === "string" &&
@@ -1362,8 +1362,8 @@ export function loadAssessment(): Assessment | null {
 
 function saveAssessment(assessment: Assessment | null) {
   try {
-    if (assessment) localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
-    else localStorage.removeItem(ASSESSMENT_KEY);
+    if (assessment) localStorage.setItem(progressKey(ASSESSMENT_KEY), JSON.stringify(assessment));
+    else localStorage.removeItem(progressKey(ASSESSMENT_KEY));
   } catch (e) {
     console.error("Could not keep the assessment", e);
   }
@@ -1371,8 +1371,8 @@ function saveAssessment(assessment: Assessment | null) {
 
 function saveQuiz(quiz: Quiz | null) {
   try {
-    if (quiz) localStorage.setItem(QUIZ_KEY, JSON.stringify(quiz));
-    else localStorage.removeItem(QUIZ_KEY);
+    if (quiz) localStorage.setItem(progressKey(QUIZ_KEY), JSON.stringify(quiz));
+    else localStorage.removeItem(progressKey(QUIZ_KEY));
   } catch (e) {
     console.error("Could not keep the quiz", e);
   }
@@ -1380,8 +1380,8 @@ function saveQuiz(quiz: Quiz | null) {
 
 function saveLesson(lesson: Lesson | null) {
   try {
-    if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
-    else localStorage.removeItem(LESSON_KEY);
+    if (lesson) localStorage.setItem(progressKey(LESSON_KEY), JSON.stringify(lesson));
+    else localStorage.removeItem(progressKey(LESSON_KEY));
   } catch (e) {
     console.error("Could not keep the lesson", e);
   }
