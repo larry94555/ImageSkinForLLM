@@ -64,6 +64,15 @@ class HostRefused(Exception):
         self.reason = reason
 
 
+class HostElsewhere(HostRefused):
+    """The right password, but the host's site is another one (R61e): told only once the
+    password is checked, so a guess learns nothing, and the page says where to sign in."""
+
+    def __init__(self, site: str) -> None:
+        super().__init__(WRONG, "another site's host")
+        self.site = site
+
+
 def normal_email(email: str) -> str:
     return email.strip().lower()
 
@@ -188,7 +197,17 @@ class HostAccounts:
             reason = "wrong password" if account else "no such host"
             self._refuse(WRONG, reason, "sign-in", email, address)
         if account and account.get(SITE, DEFAULT_SITE) != site:
-            self._refuse(WRONG, "another site's host", "sign-in", email, address)
+            elsewhere = str(account.get(SITE, DEFAULT_SITE))
+            logger.warning(
+                "Host sign-in failed",
+                extra={
+                    "reason": "another site's host",
+                    "email": email,
+                    "address": address,
+                    "host_site": elsewhere,
+                },
+            )
+            raise HostElsewhere(elsewhere)
         with self._lock:
             data = self._load()
             now = data["hosts"].get(email)
@@ -281,6 +300,16 @@ class HostAccounts:
             self._save({**data, "hosts": hosts, "sessions": sessions})
         logger.info("Host password reset", extra={"email": email, "sign_ins_ended": ended})
         return True
+
+    def accounts(self) -> dict[str, dict[str, Any]]:
+        """Each host's email with when they signed up and their site, never their password's
+        hash; HostsUnreadable when the file can't be read."""
+        with self._lock:
+            hosts = self._load()["hosts"]
+        return {
+            email: {k: v for k, v in account.items() if k in ("created_at", SITE)}
+            for email, account in hosts.items()
+        }
 
     def site_of(self, email: str) -> str | None:
         """The host's site (R61), or None when there is no such host."""

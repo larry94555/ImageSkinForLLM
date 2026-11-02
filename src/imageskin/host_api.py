@@ -2,6 +2,7 @@
 host-only route (R190 on)."""
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Annotated, Literal
 
@@ -14,6 +15,7 @@ from imageskin.hosts import (
     DEFAULT_SITE,
     Host,
     HostAccounts,
+    HostElsewhere,
     HostRefused,
     HostsUnreadable,
     normal_email,
@@ -33,6 +35,15 @@ Email = Annotated[str, Body(embed=True)]
 Password = Annotated[str, Body(embed=True)]
 # The host pages the browser says it opened (R189); anything else is refused, not logged.
 HostPage = Literal["sign-up", "sign-in"]
+
+
+def elsewhere(request: Request, here: str, site: str) -> str:
+    """Where a host of another site signs in: the main address, or their site's name in front of
+    it, from the address this request came to, which is the site `here`'s."""
+    host = request.headers.get("host", "localhost")
+    main = host.split(".", 1)[-1] if here != DEFAULT_SITE else re.sub(r"^(www|app)\.", "", host)
+    where = main if site == DEFAULT_SITE else f"{site}.{main}"
+    return f"Your site is at {where}. Sign in there."
 
 
 def host_router(
@@ -94,6 +105,11 @@ def host_router(
     def sign_in(request: Request, email: Email, password: Password) -> JSONResponse:
         try:
             token = accounts.sign_in(email, password, address(request), site)
+        except HostElsewhere as e:
+            # The password was right: say where their site is (R61e).
+            return JSONResponse(
+                {"detail": elsewhere(request, site, e.site), "site": e.site}, status_code=401
+            )
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
