@@ -55,7 +55,7 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import HostAccounts, trial_cookie
+from imageskin.hosts import HostAccounts, normal_email, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.settings_access import SettingsAccess
 
@@ -180,6 +180,20 @@ class SiteDirectory:
         with self._lock:
             site = self._load().get(name)
         return None if site is None else str(site["host"])
+
+    def set_host(self, name: str, email: str, new_email: str) -> bool:
+        """Give the site the host's new email (R62c), if `email` is its host: whether it did."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None or site.get("host") != normal_email(email):
+                return False
+            sites[name] = {**site, "host": normal_email(new_email)}
+            writing = self.path.with_name(f"{SITES_FILE}.writing")
+            writing.write_text(json.dumps({"sites": sites}, indent=2), encoding="utf-8")
+            os.replace(writing, self.path)
+        logger.info("Site host changed", extra={"site": name, "host": new_email})
+        return True
 
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
