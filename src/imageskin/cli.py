@@ -481,8 +481,10 @@ def llm_settings(settings: Settings) -> "LlmSettings":
 
 def serve(settings: Settings) -> None:
     import uvicorn
+    from fastapi import FastAPI
 
     from imageskin.app import create_app
+    from imageskin.sites import DEFAULT_SITE, SiteApps, make_service, site_home
 
     start = time.perf_counter()
     host, port = settings.host, settings.port
@@ -494,18 +496,29 @@ def serve(settings: Settings) -> None:
     llm = llm_settings(settings)
     admin_file = Path(settings.admin_file).expanduser() if settings.admin_file else None
     laptops = settings.admin_laptops_file
-    app = create_app(
-        llm=llm,
-        general_prompts=settings.general_prompts,
-        admin_file=admin_file,
-        admin_laptops_file=Path(laptops).expanduser() if laptops else None,
-        # The customization drafted the first time it is needed (R93).
-        generate_customization=True,
+    # The host accounts and the administrator's files, shared by every site's app (R61b).
+    service = make_service(
+        default_home(), admin_file, Path(laptops).expanduser() if laptops else None
     )
+
+    def site_app(site: str) -> FastAPI:
+        """Each site's own app (R61b). Until R61, the one site is the app's home folder."""
+        return create_app(
+            site_home(site),
+            llm=llm,
+            general_prompts=settings.general_prompts,
+            # The customization drafted the first time it is needed (R93).
+            generate_customization=True,
+            service=service,
+        )
+
+    sites = SiteApps(site_app)
+    # The one site is made before the server listens, as the app was before R61b.
+    app = sites.app(DEFAULT_SITE)
     # This month's network use for the admin dashboard, kept through restarts (R153).
-    app.state.network_month.keep_sampling()
+    service.network_month.keep_sampling()
     config = uvicorn.Config(
-        app,
+        sites,
         host=host,
         port=port,
         log_config=None,
