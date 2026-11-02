@@ -1734,12 +1734,16 @@ function ChatGptPlanSection() {
 var LESSON_KEY = "imageskin.lesson";
 var QUIZ_KEY = "imageskin.quiz";
 var ASSESSMENT_KEY = "imageskin.assessment";
+function progressKey(key, path = window.location.pathname) {
+	const trial = /^\/t\/([^/]+)/.exec(path);
+	return trial ? `${key}.${trial[1]}` : key;
+}
 function clearProgress() {
 	for (const key of [
 		LESSON_KEY,
 		QUIZ_KEY,
 		ASSESSMENT_KEY
-	]) try {
+	].map((k) => progressKey(k))) try {
 		localStorage.removeItem(key);
 	} catch (e) {
 		console.error(`Could not clear ${key}`, e);
@@ -6952,7 +6956,7 @@ function sleep(ms) {
 var SOUND_KEY = "imageskin.sound";
 function loadLesson() {
 	try {
-		const saved = JSON.parse(localStorage.getItem("imageskin.lesson") ?? "null");
+		const saved = JSON.parse(localStorage.getItem(progressKey("imageskin.lesson")) ?? "null");
 		if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part < 0) return null;
 		const parts = Number.isInteger(saved.parts) ? saved.parts : void 0;
 		return {
@@ -6967,7 +6971,7 @@ function loadLesson() {
 }
 function loadQuiz() {
 	try {
-		const saved = JSON.parse(localStorage.getItem("imageskin.quiz") ?? "null");
+		const saved = JSON.parse(localStorage.getItem(progressKey("imageskin.quiz")) ?? "null");
 		if (typeof saved?.topic !== "string" || typeof saved.question !== "string" || !Number.isInteger(saved.number) || !Number.isInteger(saved.part)) return null;
 		const strings = (v) => Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
 		const count = (v) => Number.isInteger(v) ? v : 0;
@@ -6989,7 +6993,7 @@ function loadQuiz() {
 }
 function loadAssessment() {
 	try {
-		const saved = JSON.parse(localStorage.getItem("imageskin.assessment") ?? "null");
+		const saved = JSON.parse(localStorage.getItem(progressKey("imageskin.assessment")) ?? "null");
 		return typeof saved?.topic === "string" && typeof saved.question === "string" && typeof saved.source === "string" && [
 			saved.total,
 			saved.number,
@@ -7002,24 +7006,24 @@ function loadAssessment() {
 }
 function saveAssessment(assessment) {
 	try {
-		if (assessment) localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
-		else localStorage.removeItem(ASSESSMENT_KEY);
+		if (assessment) localStorage.setItem(progressKey(ASSESSMENT_KEY), JSON.stringify(assessment));
+		else localStorage.removeItem(progressKey(ASSESSMENT_KEY));
 	} catch (e) {
 		console.error("Could not keep the assessment", e);
 	}
 }
 function saveQuiz(quiz) {
 	try {
-		if (quiz) localStorage.setItem(QUIZ_KEY, JSON.stringify(quiz));
-		else localStorage.removeItem(QUIZ_KEY);
+		if (quiz) localStorage.setItem(progressKey(QUIZ_KEY), JSON.stringify(quiz));
+		else localStorage.removeItem(progressKey(QUIZ_KEY));
 	} catch (e) {
 		console.error("Could not keep the quiz", e);
 	}
 }
 function saveLesson(lesson) {
 	try {
-		if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
-		else localStorage.removeItem(LESSON_KEY);
+		if (lesson) localStorage.setItem(progressKey(LESSON_KEY), JSON.stringify(lesson));
+		else localStorage.removeItem(progressKey(LESSON_KEY));
 	} catch (e) {
 		console.error("Could not keep the lesson", e);
 	}
