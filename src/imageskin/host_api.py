@@ -47,6 +47,12 @@ Password = Annotated[str, Body(embed=True)]
 HostPage = Literal["sign-up", "sign-in"]
 
 
+def origin_of(request: Request) -> str:
+    """The scheme and address the browser used, for a link in an email (R62b)."""
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    return f"{'https' if https else 'http'}://{request.headers.get('host', 'localhost')}"
+
+
 def elsewhere(
     request: Request, here: str, site: str, is_trial: Callable[[str], bool] = lambda _: False
 ) -> str:
@@ -132,9 +138,7 @@ def host_router(
     def send_confirmation(request: Request, email: str, token: str, site_path: str) -> bool:
         """Email the confirmation link for the site at `site_path` (R62b): whether it went. Not
         sent, the site's pages offer to send it again."""
-        https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-        origin = f"{'https' if https else 'http'}://{request.headers.get('host', 'localhost')}"
-        link = f"{origin}{site_path}api/host/confirm/{token}"
+        link = f"{origin_of(request)}{site_path}api/host/confirm/{token}"
         text = (
             "Welcome to me0.ai.\n\n"
             "Confirm your email address to start setting up your site:\n\n"

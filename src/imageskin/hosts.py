@@ -52,6 +52,10 @@ CONFIRM_AT = "confirm_at"  # when the link was made
 CONFIRM_DAYS = 7  # how long a confirmation link works
 CONFIRM_AGAIN_S = 60  # how long before Send it again sends another
 TOO_SOON = "The email was sent less than a minute ago. Please wait a moment and try again."
+# Forgot password (R62a): a one-time link to set a new password, kept as its hash.
+RESET_KEY = "reset"
+RESET_AT = "reset_at"
+RESET_HOURS = 1  # how long a link to set a new password works
 # A host's own Allow or Deny of a custom image and a custom voice (R242), kept with the host.
 CUSTOM_IMAGE = "custom_image"
 CUSTOM_VOICE = "custom_voice"
@@ -374,9 +378,64 @@ class HostAccounts:
             self._save({**data, "sessions": sessions})
         logger.info("Host signed out", extra={"email": session["email"], "address": address})
 
+    def reset_link(self, email: str) -> str | None:
+        """Forgot password (R62a): a new one-time link's token to set the host's password,
+        replacing any made before; None when there is no such host, or the last link was made
+        less than a minute ago."""
+        email = normal_email(email)
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            since = self.clock() - float(account.get(RESET_AT, 0)) if account else 0.0
+            why = "no such host" if account is None else "too soon"
+            if account is None or since < CONFIRM_AGAIN_S:
+                logger.warning("Password reset link not made", extra={"email": email, "why": why})
+                return None
+            account = {**account, RESET_KEY: token_key(token), RESET_AT: self.clock()}
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        return token
+
+    def reset_with(self, token: str, password: str) -> str | None:
+        """Set the password of the host whose Forgot password link this is (R62a), once, ending
+        every sign-in they have: their email, or None when the link is unknown, used or more
+        than RESET_HOURS old. The link came to their email, so it confirms it too (R62b)."""
+        if len(password) < MIN_PASSWORD:
+            raise HostRefused(SHORT_PASSWORD, "password too short")
+        password_hash = hash_password(password)
+        key = token_key(token)
+        with self._lock:
+            data = self._load()
+            found = (str(e) for e, a in data["hosts"].items() if a.get(RESET_KEY) == key)
+            email = next(found, None)
+            if email is None:
+                logger.warning("Host password not reset", extra={"why": "unknown link"})
+                return None
+            account = {**data["hosts"][email]}
+            age_hours = (self.clock() - float(account.get(RESET_AT, 0))) / 3600
+            if age_hours > RESET_HOURS:
+                logger.warning(
+                    "Host password not reset",
+                    extra={"email": email, "why": "link too old", "hours": round(age_hours, 2)},
+                )
+                return None
+            account["password_hash"] = password_hash
+            for done in (RESET_KEY, RESET_AT, CONFIRM_KEY, CONFIRM_AT):
+                account.pop(done, None)
+            if CONFIRMED in account:
+                account[CONFIRMED] = True
+            sessions = {k: v for k, v in data["sessions"].items() if v["email"] != email}
+            ended = len(data["sessions"]) - len(sessions)
+            hosts = {**data["hosts"], email: account}
+            self._save({**data, "hosts": hosts, "sessions": sessions})
+        logger.info(
+            "Host password reset", extra={"email": email, "sign_ins_ended": ended, "by": "link"}
+        )
+        return email
+
     def reset_password(self, email: str, password: str) -> bool:
-        """Set a host's password from the server (until R62a's Forgot password), ending every
-        sign-in the host has; False when there is no such host."""
+        """Set a host's password from the server, as a last resort beside Forgot password (R62a),
+        ending every sign-in the host has; False when there is no such host."""
         email = normal_email(email)
         if len(password) < MIN_PASSWORD:
             raise HostRefused(SHORT_PASSWORD, "password too short")

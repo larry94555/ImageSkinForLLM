@@ -1363,6 +1363,29 @@ export async function sendConfirmationAgain(): Promise<void> {
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 
+// Forgot password (R62a): asks for a link by email. The answer is the same whether or not the
+// email has an account; it is the message to show.
+export async function forgotPassword(email: string): Promise<string> {
+  const response = await fetch("/api/host/forgot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { detail: string }).detail;
+}
+
+// Sets the new password from the link's token (R62a). Throws a ServerRefusal with the server's
+// message for a short password or a link that didn't work.
+export async function setNewPassword(token: string, password: string): Promise<void> {
+  const response = await fetch("/api/host/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
 // For the server's log: `Host page opened` with the page's name (R189).
 // The server answers 204 with no body, so only the status is read (Codex's review).
 export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void> {

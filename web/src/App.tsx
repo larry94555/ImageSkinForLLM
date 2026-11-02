@@ -13,10 +13,12 @@ import { HomePage, setupLink } from "./home";
 import {
   ConfirmEmailPage,
   ConfirmFailedPage,
+  ForgotPasswordPage,
   HostAccountPage,
   HostLinks,
   HostOnlyPage,
   HostProvider,
+  ResetPasswordPage,
   useHost,
 } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
@@ -26,6 +28,7 @@ import {
   OWN_CONSENT,
   type Page,
   pageFor,
+  resetToken,
   resolve,
   setupTarget,
   useHash,
@@ -194,6 +197,8 @@ function Shell() {
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
       "confirm-failed": <ConfirmFailedPage />,
+      "host-forgot": <ForgotPasswordPage />,
+      "host-reset": <ResetPasswordPage token={resetToken(hash) ?? ""} />,
       resources: <ResourcesPage />,
       customization: <CustomizationPage />,
       "not-found": <NotFoundPage />,
