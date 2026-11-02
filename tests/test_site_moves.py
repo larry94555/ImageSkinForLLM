@@ -38,10 +38,10 @@ def stored(home: Path, kind: str, item: str, data: bytes, suffix: str) -> Path:
     return path
 
 
-def existing(home: Path) -> dict[str, Any]:
+def existing(home: Path, ann_recorded: bool = True) -> dict[str, Any]:
     """Three hosts in signing-up order, sharing the one site as before R61: Ann's and Bob's
-    photos and recordings, a photo from before host accounts, Bob's photo chosen and prepared,
-    and the settings every host shared."""
+    photos and recordings (Ann's only when `ann_recorded`), a photo from before host accounts,
+    Bob's photo chosen and prepared, and the settings every host shared."""
     times = iter([100.0, 200.0, 300.0])
     hosts = HostAccounts(home, clock=lambda: next(times, 400.0))
     for email in (ANN, BOB, CY):
@@ -51,17 +51,20 @@ def existing(home: Path) -> dict[str, Any]:
     stored(home, "photos", ids["ann-photo"], b"ann's face", ".jpg")
     bob_photo = stored(home, "photos", ids["bob-photo"], b"bob's face", ".jpg")
     stored(home, "photos", ids["old-photo"], b"an old face", ".jpg")
-    stored(home, "sounds", ids["ann-sound"], b"ann speaking", ".wav")
+    if ann_recorded:
+        stored(home, "sounds", ids["ann-sound"], b"ann speaking", ".wav")
     stored(home, "sounds", ids["bob-sound"], b"bob speaking", ".wav")
     owners = Owners(home)
     for key, email in (("ann", ANN), ("bob", BOB)):
         owners.record("photos", ids[f"{key}-photo"], email)
-        owners.record("sounds", ids[f"{key}-sound"], email)
+        if key == "bob" or ann_recorded:
+            owners.record("sounds", ids[f"{key}-sound"], email)
     face = home / "photoreal" / library_key(bob_photo)
     face.mkdir(parents=True)
     (face / "library.json").write_text("{}")
     (home / "uploads" / "chosen-photo.json").write_text(json.dumps({"id": ids["bob-photo"]}))
     (home / "uploads" / "voice-sample.wav").write_bytes(b"ann and bob speaking")
+    (home / "uploads" / "voice-sample.wav.accent.npz").write_bytes(b"the accent learned")
     (home / "prepare.json").write_text('{"state": "done"}')
     (home / "clips").mkdir()
     (home / "clips" / "sample.mp4").write_bytes(b"video")
@@ -83,8 +86,8 @@ def test_every_host_gets_a_site_with_what_they_added(
     assert made["sites"].names() == ["ann", "bob", "cy"]
     assert made["hosts"].site_of(ANN) == "ann" and made["hosts"].site_of(BOB) == "bob"
     bob = tmp_path / "sites" / "bob"
-    # Bob's photo and recording, his photo's prepared face, and the chosen photo with what was
-    # prepared from it.
+    # Bob's photo and recording, his photo's prepared face, and the chosen photo. What was
+    # prepared from it had Ann's recording in its voice, so it was dropped (Codex, PR #275).
     assert sorted(p.name for p in (bob / "uploads" / "photos").iterdir()) == [
         f"{ids['bob-photo']}.jpg",
         f"{ids['bob-photo']}.json",
@@ -96,7 +99,9 @@ def test_every_host_gets_a_site_with_what_they_added(
         or not any((tmp_path / "photoreal").iterdir())
     )
     assert json.loads((bob / "uploads" / "chosen-photo.json").read_text())["id"] == ids["bob-photo"]
-    assert (bob / "prepare.json").is_file() and (bob / "clips" / "sample.mp4").is_file()
+    assert not (bob / "prepare.json").exists() and not (bob / "clips").exists()
+    assert not (tmp_path / "clips").exists()
+    assert "Prepared voice dropped: other hosts' recordings were in it" in caplog.messages
     # The first host's site has her photo, the old one no host added, and the conversation.
     ann = tmp_path / "sites" / "ann"
     ann_photos = sorted(p.stem for p in (ann / "uploads" / "photos").glob("*.jpg"))
@@ -109,6 +114,7 @@ def test_every_host_gets_a_site_with_what_they_added(
     assert not (tmp_path / "prepare.json").exists()
     assert not (tmp_path / "conversation.json").exists()
     assert not (tmp_path / "uploads" / "voice-sample.wav").exists()  # joined again in each site
+    assert not (tmp_path / "uploads" / "voice-sample.wav.accent.npz").exists()
     # Each site's record of who added what, and so each host's Resources total; the old photo
     # counts for no host, as R192 counts it.
     assert count(ann, Owners(ann), ANN)["total"] == len(b"ann's faceann speaking")
@@ -119,9 +125,19 @@ def test_every_host_gets_a_site_with_what_they_added(
         for name in SHARED_FILES[:2]:
             assert (tmp_path / "sites" / site / name).read_text() == (tmp_path / name).read_text()
     logged = {r.__dict__["site"]: r.__dict__ for r in caplog.records if r.message == "Site moved"}
-    assert logged["bob"]["host"] == BOB and logged["bob"]["files"] == 8
+    assert logged["bob"]["host"] == BOB and logged["bob"]["files"] == 6
     assert logged["cy"]["files"] == 0 and logged["cy"]["shared_copied"] == 2
     assert logged["ann"]["files"] == 7  # 2 photos, 1 recording, their info, the conversation
+
+
+def test_whats_prepared_moves_with_the_chosen_photo_when_its_voice_is_the_hosts_own(
+    tmp_path: Path,
+) -> None:
+    made = existing(tmp_path, ann_recorded=False)
+    move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+    bob = tmp_path / "sites" / "bob"
+    assert json.loads((bob / "prepare.json").read_text()) == {"state": "done"}
+    assert (bob / "clips" / "sample.mp4").read_bytes() == b"video"
 
 
 def test_the_move_is_done_once_and_carries_on_after_a_start_cut_short(
@@ -145,17 +161,43 @@ def test_the_move_is_done_once_and_carries_on_after_a_start_cut_short(
     assert ids  # the other files stayed as they were moved
 
 
-def test_a_file_already_in_the_site_is_left_where_it_was(
+def test_a_file_already_in_the_site_is_left_where_it_was_and_keeps_its_host(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     made = existing(tmp_path)
-    target = tmp_path / "sites" / "bob" / "uploads" / "sounds" / f"{made['ids']['bob-sound']}.wav"
+    bob_sound = made["ids"]["bob-sound"]
+    target = tmp_path / "sites" / "bob" / "uploads" / "sounds" / f"{bob_sound}.wav"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"already there")
     with caplog.at_level(logging.WARNING):
         move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+        move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])  # and a second start
     assert target.read_bytes() == b"already there"
     assert "Already in the site; left where it was" in caplog.text
+    assert "Host's files left at the main address" in caplog.messages
+    # The recording left behind is still Bob's, where it is: never taken for one no host added
+    # and moved to the first host's site (Codex's review of PR #275).
+    left = tmp_path / "uploads" / "sounds" / f"{bob_sound}.wav"
+    assert left.read_bytes() == b"bob speaking"
+    assert Owners(tmp_path).read().get("sounds", {}).get(bob_sound) == BOB
+    assert not (tmp_path / "sites" / "ann" / "uploads" / "sounds" / left.name).exists()
+    assert Owners(tmp_path / "sites" / "ann").read().get("sounds", {}).get(bob_sound) is None
+    # Bob's photo, fully moved, is recorded in his site only.
+    bob_photo = made["ids"]["bob-photo"]
+    assert Owners(tmp_path / "sites" / "bob").read().get("photos", {}).get(bob_photo) == BOB
+    assert Owners(tmp_path).read().get("photos", {}).get(bob_photo) is None
+
+
+def test_a_move_cut_short_after_a_file_was_copied_finishes(tmp_path: Path) -> None:
+    made = existing(tmp_path)
+    bob_sound = made["ids"]["bob-sound"]
+    target = tmp_path / "sites" / "bob" / "uploads" / "sounds" / f"{bob_sound}.wav"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"bob speaking")  # the same file, there already
+    move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+    assert not (tmp_path / "uploads" / "sounds" / target.name).exists()
+    assert Owners(tmp_path / "sites" / "bob").read().get("sounds", {}).get(bob_sound) == BOB
+    assert Owners(tmp_path).read().get("sounds", {}).get(bob_sound) is None
 
 
 def test_nothing_moves_while_a_record_cant_be_read(
@@ -165,8 +207,8 @@ def test_nothing_moves_while_a_record_cant_be_read(
     (tmp_path / "owners.json").write_text("{broken")
     with caplog.at_level(logging.ERROR):
         assert move_hosts_to_sites(tmp_path, made["hosts"], made["sites"]) == []
-    assert "Host's files not moved" in caplog.text
-    assert made["sites"].names() == ["ann", "bob", "cy"]  # made, to move into later
+    assert "the prepared voice can't be checked" in caplog.text
+    assert made["sites"].names() == []  # made once it can be read
     assert (tmp_path / "uploads" / "photos" / f"{made['ids']['bob-photo']}.jpg").is_file()
 
     (tmp_path / "hosts.json").write_text("{broken")

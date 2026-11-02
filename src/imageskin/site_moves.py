@@ -14,6 +14,7 @@ the Customization, is copied to each new site. The PDFs move in R61f.
 It runs at every start and moves only what is still to move, so a start cut short carries on.
 """
 
+import filecmp
 import json
 import logging
 import re
@@ -23,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from imageskin.accent import KEPT_SUFFIX
 from imageskin.host_disk import FILENAME as OWNERS_FILE
 from imageskin.hosts import DEFAULT_SITE, HostAccounts
 from imageskin.photoreal_library import library_key
@@ -42,6 +44,10 @@ SHARED_FILES = (
 )
 # What was prepared from the chosen photo, which goes with it.
 PREPARED = ("chosen-photo.json", "prepare.json", "review.json", "clips")
+# What was prepared with the voice sample, so with every recording at the main address: dropped
+# when any of those recordings isn't the chosen photo's host's (Codex's review of PR #275).
+VOICE_MADE = ("clips", "prepare.json", "prepare.saving.json", "review.json")
+VOICE_SAMPLE = Path("uploads") / "voice-sample.wav"
 PERSON_KINDS = ("photos", "sounds")
 # What the main address's site kept that no host added: the first host's site gets it, as they
 # had it before (the conversation, the visitors' consent, the default person chosen, the accent
@@ -90,10 +96,15 @@ def _write_owners(home: Path, data: dict[str, Any]) -> None:
 
 
 def _move(source: Path, target: Path) -> int:
-    """Move a file or folder, leaving one already there as it is; the files moved."""
+    """Move a file or folder, leaving one already there as it is; the files moved. A file
+    already in the site with the same contents (a move cut short) is removed from the source."""
     if not source.exists():
         return 0
     if target.exists():
+        if source.is_file() and target.is_file() and filecmp.cmp(source, target, shallow=False):
+            source.unlink()
+            logger.info("Already in the site; the same file removed", extra={"path": str(source)})
+            return 1
         logger.warning("Already in the site; left where it was", extra={"path": str(source)})
         return 0
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -107,6 +118,58 @@ def _unowned(main: Path, owners: dict[str, dict[str, str]], kind: str) -> list[s
     folder = main / "uploads" / kind
     stored = sorted(p.stem for p in folder.glob("*.json")) if folder.is_dir() else []
     return [item for item in stored if item not in owners.get(kind, {})]
+
+
+def _left(main: Path, kind: str, item: str) -> bool:
+    """Whether any of the item's files, or its prepared face, is still at the main address."""
+    paths = list((main / "uploads" / kind).glob(f"{item}.*"))
+    faces = [main / "photoreal" / library_key(p) for p in paths if p.suffix in MEDIA_TYPE]
+    return bool(paths) or any(face.exists() for face in faces)
+
+
+def _remove(path: Path) -> int:
+    if path.is_dir():
+        count = sum(1 for p in path.rglob("*") if p.is_file())
+        shutil.rmtree(path)
+        return count
+    if path.exists():
+        path.unlink()
+        return 1
+    return 0
+
+
+def _drop_voice_made(main: Path, owners: dict[str, dict[str, str]], first: str | None) -> int:
+    """Before anything moves: drop what was prepared with the voice sample when the sample
+    holds a recording that isn't the chosen photo's host's, so no site plays another host's
+    voice or shows a voice prepared from it as done. Its host prepares again. The files
+    removed. Run before every move, so a start cut short decides as the first did."""
+    chosen = _chosen_photo(main)
+    if chosen is None or not any((main / name).exists() for name in VOICE_MADE):
+        return 0
+    owner = owners.get("photos", {}).get(chosen, first)
+    sounds = owners.get("sounds", {})
+    theirs = {item for item, who in sounds.items() if who == owner}
+    if owner == first:
+        theirs |= set(_unowned(main, owners, "sounds"))
+    folder = main / "uploads" / "sounds"
+    stored = {p.stem for p in folder.glob("*.json")} if folder.is_dir() else set()
+    others = sorted(stored - theirs)
+    if not others:
+        return 0
+    removed = sum(_remove(main / name) for name in VOICE_MADE)
+    removed += _drop_voice_sample(main)
+    logger.warning(
+        "Prepared voice dropped: other hosts' recordings were in it",
+        extra={"photo": chosen, "host": owner, "recordings": others, "files": removed},
+    )
+    return removed
+
+
+def _drop_voice_sample(main: Path) -> int:
+    """Joined again from the recordings each site has, the next time it is needed."""
+    sample = main / VOICE_SAMPLE
+    kept = sample.with_name(sample.name + KEPT_SUFFIX)
+    return _remove(sample) + _remove(kept)
 
 
 def _move_person(main: Path, site: Path, email: str, first: bool = False) -> int:
@@ -139,16 +202,23 @@ def _move_person(main: Path, site: Path, email: str, first: bool = False) -> int
             moved += _move(source, site / source.relative_to(main))
         logger.info("Chosen photo moved with its host", extra={"email": email, "photo": chosen})
     if theirs["sounds"] or unowned["sounds"]:
-        # Joined again from the recordings each site has, the next time it is needed.
-        (main / "uploads" / "voice-sample.wav").unlink(missing_ok=True)
-    # The record of who added them moves with them, so each site counts its host's files.
-    kept = {k: {i: w for i, w in v.items() if w != email} for k, v in owners.items()}
-    if kept != owners:
+        _drop_voice_sample(main)
+    # The record of who added them moves with them, once every file of the item has, so each
+    # site counts its host's files; an item with a file left behind stays recorded where it is,
+    # and is never taken for one no host added (Codex's review of PR #275).
+    gone = {kind: [i for i in theirs[kind] if not _left(main, kind, i)] for kind in PERSON_KINDS}
+    if any(gone.values()):
         target = _read_owners(site)
         for kind in PERSON_KINDS:
-            target.setdefault(kind, {}).update({item: email for item in theirs[kind]})
+            target.setdefault(kind, {}).update({item: email for item in gone[kind]})
         _write_owners(site, target)
+        kept = {
+            k: {i: w for i, w in v.items() if i not in gone.get(k, [])} for k, v in owners.items()
+        }
         _write_owners(main, kept)
+    left = {kind: sorted(set(theirs[kind]) - set(gone[kind])) for kind in PERSON_KINDS}
+    if any(left.values()):
+        logger.warning("Host's files left at the main address", extra={"email": email, **left})
     return moved
 
 
@@ -181,6 +251,11 @@ def move_hosts_to_sites(home: Path, hosts: HostAccounts, sites: SiteDirectory) -
         logger.exception("Hosts not moved to their sites: the host accounts can't be read")
         return []
     ordered = sorted(accounts, key=lambda e: (accounts[e].get("created_at", 0), e))
+    try:
+        _drop_voice_made(home, _read_owners(home), ordered[0] if ordered else None)
+    except (OSError, ValueError):
+        logger.exception("Hosts not moved to their sites: the prepared voice can't be checked")
+        return []
     taken = set(sites.names())
     done: list[Moved] = []
     for n, email in enumerate(ordered):
