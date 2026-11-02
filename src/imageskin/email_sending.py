@@ -154,8 +154,12 @@ class Mailer:
         kind = "".join(c if c.isalnum() else "-" for c in email.kind)
         path = self.outbox / f"{stamp}-{kind}-{uuid.uuid4().hex[:8]}.eml"
         try:
-            self.outbox.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(bytes(msg))
+            self._own_outbox()
+            # Created only by this call, readable by the app's own user alone: its links let
+            # whoever opens it confirm an email or reset a password (Codex's review of PR #278).
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(bytes(msg))
         except OSError as e:
             logger.error("Email failed", extra={"kind": email.kind, "error": str(e)})
             raise EmailFailed(FAILED) from e
@@ -164,6 +168,15 @@ class Mailer:
             extra={"kind": email.kind, "file": str(path), "duration_ms": ms_since(start)},
         )
         return path
+
+    def _own_outbox(self) -> None:
+        """The outbox, made or kept the app's own user's alone (0700), whatever the umask."""
+        self.outbox.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not self.outbox.is_dir() or self.outbox.is_symlink():
+            raise NotADirectoryError(f"{self.outbox} is not a folder")
+        if os.name == "posix" and self.outbox.stat().st_mode & 0o077:
+            os.chmod(self.outbox, 0o700)
+            logger.warning("Outbox made private", extra={"path": str(self.outbox)})
 
 
 def ms_since(start: float) -> float:

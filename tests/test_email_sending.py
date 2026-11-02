@@ -2,7 +2,9 @@
 
 import email
 import logging
+import os
 import smtplib
+import stat
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -105,6 +107,32 @@ def test_a_service_that_cant_be_reached_fails_too(tmp_path: Path) -> None:
 
     with pytest.raises(EmailFailed):
         Mailer(tmp_path, SERVICE, connect=refuse, sleep=lambda s: None).send(EMAIL)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Unix file modes")
+def test_the_outbox_and_its_emails_are_the_apps_user_s_alone(tmp_path: Path) -> None:
+    old = os.umask(0o000)  # as permissive as can be
+    try:
+        written = Mailer(tmp_path, None).send(EMAIL)
+    finally:
+        os.umask(old)
+    assert written is not None
+    assert stat.S_IMODE(written.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(written.stat().st_mode) == 0o600
+    # An outbox made before, open to others, is made private.
+    os.chmod(written.parent, 0o755)
+    again = Mailer(tmp_path, None).send(EMAIL)
+    assert again is not None and stat.S_IMODE(again.parent.stat().st_mode) == 0o700
+
+
+def test_an_outbox_that_is_a_link_is_refused(tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "outbox").symlink_to(elsewhere)
+    with pytest.raises(EmailFailed):
+        Mailer(tmp_path / "home", None).send(EMAIL)
+    assert not list(elsewhere.iterdir())
 
 
 def test_an_outbox_that_cant_be_written_fails(tmp_path: Path) -> None:
