@@ -88,7 +88,10 @@ export function VideoAndChat() {
         <button type="button" className="use" disabled={clearing} onClick={clear}>
           Clear conversation
         </button>
-        <p className="muted">Removes every question and answer from the chat. It asks first.</p>
+        <p className="muted">
+          Removes every question and answer from your chat; each visitor keeps their own. It asks
+          first.
+        </p>
         {cleared && <p className="muted">The conversation was cleared.</p>}
         {clearFailed && <p className="error">{clearFailed}</p>}
       </div>
