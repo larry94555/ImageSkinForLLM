@@ -12,7 +12,7 @@ from test_site_addresses import PASSWORD, served, sign_in
 
 from imageskin import admin
 from imageskin.host_disk import Owners, count
-from imageskin.hosts import DEFAULT_SITE, HostAccounts
+from imageskin.hosts import HostAccounts
 from imageskin.photoreal_library import library_key
 from imageskin.site_moves import SHARED_FILES, move_hosts_to_sites, site_name
 from imageskin.sites import SiteDirectory
@@ -67,19 +67,21 @@ def existing(home: Path) -> dict[str, Any]:
     (home / "clips" / "sample.mp4").write_bytes(b"video")
     for name in SHARED_FILES[:2]:
         (home / name).write_text(f'{{"from": "{name}"}}')
+    (home / "conversation.json").write_text('{"turns": []}')
     return {"hosts": hosts, "sites": SiteDirectory(home, hosts), "ids": ids}
 
 
-def test_each_host_after_the_first_gets_a_site_with_what_they_added(
+def test_every_host_gets_a_site_with_what_they_added(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     made = existing(tmp_path)
     ids = made["ids"]
     with caplog.at_level(logging.INFO):
         moved = move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
-    assert [(m.site, m.host) for m in moved] == [("bob", BOB), ("cy", CY)]
-    assert made["sites"].names() == ["bob", "cy"]
-    assert made["hosts"].site_of(ANN) == DEFAULT_SITE and made["hosts"].site_of(BOB) == "bob"
+    # Every host, the first too, so no host's site is at the main address (Larry, PR #275).
+    assert [(m.site, m.host) for m in moved] == [("ann", ANN), ("bob", BOB), ("cy", CY)]
+    assert made["sites"].names() == ["ann", "bob", "cy"]
+    assert made["hosts"].site_of(ANN) == "ann" and made["hosts"].site_of(BOB) == "bob"
     bob = tmp_path / "sites" / "bob"
     # Bob's photo and recording, his photo's prepared face, and the chosen photo with what was
     # prepared from it.
@@ -95,23 +97,31 @@ def test_each_host_after_the_first_gets_a_site_with_what_they_added(
     )
     assert json.loads((bob / "uploads" / "chosen-photo.json").read_text())["id"] == ids["bob-photo"]
     assert (bob / "prepare.json").is_file() and (bob / "clips" / "sample.mp4").is_file()
-    # The main address's site keeps Ann's and the old photo, and has none chosen.
-    main_photos = sorted(p.stem for p in (tmp_path / "uploads" / "photos").glob("*.jpg"))
-    assert main_photos == sorted([ids["ann-photo"], ids["old-photo"]])
+    # The first host's site has her photo, the old one no host added, and the conversation.
+    ann = tmp_path / "sites" / "ann"
+    ann_photos = sorted(p.stem for p in (ann / "uploads" / "photos").glob("*.jpg"))
+    assert ann_photos == sorted([ids["ann-photo"], ids["old-photo"]])
+    assert (ann / "conversation.json").is_file()
+    # The main address's site holds no host's person now.
+    assert not list((tmp_path / "uploads" / "photos").glob("*"))
+    assert not list((tmp_path / "uploads" / "sounds").glob("*"))
     assert not (tmp_path / "uploads" / "chosen-photo.json").exists()
     assert not (tmp_path / "prepare.json").exists()
-    assert not (tmp_path / "uploads" / "voice-sample.wav").exists()  # joined again from Ann's
-    # Each site's record of who added what, and so each host's Resources total.
-    assert count(tmp_path, Owners(tmp_path), ANN)["total"] == len(b"ann's faceann speaking")
+    assert not (tmp_path / "conversation.json").exists()
+    assert not (tmp_path / "uploads" / "voice-sample.wav").exists()  # joined again in each site
+    # Each site's record of who added what, and so each host's Resources total; the old photo
+    # counts for no host, as R192 counts it.
+    assert count(ann, Owners(ann), ANN)["total"] == len(b"ann's faceann speaking")
     assert count(bob, Owners(bob), BOB)["total"] == len(b"bob's facebob speaking")
-    assert count(tmp_path, Owners(tmp_path), BOB)["total"] == 0
+    assert count(tmp_path, Owners(tmp_path), ANN)["total"] == 0
     # The settings every host shared are copied to each new site.
-    for site in ("bob", "cy"):
+    for site in ("ann", "bob", "cy"):
         for name in SHARED_FILES[:2]:
             assert (tmp_path / "sites" / site / name).read_text() == (tmp_path / name).read_text()
     logged = {r.__dict__["site"]: r.__dict__ for r in caplog.records if r.message == "Site moved"}
     assert logged["bob"]["host"] == BOB and logged["bob"]["files"] == 8
     assert logged["cy"]["files"] == 0 and logged["cy"]["shared_copied"] == 2
+    assert logged["ann"]["files"] == 7  # 2 photos, 1 recording, their info, the conversation
 
 
 def test_the_move_is_done_once_and_carries_on_after_a_start_cut_short(
@@ -156,7 +166,7 @@ def test_nothing_moves_while_a_record_cant_be_read(
     with caplog.at_level(logging.ERROR):
         assert move_hosts_to_sites(tmp_path, made["hosts"], made["sites"]) == []
     assert "Host's files not moved" in caplog.text
-    assert made["sites"].names() == ["bob", "cy"]  # their sites are made, to move into later
+    assert made["sites"].names() == ["ann", "bob", "cy"]  # made, to move into later
     assert (tmp_path / "uploads" / "photos" / f"{made['ids']['bob-photo']}.jpg").is_file()
 
     (tmp_path / "hosts.json").write_text("{broken")
@@ -169,7 +179,7 @@ def test_a_host_already_given_a_site_keeps_it_and_their_files_follow(tmp_path: P
     made = existing(tmp_path)
     made["sites"].add("bobs-place", BOB)
     moved = move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
-    assert [m.site for m in moved] == ["bobs-place", "cy"]
+    assert [m.site for m in moved] == ["ann", "bobs-place", "cy"]
     assert (tmp_path / "sites" / "bobs-place" / "uploads" / "chosen-photo.json").is_file()
 
 
