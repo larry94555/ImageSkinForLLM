@@ -3,14 +3,17 @@
 import functools
 import html
 import importlib.util
+import itertools
 import logging
+import re
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn
+from typing import Annotated, Any, Literal, NoReturn, overload
 from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import (
@@ -186,6 +189,12 @@ from imageskin.uploads import (
     VoiceSample,
     shown_size,
 )
+from imageskin.visitor_chat import COOKIE as VISITOR_COOKIE
+from imageskin.visitor_chat import COOKIE_MAX_AGE as VISITOR_COOKIE_MAX_AGE
+from imageskin.visitor_chat import VisitorConversations
+from imageskin.visitor_chat import key as visitor_key
+from imageskin.visitor_chat import new_token as new_visitor_token
+from imageskin.visitor_chat import valid as valid_visitor
 from imageskin.warm_up_time import (
     QUICK_WARM_UP_S,
     last_warm_up_s,
@@ -307,6 +316,9 @@ CHAT_SETTINGS = frozenset({"detail"})
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
+# The visitor cookie's token of the request being answered, or None for the site's host (R65a).
+this_visitor: ContextVar[str | None] = ContextVar("this_visitor", default=None)
+VISITOR_VIDEOS_FROM = 1_000_000  # visitors' reply videos are numbered from here
 # A prompt stopped while it was answered: it is dropped, with the reply it would have had.
 PROMPT_STOPPED = "Stopped."
 # At most this many replies stopped before their prompt came are remembered (roadmap R19).
@@ -694,6 +706,18 @@ def create_app(
     ) -> Response:
         start = time.perf_counter()
         request.state.deletes_seen = deletes[0]
+        # The chat's calls are answered with the visitor's own conversation (R65a), but for the
+        # site's signed-in host, whose is the site's own. A browser without a visitor cookie
+        # gets one.
+        new_visitor = None
+        visitor = None
+        if re.sub(r"^/t/[^/]+", "", request.url.path).startswith("/api/chat") and (
+            host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is None
+        ):
+            visitor = request.cookies.get(VISITOR_COOKIE)
+            if not valid_visitor(visitor):
+                visitor = new_visitor = new_visitor_token()
+        set_visitor = this_visitor.set(visitor)
         try:
             response = await call_next(request)
         except Exception:
@@ -702,6 +726,21 @@ def create_app(
                 extra={"method": request.method, "path": request.url.path},
             )
             raise
+        finally:
+            this_visitor.reset(set_visitor)
+        if new_visitor is not None:
+            https = (
+                request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            )
+            response.set_cookie(
+                VISITOR_COOKIE,
+                new_visitor,
+                max_age=VISITOR_COOKIE_MAX_AGE,
+                httponly=True,
+                samesite="lax",
+                secure=https,
+                path="/",
+            )
         extra: dict[str, object] = {
             "method": request.method,
             "path": request.url.path,
@@ -2262,30 +2301,32 @@ def create_app(
         part = "guidelines" if text is not None else "guidelines set back"
         return save_customization(part, lambda c: with_guidelines(c, feature, text), feature)
 
-    if client is not None:
-        conversation = Conversation(
-            replies_first.asking(client.ask, local),
-            client.context_tokens,
-            client.count,
-            replies_first.streaming(client.stream, local),
-            client.warm_up,
-            llm_busy=llm_busy,
-            # The summary after a reply waits while the next reply is written (R147).
-            summarize=replies_first.wiki(client.ask),
-            find=find_content,
-            content_only=content_only,
-            topics=content_topics,
-            topics_complete=topics_complete,
-            saved=data_home / CONVERSATION_FILE,
-            # A question typed so far, read for one token (R148).
-            read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
-            detail=saved_detail,
-            customization=identity_read,
-            subject_of=content_subject,
-        )
-    else:
+    def make_conversation(saved: Path) -> Conversation:
+        """A conversation saved at `saved` (R30): the site's own, its host's, or a visitor's
+        (R65a)."""
+        if client is not None:
+            return Conversation(
+                replies_first.asking(client.ask, local),
+                client.context_tokens,
+                client.count,
+                replies_first.streaming(client.stream, local),
+                client.warm_up,
+                llm_busy=llm_busy,
+                # The summary after a reply waits while the next reply is written (R147).
+                summarize=replies_first.wiki(client.ask),
+                find=find_content,
+                content_only=content_only,
+                topics=content_topics,
+                topics_complete=topics_complete,
+                saved=saved,
+                # A question typed so far, read for one token (R148).
+                read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
+                detail=saved_detail,
+                customization=identity_read,
+                subject_of=content_subject,
+            )
         assert ask_llm is not None
-        conversation = Conversation(
+        return Conversation(
             replies_first.asking(ask_llm, local),
             lambda: llm.context_tokens,
             stream=stream_llm and replies_first.streaming(stream_llm, local),
@@ -2296,12 +2337,27 @@ def create_app(
             content_only=content_only,
             topics=content_topics,
             topics_complete=topics_complete,
-            saved=data_home / CONVERSATION_FILE,
+            saved=saved,
             read_ahead=replies_first.ahead(ask_llm, local),
             detail=saved_detail,
             customization=identity_read,
             subject_of=content_subject,
         )
+
+    # The site's own conversation, which its signed-in host has (R65a), and which the warm-up,
+    # the lessons written ahead and the quizzes' own LLM calls use, as none is a visitor's.
+    conversation = make_conversation(data_home / CONVERSATION_FILE)
+    # Each visitor's own (R65a), by the visitor cookie the middleware gives each browser.
+    visitors: VisitorConversations[Conversation] = VisitorConversations(
+        data_home, make_conversation
+    )
+    visitors.sweep(force=True)
+
+    def this_conversation() -> Conversation:
+        """The conversation of the browser this request came from: the site's own for its
+        signed-in host, otherwise the visitor's."""
+        token = this_visitor.get()
+        return conversation if token is None else visitors.of(token)
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
     @app.get("/api/llm", dependencies=settings_only)
@@ -2505,13 +2561,13 @@ def create_app(
 
     @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:
-        return {"turns": [asdict(t) for t in conversation.turns()]}
+        return {"turns": [asdict(t) for t in this_conversation().turns()]}
 
     @app.get("/api/chat/summary", dependencies=needs_person)
     def chat_summary() -> dict[str, bool]:
         """Whether the conversation's older turns are being summarized, which the next prompt
         waits for (`imageskin time-pdf` waits for it too, R98a)."""
-        return {"summarizing": conversation.summarizing()}
+        return {"summarizing": this_conversation().summarizing()}
 
     def require_accepted() -> None:
         if not accepted():
@@ -2538,6 +2594,9 @@ def create_app(
     # Replies spoken in one video (not streamed) being made now, each with the event Stop sets
     # (roadmap R19). Guarded by clips_lock.
     whole_videos: dict[str, threading.Event] = {}
+    # Whose conversation each of them says ("" for the site's own), so a clear stops its own
+    # only (Codex's review of PR #290). Guarded by clips_lock.
+    whole_owners: dict[str, str] = {}
     # Prompts being answered, each with the event Stop sets to cut the LLM off (Larry's test of
     # PR #129: Stop left it thinking). Guarded by clips_lock.
     prompts: dict[str, PromptStop] = {}
@@ -2787,7 +2846,9 @@ def create_app(
             customization.read().customization.as_dict(),
         )
 
-    def answer_example(prompt: str, context: str, clips: SentenceClips) -> tuple[Turn, int]:
+    def answer_example(
+        conversation: Conversation, prompt: str, context: str, clips: SentenceClips
+    ) -> tuple[Turn, int]:
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
         clips are all rendered."""
         start = time.perf_counter()
@@ -2811,6 +2872,7 @@ def create_app(
         return reply, turn
 
     def chat(body: ChatRequest, stop: PromptStop) -> dict[str, Any]:
+        conversation = this_conversation()  # the visitor's own, or the site's for its host
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
@@ -2827,6 +2889,7 @@ def create_app(
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
             clips.person = person_of(photo)
+            clips.owner = owner_now()
             with clips_lock:
                 if stop.is_set():  # stopped meanwhile: no clips
                     clips = None
@@ -2905,7 +2968,7 @@ def create_app(
             ) is not None:
                 reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
-                reply, turn = answer_example(body.prompt, example, clips)
+                reply, turn = answer_example(conversation, body.prompt, example, clips)
             else:
                 reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError, LlmCancelled) as e:
@@ -2953,7 +3016,7 @@ def create_app(
             logger.info("Prompt not read ahead", extra={"reason": "warming up"})
             return {"read": False, "reason": "warming up"}
         with pinned(client), llm_busy():
-            outcome = conversation.read_ahead(body.prompt)
+            outcome = this_conversation().read_ahead(body.prompt)
         return {"read": outcome == "read", "reason": outcome}
 
     @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
@@ -2964,7 +3027,7 @@ def create_app(
         start = time.perf_counter()
         wait_for_warm_up("Repeat")
         with chat_lock:
-            turns = conversation.turns()
+            turns = this_conversation().turns()
             photo = chosen_photo()
             if not turns or turns[-1].role != "assistant" or photo is None:
                 logger.info("Nothing to repeat", extra={"turns": len(turns)})
@@ -2974,6 +3037,7 @@ def create_app(
             # ones played last are copied from, then removed with `cancel`.
             clips = SentenceClips(replies, photo, body.reply_id)
             clips.person = person_of(photo)
+            clips.owner = owner_now()
             last: list[SentenceClips] = []
             with clips_lock:  # Stop sees either the marker taken or the clips listed
                 early = body.reply_id in stopped_early
@@ -3220,11 +3284,12 @@ def create_app(
                 stopped_early.discard(body.reply_id)
                 stop.set()
             whole_videos[key] = stop
+            whole_owners[key] = owner_now()
         try:
             # Read before the turns: a clear after this drops the video (R27b), and the turns
             # read after a clear are the new conversation's.
             generation = replies.generation
-            turns = conversation.turns()
+            turns = this_conversation().turns()
             if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
                 raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
             photo = chosen_photo()
@@ -3234,7 +3299,12 @@ def create_app(
                 )
             try:
                 path = replies.render(
-                    photo, body.turn, turns[body.turn].content, stop.is_set, generation
+                    photo,
+                    video_number(body.turn, made=True),
+                    turns[body.turn].content,
+                    stop.is_set,
+                    generation,
+                    old=replaced_videos(),
                 )
             except Exception as e:
                 # The voice and video engines' errors say what went wrong; the reply is still
@@ -3244,6 +3314,7 @@ def create_app(
             with clips_lock:
                 if whole_videos.get(key) is stop:
                     del whole_videos[key]
+                    whole_owners.pop(key, None)
         return {"video": None if path is None else under(request, f"/api/chat/videos/{body.turn}")}
 
     @app.post(
@@ -3279,35 +3350,94 @@ def create_app(
             # The conversation first, so that if it can't be cleared nothing is (R30). With the
             # lock held no prompt is being answered, so the reply videos still being made are
             # from replies already in it.
-            cleared = clear_conversation()
+            cleared = clear_conversation(this_conversation())  # only this browser's (R65a)
         return {"cleared": cleared}
 
-    def clear_conversation() -> int:
+    # A reply video is named by its turn in the site's own conversation, as before; a visitor's
+    # by a number of its own, so one visitor's turn 3 is never another's video (R65a).
+    visitor_videos: dict[tuple[str, int], int] = {}
+    video_numbers = itertools.count(VISITOR_VIDEOS_FROM)
+
+    @overload
+    def video_number(turn: int, made: Literal[True]) -> int: ...
+    @overload
+    def video_number(turn: int, made: bool = False) -> int | None: ...
+    def video_number(turn: int, made: bool = False) -> int | None:
+        """The number this browser's reply at `turn` has its video under; with `made`, given
+        one if it has none. None for a visitor's reply that has no video."""
+        token = this_visitor.get()
+        if token is None:
+            return turn
+        with clips_lock:
+            k = (visitor_key(token), turn)
+            if k not in visitor_videos and made:
+                visitor_videos[k] = next(video_numbers)
+            return visitor_videos.get(k)
+
+    def clear_conversation(which: Conversation, everyone: bool = False) -> int:
         """Clear the conversation and its videos, with chat_lock held; HTTP 500 if the saved
-        conversation can't be emptied, and then nothing is cleared."""
+        conversation can't be emptied, and then nothing is cleared. Only this browser's videos
+        and the work on them go, so the host's clear leaves each visitor's (Codex's review of
+        PR #290); with `everyone`, as for Delete my data, every one goes."""
         try:
-            cleared = conversation.clear()
+            cleared = which.clear()
         except ClearFailed as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
+        owner = owner_now()
+        numbers: Callable[[int], bool] | None
+        with clips_lock:  # the visitor's videos are no longer theirs to ask for
+            gone = [k for k in visitor_videos if everyone or k[0] == owner]
+            taken = {visitor_videos.pop(k) for k in gone}
+        if everyone:
+            numbers = None
+        elif owner:
+            numbers = taken.__contains__
+        else:
+            numbers = site_own_video
         # The replies' videos go too: those being made are stopped and never published,
         # and those made are removed, so none of what was said can still be played.
         with clips_lock:
-            streamed = list(sentence_clips.values())
-            sentence_clips.clear()
-            for stop in whole_videos.values():
-                stop.set()
+            streamed = [c for c in sentence_clips.values() if everyone or c.owner == owner]
+            for reply_id in [r for r, c in sentence_clips.items() if c in streamed]:
+                del sentence_clips[reply_id]
+            for key, stop in whole_videos.items():
+                if everyone or whole_owners.get(key) == owner:
+                    stop.set()
         for clips in streamed:
             threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
         # After the conversation: a video asked for after replies.clear() reads it empty.
-        videos = replies.clear()
+        videos = replies.clear(numbers)
         # The example questions' replies were made with what was said, so they go too (Codex's
         # review of PR #178).
         topic_replies.clear()
         logger.info(
             "Reply videos cleared",
-            extra={"videos": videos, "streamed_replies": len(streamed)},
+            extra={"videos": videos, "streamed_replies": len(streamed), "everyone": everyone},
         )
         return cleared
+
+    def replaced_videos() -> Callable[[int], bool]:
+        """Which reply videos a new one of this browser's replaces: its own conversation's, and
+        a visitor's no longer named (from before a restart), which can't be asked for."""
+        owner = owner_now()
+        with clips_lock:
+            owners = {number: k[0] for k, number in visitor_videos.items()}
+
+        def replaced(number: int) -> bool:
+            if number < VISITOR_VIDEOS_FROM:
+                return owner == ""
+            return owners.get(number, owner) == owner
+
+        return replaced
+
+    def site_own_video(number: int) -> bool:
+        """Whether a reply video is of the site's own conversation, numbered by its turn."""
+        return number < VISITOR_VIDEOS_FROM
+
+    def owner_now() -> str:
+        """Whose conversation this call is on: "" for the site's own, else the visitor's key."""
+        token = this_visitor.get()
+        return "" if token is None else visitor_key(token)
 
     # No consent needed: a delete that left a file behind removed the consent already, and
     # it is tried again from the same page.
@@ -3358,7 +3488,8 @@ def create_app(
         wait_for_warm_up("Delete my data")
 
         def delete() -> Deleted:
-            clear_conversation()
+            clear_conversation(conversation, everyone=True)
+            visitors.forget_all()  # every visitor's too (R65a)
             forget_pdfs()
             # Once the streamed clips stopped above have let the engines go, nothing writes
             # a video while the files are removed.
@@ -3395,7 +3526,8 @@ def create_app(
 
     @app.get("/api/chat/videos/{turn}", dependencies=needs_person)
     def get_reply_video(turn: int) -> FileResponse:
-        path = replies.video(turn)
+        number = video_number(turn)
+        path = None if number is None else replies.video(number)
         if path is None:
             raise HTTPException(status_code=404, detail="No video for that reply.")
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}

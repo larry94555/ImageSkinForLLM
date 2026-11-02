@@ -2177,7 +2177,7 @@ function VideoAndChat() {
 					}),
 					/* @__PURE__ */ u("p", {
 						className: "muted",
-						children: "Removes every question and answer from the chat. It asks first."
+						children: "Removes every question and answer from your chat; each visitor keeps their own. It asks first."
 					}),
 					cleared && /* @__PURE__ */ u("p", {
 						className: "muted",

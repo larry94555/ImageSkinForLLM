@@ -28,6 +28,7 @@ PERSONAL = (
     "replies",  # reply videos and the idle video
     "conversation.json",
     "conversation.saving.json",
+    "conversations",  # each visitor's own (R65a)
     "review.json",
     "accent.json",
     "consent.json",

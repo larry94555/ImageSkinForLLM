@@ -183,6 +183,8 @@ class SentenceClips:
         # Who said them: the photo and the voice (Larry's test of PR #266). Repeat says a reply
         # again from its clips only for the same person, so another avatar never shows in them.
         self.person: tuple[object, ...] | None = None
+        # Whose conversation they say: "" for the site's own, else the visitor's key (R65a).
+        self.owner = ""
 
     def __call__(self, sentence: str | None) -> None:
         if sentence is None:  # the LLM has started writing
@@ -595,6 +597,10 @@ class ReplyVideos:
         # only those are served, even when a cleared one's file couldn't be removed.
         self.generation = 0
         self._published: set[int] = set()
+        # Which videos each clear took, by the generation it ended (None for every one): a
+        # video being made is dropped only by a clear of its own (R65a: the host's clear leaves
+        # the visitors' videos).
+        self._cleared: list[Callable[[int], bool] | None] = []
         # How fast this machine makes clips and the LLM writes, kept across restarts, for when
         # to start playing each reply (R161).
         self.pace = pace.PaceStore(self.folder / "pace.json")
@@ -744,12 +750,15 @@ class ReplyVideos:
         reply: str,
         stopped: Callable[[], bool] = lambda: False,
         generation: int | None = None,
+        old: Callable[[int], bool] | None = None,
     ) -> Path | None:
         """Speak the reply (turn is its place in the conversation) and render it on the photo.
         None when nothing in it is spoken, such as a reply of only emoji, or when `stopped`
         says so before the voice step or between it and the video step (roadmap R19). The
         voice and video engines' errors are passed on. `generation` is the one the reply was
-        read in: if the conversation is cleared since, the video is dropped (R27b)."""
+        read in: if the conversation is cleared since, the video is dropped (R27b). `old` says
+        which other videos this one replaces, every one when not given (R65a: one visitor's
+        reply leaves another's video)."""
         if generation is None:
             generation = self.generation
         text = spoken_text(reply)
@@ -786,7 +795,7 @@ class ReplyVideos:
                 # Checked and published under the lock clear() removes videos under, so a reply
                 # cleared meanwhile is never published after it (roadmap R27b).
                 with self._publish_lock:
-                    if stopped() or generation != self.generation:  # dropped, not published
+                    if stopped() or self._cleared_since(generation, turn):  # dropped
                         rendering.unlink(missing_ok=True)
                         log_stop("after video")
                         return None
@@ -803,7 +812,7 @@ class ReplyVideos:
                     },
                 )
                 raise
-            self._remove_old(keep=path)
+            self._remove_old(keep=path, old=old)
             logger.info(
                 "Rendered reply video",
                 extra={
@@ -815,18 +824,21 @@ class ReplyVideos:
             )
             return path
 
-    def clear(self) -> int:
-        """Remove every reply video, as the conversation was cleared (roadmap R27b). None is
-        served after this, and one being made for a reply read before it is never published.
-        Returns how many files were removed; one that can't be (open in a browser, as on
-        Windows) is left, but not served."""
+    def clear(self, which: Callable[[int], bool] | None = None) -> int:
+        """Remove the reply videos, as the conversation was cleared (roadmap R27b): those whose
+        number `which` takes, or every one. None of them is served after this, and one being
+        made for a reply read before it is never published. Returns how many files were
+        removed; one that can't be (open in a browser, as on Windows) is left, but not served."""
         removed = 0
         with self._publish_lock:
             # At once, so none is served even if its file can't be removed.
             self.generation += 1
-            self._published.clear()
+            self._cleared.append(which)
+            self._published = {t for t in self._published if which is not None and not which(t)}
             for video in self.folder.glob("*.mp4"):
                 if not video.stem.isdigit():  # one being written, removed by its render
+                    continue
+                if which is not None and not which(int(video.stem)):
                     continue
                 try:
                     video.unlink()
@@ -838,17 +850,23 @@ class ReplyVideos:
                     )
         return removed
 
-    def _remove_old(self, keep: Path) -> None:
-        """Only the latest reply is played. Older videos are removed once the new one is in
-        place; one the browser still has open may not be removable (on Windows), so it is left
-        for the next reply to remove."""
-        for old in self.folder.glob("*.mp4"):
-            if old == keep:
+    def _cleared_since(self, generation: int, turn: int) -> bool:
+        """Whether a clear since `generation` took the video numbered `turn`."""
+        return any(w is None or w(turn) for w in self._cleared[generation:])
+
+    def _remove_old(self, keep: Path, old: Callable[[int], bool] | None = None) -> None:
+        """Only the latest reply is played. Older videos (those `old` takes, when given) are
+        removed once the new one is in place; one the browser still has open may not be
+        removable (on Windows), so it is left for the next reply to remove."""
+        for video in self.folder.glob("*.mp4"):
+            if video == keep:
+                continue
+            if old is not None and not (video.stem.isdigit() and old(int(video.stem))):
                 continue
             try:
-                old.unlink()
+                video.unlink()
             except OSError as e:
                 logger.warning(
                     "Could not remove an old reply video",
-                    extra={"video": old.name, "error": str(e)},
+                    extra={"video": video.name, "error": str(e)},
                 )
