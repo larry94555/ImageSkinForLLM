@@ -9,6 +9,7 @@ import { useContext, useEffect, useState } from "preact/hooks";
 import { useSettingsReload } from "./settings";
 
 import {
+  changeEmail,
   forgotPassword,
   getHostSession,
   hostPageOpened,
@@ -123,9 +124,9 @@ export function HostLinks({ page }: { page?: string }) {
         >
           Resources
         </a>
-        <span className="host-email" title="Signed in as host">
+        <a className="host-email" href="#/host/account" title="Your account">
           {session.email}
-        </span>
+        </a>
         <button type="button" className="secondary" disabled={busy} onClick={() => void leave()}>
           Sign out
         </button>
@@ -489,6 +490,103 @@ export function ResetPasswordPage({ token }: { token: string }) {
       </form>
       <p className="muted">
         Link not working? <a href="#/host/forgot">Ask for a new one</a>
+      </p>
+    </div>
+  );
+}
+
+// The signed-in host's account (R62c): their email, and Change email, which sends a link to the
+// new address; nothing changes until it is opened.
+export function AccountPage() {
+  const { session } = useHost();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => console.info("Account page shown"), []);
+  if (!session?.signed_in) return <HostOnlyPage />;
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    setBusy(true);
+    setSentTo(null);
+    setError(null);
+    try {
+      setSentTo(await changeEmail(email, password));
+      setPassword("");
+      console.info("Email change link sent");
+    } catch (err) {
+      console.error("Could not ask to change the email", err);
+      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="host-page host-account">
+      <h1>Your account</h1>
+      <p className="lead">
+        You sign in with <strong>{session.email}</strong>.
+      </p>
+      <h2>Change email</h2>
+      <form onSubmit={(e) => void submit(e)} noValidate>
+        <label>
+          New email
+          <input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onInput={(e) => setEmail(e.currentTarget.value)}
+          />
+        </label>
+        <label>
+          Your password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onInput={(e) => setPassword(e.currentTarget.value)}
+          />
+        </label>
+        {sentTo && (
+          <p role="status">
+            We sent a link to {sentTo}. Your email changes once you open it; until then it stays{" "}
+            {session.email}.
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy || email.trim() === "" || password === ""}>
+          Send the link
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// Where the link to confirm a new email goes (R62c): changed, or a link that didn't work.
+export function EmailChangedPage({ changed }: { changed: boolean }) {
+  useEffect(() => console.info(`Email change page shown (changed: ${changed})`), [changed]);
+  return (
+    <div className="host-page host-account">
+      <h1>{changed ? "Your email is changed" : "Your email isn't changed"}</h1>
+      {changed ? (
+        <p role="status">Sign in with your new email from now on.</p>
+      ) : (
+        <p className="error" role="alert">
+          That link didn't work: it was already used, a newer one was sent, it is more than a day
+          old, or the new email is now another account's. Ask for a new one on your account page.
+        </p>
+      )}
+      <p>
+        <a className="button" href="#/host/account">
+          Your account
+        </a>
       </p>
     </div>
   );

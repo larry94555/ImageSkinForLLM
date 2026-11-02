@@ -651,6 +651,18 @@ async function setNewPassword(token, password) {
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
+async function changeEmail(newEmail, password) {
+	const response = await fetch("/api/host/email", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			new_email: newEmail,
+			password
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).sent_to;
+}
 async function hostPageOpened(page) {
 	const response = await fetch("/api/host/page", {
 		method: "POST",
@@ -1457,6 +1469,9 @@ var PAGES = {
 	"/host/sign-in": "host-sign-in",
 	"/host/confirm-failed": "confirm-failed",
 	"/host/forgot": "host-forgot",
+	"/host/account": "host-account",
+	"/host/email-changed": "email-changed",
+	"/host/email-failed": "email-failed",
 	"/resources": "resources",
 	"/customization": "customization"
 };
@@ -3065,9 +3080,10 @@ function HostLinks({ page }) {
 					className: page === "resources" ? "settings-link current" : "settings-link",
 					children: "Resources"
 				}),
-				/* @__PURE__ */ u("span", {
+				/* @__PURE__ */ u("a", {
 					className: "host-email",
-					title: "Signed in as host",
+					href: "#/host/account",
+					title: "Your account",
 					children: session.email
 				}),
 				/* @__PURE__ */ u("button", {
@@ -3463,6 +3479,108 @@ function ResetPasswordPage({ token }) {
 					children: "Ask for a new one"
 				})]
 			})
+		]
+	});
+}
+function AccountPage() {
+	const { session } = useHost();
+	const [email, setEmail] = d("");
+	const [password, setPassword] = d("");
+	const [busy, setBusy] = d(false);
+	const [sentTo, setSentTo] = d(null);
+	const [error, setError] = d(null);
+	h(() => console.info("Account page shown"), []);
+	if (!session?.signed_in) return /* @__PURE__ */ u(HostOnlyPage, {});
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setSentTo(null);
+		setError(null);
+		try {
+			setSentTo(await changeEmail(email, password));
+			setPassword("");
+			console.info("Email change link sent");
+		} catch (err) {
+			console.error("Could not ask to change the email", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Your account" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: [
+					"You sign in with ",
+					/* @__PURE__ */ u("strong", { children: session.email }),
+					"."
+				]
+			}),
+			/* @__PURE__ */ u("h2", { children: "Change email" }),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: ["New email", /* @__PURE__ */ u("input", {
+						type: "email",
+						autoComplete: "email",
+						value: email,
+						onInput: (e) => setEmail(e.currentTarget.value)
+					})] }),
+					/* @__PURE__ */ u("label", { children: ["Your password", /* @__PURE__ */ u("input", {
+						type: "password",
+						autoComplete: "current-password",
+						value: password,
+						onInput: (e) => setPassword(e.currentTarget.value)
+					})] }),
+					sentTo && /* @__PURE__ */ u("p", {
+						role: "status",
+						children: [
+							"We sent a link to ",
+							sentTo,
+							". Your email changes once you open it; until then it stays",
+							" ",
+							session.email,
+							"."
+						]
+					}),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || email.trim() === "" || password === "",
+						children: "Send the link"
+					})
+				]
+			})
+		]
+	});
+}
+function EmailChangedPage({ changed }) {
+	h(() => console.info(`Email change page shown (changed: ${changed})`), [changed]);
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: changed ? "Your email is changed" : "Your email isn't changed" }),
+			changed ? /* @__PURE__ */ u("p", {
+				role: "status",
+				children: "Sign in with your new email from now on."
+			}) : /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: "That link didn't work: it was already used, a newer one was sent, it is more than a day old, or the new email is now another account's. Ask for a new one on your account page."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/host/account",
+				children: "Your account"
+			}) })
 		]
 	});
 }
@@ -12193,6 +12311,9 @@ function Shell() {
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
 		"host-forgot": /* @__PURE__ */ u(ForgotPasswordPage, {}),
 		"host-reset": /* @__PURE__ */ u(ResetPasswordPage, { token: resetToken(hash) ?? "" }),
+		"host-account": /* @__PURE__ */ u(AccountPage, {}),
+		"email-changed": /* @__PURE__ */ u(EmailChangedPage, { changed: true }),
+		"email-failed": /* @__PURE__ */ u(EmailChangedPage, { changed: false }),
 		resources: /* @__PURE__ */ u(ResourcesPage, {}),
 		customization: /* @__PURE__ */ u(CustomizationPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})

@@ -91,3 +91,9 @@ test("Forgot password's pages, open to anyone (R62a)", () => {
   expect(pageFor("#/host/reset/")).toBe("not-found");
   expect(resolve("#/host/reset/t", true, true, true)).toEqual({ page: "host-reset" });
 });
+
+test("the account page and where Change email's link goes (R62c)", () => {
+  expect(pageFor("#/host/account")).toBe("host-account");
+  expect(pageFor("#/host/email-changed")).toBe("email-changed");
+  expect(pageFor("#/host/email-failed")).toBe("email-failed");
+});

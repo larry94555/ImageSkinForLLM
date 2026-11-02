@@ -22,6 +22,9 @@ export type Page =
   | "confirm-failed"
   | "host-forgot"
   | "host-reset"
+  | "host-account"
+  | "email-changed"
+  | "email-failed"
   | "resources"
   | "customization"
   | "not-found";
@@ -49,6 +52,10 @@ const PAGES: Record<string, Page> = {
   "/host/confirm-failed": "confirm-failed",
   // Forgot password (R62a): asking for a link, and #/host/reset/<token> from its email.
   "/host/forgot": "host-forgot",
+  // The host's account, with Change email, and where its link goes (R62c).
+  "/host/account": "host-account",
+  "/host/email-changed": "email-changed",
+  "/host/email-failed": "email-failed",
   // The signed-in host's disk space used (R193), in either view; it checks the sign-in itself.
   "/resources": "resources",
   // The identity and goals (R92), in either view; it checks the sign-in itself.

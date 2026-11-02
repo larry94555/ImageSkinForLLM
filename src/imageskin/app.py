@@ -101,6 +101,7 @@ from imageskin.customization_history import (
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
+from imageskin.email_change import email_router
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
@@ -796,6 +797,17 @@ def create_app(
     app.include_router(reset_router(host_accounts, service.mailer.send))
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
+    # Changing the email (R62c), on the host's own site, with this site's record of file owners.
+    app.include_router(
+        email_router(
+            host_accounts,
+            app.state.require_host,
+            service.sites,
+            host_site,
+            owners,
+            service.mailer.send,
+        )
+    )
 
     def unrecorded_refused(
         step: Callable[[], None], undo: Callable[[], object] | None = None

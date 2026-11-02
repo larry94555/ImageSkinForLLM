@@ -1386,6 +1386,18 @@ export async function setNewPassword(token: string, password: string): Promise<v
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 
+// Change email (R62c): sends a link to the new address, which changes it once opened. Throws a
+// ServerRefusal with the server's message for a wrong password, a taken email and the like.
+export async function changeEmail(newEmail: string, password: string): Promise<string> {
+  const response = await fetch("/api/host/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_email: newEmail, password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { sent_to: string }).sent_to;
+}
+
 // For the server's log: `Host page opened` with the page's name (R189).
 // The server answers 204 with no body, so only the status is read (Codex's review).
 export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void> {
