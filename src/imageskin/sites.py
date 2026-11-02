@@ -180,13 +180,13 @@ class SiteDirectory:
             site = self._load().get(name)
         return None if site is None else str(site["host"])
 
-    def add_trial(self, email: str) -> tuple[str, Path]:
+    def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
         host: its code and folder. SiteError as for `add`.
 
-        Again for a host who has a trial site, it is that site, finished where making it stopped
-        partway (Codex's review of PR #279): the host's account says it's theirs, and its folder
-        is there."""
+        With `finish`, for a host who has a trial site, it is that site, finished where making
+        it stopped partway (Codex's review of PR #279): the host's account says it's theirs,
+        and its folder is there."""
         host = email.strip().lower()
         with self._lock:
             sites = self._load()
@@ -194,6 +194,8 @@ class SiteDirectory:
             own = next(
                 (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
             )
+            if not finish:
+                own = None
             if own is not None and self._hosts.site_of(email) != own:
                 self._hosts.set_site(email, own)
         if own is not None:

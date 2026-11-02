@@ -102,7 +102,7 @@ def test_a_site_that_cant_be_made_is_said(
 ) -> None:
     sites, _, service = served(tmp_path, sign_up_makes_site=True)
 
-    def broken(email: str) -> tuple[str, Path]:
+    def broken(email: str, finish: bool = False) -> tuple[str, Path]:
         raise OSError("disk full")
 
     monkeypatch.setattr(service.sites, "add_trial", broken)
