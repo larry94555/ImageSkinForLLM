@@ -128,12 +128,16 @@ def host_router(
     def session(token: Token = None) -> dict[str, object]:
         """Whether this browser is signed in as a host, and as whom."""
         host = accounts.host(token, site, unconfirmed=True)
-        return {
+        answer: dict[str, object] = {
             "signed_in": host is not None,
             "email": host and host.email,
             # Until they confirm their email, a host's pages only say to (R62b).
             "confirmed": host is None or host.confirmed,
         }
+        if host and host.acting:
+            # The administrator acting as this host (R44a), for the bar that says so (R44b).
+            answer["acting_as_admin"] = True
+        return answer
 
     def send_confirmation(request: Request, email: str, token: str, site_path: str) -> bool:
         """Email the confirmation link for the site at `site_path` (R62b): whether it went. Not

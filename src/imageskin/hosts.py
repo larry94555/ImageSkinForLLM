@@ -27,6 +27,8 @@ from imageskin.admin_settings import Choice
 logger = logging.getLogger(__name__)
 
 FILENAME = "hosts.json"
+# An acting token (R44a) starts with this; acting.py makes them.
+ACT_PREFIX = "act-"
 HOST_COOKIE = "imageskin_host"  # the cookie that keeps a host signed in (R188)
 # The site at the main address (R61): every host's until they are given a site of their own.
 DEFAULT_SITE = "default"
@@ -114,6 +116,7 @@ class Host:
     created_at: float
     site: str = DEFAULT_SITE  # the site the host signs in to and manages (R61)
     confirmed: bool = True  # whether they confirmed their email (R62b)
+    acting: bool = False  # the administrator acting as the host (R44a)
 
 
 class HostAccounts:
@@ -125,6 +128,8 @@ class HostAccounts:
         self._lock = threading.Lock()
         self._file_seen: tuple[int, int] | None = None
         self._data: dict[str, Any] = {"hosts": {}, "sessions": {}}
+        # The host an acting token acts as, while its administrator is signed in (R44a).
+        self.acting: Callable[[str], str | None] | None = None
 
     def _load(self) -> dict[str, Any]:
         """The file's accounts and sign-ins, read again only when the file has changed;
@@ -345,12 +350,17 @@ class HostAccounts:
         use: its session and sending the email again."""
         if not token:
             return None
+        acting = token.startswith(ACT_PREFIX)
+        # The administrator acting as a host (R44a) is that host, with all of their abilities.
+        acting_as = self.acting(token) if acting and self.acting else None
+        if acting and acting_as is None:
+            return None
         with self._lock:
             try:
                 data = self._load()
             except HostsUnreadable:
                 return None  # signed in as no one until the file can be read
-            session = data["sessions"].get(token_key(token))
+            session = {"email": acting_as} if acting_as else data["sessions"].get(token_key(token))
             account = session and data["hosts"].get(session["email"])
         if not account:
             return None
@@ -358,7 +368,8 @@ class HostAccounts:
             session["email"],
             account["created_at"],
             account.get(SITE, DEFAULT_SITE),
-            bool(account.get(CONFIRMED, True)),
+            acting or bool(account.get(CONFIRMED, True)),
+            acting,
         )
         if site is not None and host.site != site:
             logger.warning(

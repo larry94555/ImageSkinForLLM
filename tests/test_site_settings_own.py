@@ -47,7 +47,7 @@ def test_a_sites_settings_open_only_for_its_own_host(tmp_path: Path) -> None:
     for browser in (visitor, stranger):
         assert browser.get("/api/llm").status_code == 404
         assert browser.patch("/api/settings", json={"teach_me": True}).status_code == 404
-        assert browser.post("/api/content/pdfs", files={"file": ("a.pdf", b"%PDF-1")}).is_error
+        assert browser.post("/api/content", files={"file": ("a.pdf", b"%PDF-1")}).status_code == 401
         assert browser.get("/api/host/me").status_code == 401
     assert ann.get("/api/llm").status_code == 200
     assert ann.patch("/api/settings", json={"teach_me": True}).json()["teach_me"] is True

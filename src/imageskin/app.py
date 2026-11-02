@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field, model_validator
 from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.across_sites import CLONES_LOADED, CloneBudget, Turns
+from imageskin.acting import acting_routes
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
 from imageskin.admin_guidelines import applied, checked
@@ -107,7 +108,7 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import DEFAULT_SITE, Host, HostsUnreadable, normal_email
+from imageskin.hosts import ACT_PREFIX, DEFAULT_SITE, Host, HostsUnreadable, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -692,15 +693,18 @@ def create_app(
                 extra={"method": request.method, "path": request.url.path},
             )
             raise
-        logger.info(
-            "Request handled",
-            extra={
-                "method": request.method,
-                "path": request.url.path,
-                "status": response.status_code,
-                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-            },
-        )
+        extra: dict[str, object] = {
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        }
+        # A request made by the administrator acting as a host says so (R44a).
+        token = request.cookies.get(HOST_COOKIE, "")
+        acting = app.state.service.acting if token.startswith(ACT_PREFIX) else None
+        if acting is not None:
+            extra["acting_as"] = acting.email_of(token)
+        logger.info("Request handled", extra=extra)
         return response
 
     @app.get("/health")
@@ -799,6 +803,17 @@ def create_app(
     app.include_router(host_routes)
     # Forgot password (R62a).
     app.include_router(reset_router(host_accounts, service.mailer.send))
+    # The administrator acting as a host (R44a): the link made at the main address only.
+    if service.acting is not None:
+        act_admin, act_host = acting_routes(
+            service.acting,
+            host_accounts,
+            host_site,
+            service.sites.is_trial,
+            app.state.require_admin,
+        )
+        app.include_router(act_admin)
+        app.include_router(act_host)
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
     # Changing the email (R62c), on the host's own site, with this site's record of file owners.
