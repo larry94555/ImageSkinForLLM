@@ -134,27 +134,40 @@ def changing_routes(app: FastAPI) -> list[tuple[str, str]]:
     return found
 
 
+# The changing routes a disabled host isn't refused, each named, as visitors use them too. Any
+# other route must refuse a disabled host, so a new one is either guarded or added here on
+# purpose (Codex's review of PR #287: a 422 for a missing body proves nothing).
+VISITORS = {
+    "POST /api/host/sign-up",  # signing up for an account of one's own
+    "POST /api/host/page",  # the log's note that a page opened
+    "POST /api/chat",
+    "POST /api/chat/ahead",
+    "POST /api/chat/repeat",
+    "POST /api/chat/clips/x/stop",
+    "POST /api/chat/video",
+    # The chat's level of detail is anyone's; every other field is refused, as
+    # test_a_disabled_host_reads_but_changes_nothing checks with real changes.
+    "PATCH /api/settings",
+}
+
+
 def test_every_changing_route_that_needs_the_host_is_refused(tmp_path: Path) -> None:
-    """Each POST, PUT, PATCH and DELETE that refuses a visitor (it needs the host or Settings
-    access) refuses a disabled host too, with 403; the rest are open to anyone anyway."""
+    """Each POST, PUT, PATCH and DELETE refuses a disabled host with 403 and the disabled
+    message, before reading its body, unless it is in STILL_OPEN or VISITORS."""
     sites, made, service = served(tmp_path)
     ann = signed_in(sites, SITE_A, ANN)
     service.host_accounts.set_disabled(ANN, True)
-    visitor = TestClient(sites, base_url=SITE_A)
     routes = changing_routes(made["a"])
     assert len(routes) > 40  # the site's whole API, not a few routes
-    uncovered, still_open = [], []
+    not_refused, still_open = set(), []
     for method, path in routes:
         if any(path.startswith(p) for p in STILL_OPEN):
             still_open.append(path)
             continue
         answer = ann.request(method, path)
-        if answer.status_code == 403 and answer.json()["detail"] == DISABLED_WORDS:
-            continue
-        # Not refused: then it must be a route a visitor uses too.
-        if visitor.request(method, path).status_code in (401, 404):
-            uncovered.append(f"{method} {path}")
-    assert uncovered == []
+        if not (answer.status_code == 403 and answer.json()["detail"] == DISABLED_WORDS):
+            not_refused.add(f"{method} {path}")
+    assert not_refused == VISITORS
     assert "/api/host/sign-in" in still_open and "/api/admin/hosts/properties" in still_open
 
 
