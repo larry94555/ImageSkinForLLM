@@ -509,6 +509,10 @@ def serve(settings: Settings) -> None:
     service = make_service(
         default_home(), admin_file, Path(laptops).expanduser() if laptops else None
     )
+    # Every host but the first gets a site of their own, with what they added (R61e).
+    from imageskin.site_moves import move_hosts_to_sites
+
+    move_hosts_to_sites(default_home(), service.host_accounts, service.sites)
     # The models, loaded once for every site (R61c), timed with the first site's start (R96c).
     startup = StartupTimes()
     # At most clones_loaded sites keep the voice clone loaded (R61d).
