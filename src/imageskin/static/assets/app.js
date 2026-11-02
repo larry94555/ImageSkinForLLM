@@ -12116,6 +12116,7 @@ function current(page, view) {
 	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : void 0;
 	return page;
 }
+var ACCOUNT_PAGES = ["host-forgot", "host-reset"];
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) });
 }
@@ -12149,7 +12150,7 @@ function Shell() {
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
-	if (unconfirmed) content = /* @__PURE__ */ u(ConfirmEmailPage, {
+	if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {
 		email: hostSession.email ?? "",
 		failed: route?.page === "confirm-failed"
 	});
