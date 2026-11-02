@@ -666,6 +666,22 @@ class KokoroVoices:
         with self._speaking:
             return engine.speak(voice, text)
 
+    def engine(self, lang: str) -> VoiceEngine:
+        """Kokoro with the accent of `lang` as an engine of its own, loaded once and speaking
+        one at a time with the others, for every site that uses it (R61c)."""
+        return _LangVoice(self, lang)
+
+
+class _LangVoice:
+    """One language of the shared Kokoro voices, as a voice engine."""
+
+    def __init__(self, voices: KokoroVoices, lang: str) -> None:
+        self._voices = voices
+        self._lang = lang
+
+    def speak(self, voice: str, text: str) -> Speech:
+        return self._voices.speak(self._lang, voice, text)
+
 
 class PresetVoice:
     """A voice engine that speaks in a default person's ready-made Kokoro voice (item 58) while

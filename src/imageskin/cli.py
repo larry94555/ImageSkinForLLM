@@ -483,8 +483,9 @@ def serve(settings: Settings) -> None:
     import uvicorn
     from fastapi import FastAPI
 
-    from imageskin.app import create_app
+    from imageskin.app import create_app, make_engines
     from imageskin.sites import DEFAULT_SITE, SiteApps, make_service, site_home
+    from imageskin.startup import StartupTimes
 
     start = time.perf_counter()
     host, port = settings.host, settings.port
@@ -500,6 +501,9 @@ def serve(settings: Settings) -> None:
     service = make_service(
         default_home(), admin_file, Path(laptops).expanduser() if laptops else None
     )
+    # The models, loaded once for every site (R61c), timed with the first site's start (R96c).
+    startup = StartupTimes()
+    engines = make_engines(default_home(), startup)
 
     def site_app(site: str) -> FastAPI:
         """Each site's own app (R61b). Until R61, the one site is the app's home folder."""
@@ -509,7 +513,10 @@ def serve(settings: Settings) -> None:
             general_prompts=settings.general_prompts,
             # The customization drafted the first time it is needed (R93).
             generate_customization=True,
+            # Only the first site's start is the server's.
+            startup=startup if site == DEFAULT_SITE else None,
             service=service,
+            engines=engines,
         )
 
     sites = SiteApps(site_app)
