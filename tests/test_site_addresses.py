@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from test_admin_laptops import Laptop, listing, write
 
 from imageskin import admin, cli
 from imageskin.app import create_app
@@ -67,6 +68,12 @@ def test_each_address_is_matched_to_its_site(tmp_path: Path) -> None:
         assert site_of(scope(address)) == "a", address
     for unknown in ("b.localhost", "b.me0.ai", "x.a.localhost"):
         assert site_of(scope(unknown)) is None, unknown
+    # Codex's review of PR #274: any other name, or a missing or malformed Host header, is
+    # never the main address's site.
+    for other in ("other.example", "me0.ai.attacker.example", "notme0.ai", "", ":8000", "a b"):
+        assert site_of(scope(other)) is None, other
+    assert site_of({"type": "http", "headers": []}) is None
+    assert site_of(scope("www.localhost")) == DEFAULT_SITE
 
 
 def test_a_site_is_added_with_its_one_host(
@@ -276,3 +283,37 @@ def test_a_host_set_back_to_the_main_address_signs_in_there(tmp_path: Path) -> N
     token = accounts.sign_in("ann@example.com", PASSWORD, "test")
     assert accounts.host(token, DEFAULT_SITE) is not None
     assert not accounts.set_site("nobody@example.com", "a")
+
+
+def settings_access(browser: TestClient, laptop: Laptop | None = None) -> dict[str, object]:
+    body = {}
+    if laptop:
+        challenge = browser.get("/api/admin/challenge").json()["challenge"]
+        body = {"laptop": laptop.body(challenge)}
+    return dict(browser.post("/api/settings/access", json=body).json())
+
+
+def test_the_admin_laptop_opens_settings_at_the_main_address_only(tmp_path: Path) -> None:
+    # Codex's review of PR #274: a site's settings are its host's alone.
+    sites, made, _ = served(tmp_path)
+    listed = Laptop()
+    write(tmp_path / "home" / "admin.toml", 'password = "first secret"\n')
+    write(tmp_path / "home" / "admin-laptops.toml", listing(listed))
+    main = TestClient(sites, base_url="http://localhost")
+    assert settings_access(main, listed) == {"shown": True, "as": "laptop"}
+    assert main.get("/api/llm").status_code == 200
+
+    a = TestClient(sites, base_url="http://a.localhost")
+    assert settings_access(a, listed) == {"shown": False, "as": None}  # its proof
+    assert a.cookies.get("imageskin_laptop") is None  # and no pass given
+    passed = TestClient(
+        sites,
+        base_url="http://a.localhost",
+        cookies={"imageskin_laptop": main.cookies.get("imageskin_laptop") or ""},
+    )
+    assert settings_access(passed) == {"shown": False, "as": None}  # nor the main address's pass
+    assert passed.get("/api/llm").status_code == 404
+    assert passed.patch("/api/settings", json={"show_metrics": True}).status_code == 404
+    # Site a's own host still opens its Settings.
+    assert sign_in(a, "ann@example.com") == 200
+    assert settings_access(a) == {"shown": True, "as": "host"}

@@ -19,3 +19,8 @@ admin_file = "/etc/imageskin/admin/admin.toml"
 # which it sets afresh for each request, names the browser. The wait after wrong admin passwords
 # is then per browser, not shared by everyone behind Caddy.
 trusted_proxies = "*"
+
+# The hosted domain (roadmap R61): the main address is this domain, www.<it> or app.<it>, and each
+# site is at name.<it>. Requests to any other name are answered Site not found, so set it to
+# SITE_ADDRESS's domain when it isn't on me0.ai (for an sslip.io address, the whole address).
+main_domain = "me0.ai"

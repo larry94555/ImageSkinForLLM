@@ -69,10 +69,11 @@ class SettingsAccess:
         self, host_token: str | None, laptop_token: str | None, site: str = DEFAULT_SITE
     ) -> Who:
         """A host counts on their own site only (R61); a listed laptop, the administrator's,
-        on every site."""
+        only at the main address, so a site's settings are its host's alone (Codex's review of
+        PR #274)."""
         if self.hosts.host(host_token, site) is not None:
             return "host"
-        if self.laptop(laptop_token) is not None:
+        if site == DEFAULT_SITE and self.laptop(laptop_token) is not None:
             return "laptop"
         return None
 
@@ -107,7 +108,7 @@ def settings_router(
         proof that it is listed. A listed laptop's proof gets it a pass for the Settings calls."""
         who = access.who(host_token, laptop_token, site)
         found = None
-        if who is None:
+        if who is None and site == DEFAULT_SITE:  # a laptop's proof counts at the main address
             proof = LaptopProof(**laptop.model_dump()) if laptop else None
             found = access.listed(proof)
             if found is not None:
@@ -127,6 +128,7 @@ def settings_router(
         logger.info(
             "Settings shown" if who else "Settings hidden",
             extra={
+                "site": site,
                 "host": who == "host",
                 "laptop": found or (access.laptop(laptop_token) if who == "laptop" else None),
             },

@@ -11,12 +11,14 @@ administrator's sign-in, settings and guidelines, the listed laptops' passes and
 month.
 
 Each request is matched to its site by its address (R61): `name.localhost` locally, and
-`name.<main_domain>` (me0.ai) on the hosted service. The main address, and its `www` and `app`
-subdomains, are the main address's site, kept in the app's home folder as before; every other
-site keeps its files in `sites/<name>` there. The sites are listed in `sites.json`, each with its
-one host, added with `imageskin site add`; an address with no site is answered Site not found.
+`name.<main_domain>` (me0.ai) on the hosted service. The main address (`localhost`, the main
+domain, its `www` and `app` subdomains, or the server's IP address) is the main address's site,
+kept in the app's home folder as before; every other site keeps its files in `sites/<name>`
+there. The sites are listed in `sites.json`, each with its one host, added with `imageskin site
+add`; any other address, or none, is answered Site not found.
 """
 
+import ipaddress
 import json
 import logging
 import os
@@ -157,16 +159,32 @@ class SiteDirectory:
 
 def site_matcher(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str | None]:
     """Each request's site by its address (R61): None for an address with no site."""
-    suffixes = (".localhost", f".{main_domain.strip('.').lower()}")
+    domain = main_domain.strip(".").lower()
+    suffixes = (".localhost", f".{domain}")
+    # Only these are the main address's: any other name, an empty or a malformed Host header
+    # is Site not found, never the main address's site (Codex's review of PR #274).
+    main = {"localhost", domain} | {f"{name}.{domain}" for name in MAIN_NAMES}
 
     def site_of(scope: Scope) -> str | None:
         host = address_of(scope).lower()
+        if host in main or is_ip_address(host):  # the server's own address, as health checks use
+            return DEFAULT_SITE
         label = next((host[: -len(s)] for s in suffixes if host.endswith(s)), None)
-        if label is None or label in MAIN_NAMES:
-            return DEFAULT_SITE  # localhost, the main domain or the server's own IP address
+        if label is None:
+            return None
+        if label in MAIN_NAMES:  # www.localhost and app.localhost
+            return DEFAULT_SITE
         return label if sites.exists(label) else None
 
     return site_of
+
+
+def is_ip_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def address_of(scope: Scope) -> str:
