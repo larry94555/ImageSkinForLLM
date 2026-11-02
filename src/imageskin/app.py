@@ -1240,7 +1240,16 @@ def create_app(
     # The LLM picked on the Settings page (R42), with llama-server's address from the config.
     # Sign in with ChatGPT (R43), whose plan can answer (R43a).
     signin = chatgpt or ChatGptSignIn(data_home)
+    if not at_main and load_choice(data_home).provider == "chatgpt":
+        # Chosen on a customer's site before R44 kept the plan off them (Codex's review of
+        # PR #284): the site answers with the local LLM in its place, saved so every read agrees.
+        save_choice(data_home, "local")
+        logger.warning(
+            "ChatGPT plan turned off on a customer's site",
+            extra={"site": site_name, "now": "local"},
+        )
     switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
+    app.state.llm = switchable
     client = switchable if ask_llm is None else None
     # A chat reply goes before the wiki's requests to the LLM (R99), once llama-server has
     # stopped the ones cut off for it (R147).

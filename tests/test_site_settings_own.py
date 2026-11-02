@@ -1,6 +1,7 @@
 """A site's settings are its own host's alone, and the administrator stays at the main address
 (roadmap R44)."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -9,7 +10,10 @@ from fastapi.testclient import TestClient
 from test_site_addresses import PASSWORD, served
 
 from imageskin import admin
+from imageskin.chatgpt_plan import ChatGptPlanClient
+from imageskin.hosts import DEFAULT_SITE
 from imageskin.llm_choice import ModelLists
+from imageskin.sites import site_home
 
 pytestmark = pytest.mark.real_hosts
 
@@ -119,3 +123,30 @@ def test_the_chatgpt_plan_is_not_offered_on_a_customers_site(
     bob = signed_in(sites, "http://localhost:8000", BOB)
     assert "chatgpt" in [p["id"] for p in bob.get("/api/llm").json()["providers"]]
     assert bob.get("/api/chatgpt").status_code == 200
+
+
+def test_a_chatgpt_plan_chosen_before_is_turned_off_on_a_customers_site(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #284: a site that chose the plan before R44 doesn't keep using it."""
+    home = tmp_path / "home"
+    for site in ("a", None):
+        folder = site_home(site, home) if site else home
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "llm.json").write_text(
+            json.dumps({"provider": "chatgpt", "keys": {"openrouter": "sk-or"}, "models": {}})
+        )
+    sites, made, _ = served(tmp_path)
+    ann = signed_in(sites, "http://a.localhost:8000", ANN)
+    with caplog.at_level(logging.WARNING):
+        assert ann.get("/api/llm").json()["provider"] == "local"
+    assert "ChatGPT plan turned off on a customer's site" in caplog.messages
+    assert made["a"].state.llm.settings.provider == "local"
+    assert not isinstance(made["a"].state.llm._client, ChatGptPlanClient)
+    assert json.loads((site_home("a", home) / "llm.json").read_text())["keys"] == {
+        "openrouter": "sk-or"
+    }
+    # The main address keeps its choice.
+    bob = signed_in(sites, "http://localhost:8000", BOB)
+    assert bob.get("/api/llm").json()["provider"] == "chatgpt"
+    assert isinstance(made[DEFAULT_SITE].state.llm._client, ChatGptPlanClient)
