@@ -24,6 +24,7 @@ from imageskin.hosts import (
     HostRefused,
     HostsUnreadable,
     normal_email,
+    refuse_if_disabled,
     trial_cookie,
 )
 
@@ -78,7 +79,7 @@ def host_router(
     is_trial: Callable[[str], bool] = lambda _: False,
     make_site: Callable[[str], str] | None = None,
     send_email: Callable[[Message], object] | None = None,
-) -> tuple[APIRouter, Callable[[str | None], Host]]:
+) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
     Admin settings change applies at once. Only the `site`'s host is signed in here (R61): another
@@ -92,10 +93,11 @@ def host_router(
 
     router = APIRouter(prefix="/api/host")
 
-    def require_host(token: Token = None) -> Host:
+    def require_host(request: Request, token: Token = None) -> Host:
         host = own_host(token)
         if host is None:
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
+        refuse_if_disabled(request.method, request.url.path, host)
         return host
 
     def signed_in(
@@ -137,6 +139,8 @@ def host_router(
         if host and host.acting:
             # The administrator acting as this host (R44a), for the bar that says so (R44b).
             answer["acting_as_admin"] = True
+        if host and host.disabled:
+            answer["disabled"] = True  # read-only for the host (R44c)
         return answer
 
     def send_confirmation(request: Request, email: str, token: str, site_path: str) -> bool:
@@ -302,6 +306,7 @@ def host_router(
             "created_at": host.created_at,
             "custom_image": use.image,
             "custom_voice": use.voice,
+            "disabled": host.disabled,
         }
 
     return router, require_host

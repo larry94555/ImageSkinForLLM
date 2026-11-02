@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
 from imageskin.admin_api import Laptop
 from imageskin.admin_laptops import AdminLaptops, LaptopProof
 from imageskin.host_api import COOKIE as HOST_COOKIE
-from imageskin.hosts import DEFAULT_SITE, HostAccounts
+from imageskin.hosts import DEFAULT_SITE, HostAccounts, refuse_if_disabled
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,9 @@ def settings_router(
                 "Settings call refused", extra={"method": request.method, "path": request.url.path}
             )
             raise HTTPException(status_code=404, detail="Not Found")
+        host = access.hosts.host(host_token, site) if who == "host" else None
+        if host is not None:  # a host the administrator disabled only reads (R44c)
+            refuse_if_disabled(request.method, request.url.path, host)
         return who
 
     @router.post("/access")

@@ -11,6 +11,7 @@ import {
   type CustomKind,
   getAdminHosts,
   getHostChoices,
+  setHostDisabled,
   type HostChoice,
   type HostChoices,
   saveHostChoice,
@@ -137,6 +138,23 @@ function HostChoicesPanel({ email }: { email: string }) {
     }
   }
 
+  // Disable or Enable (R44c): a disabled host's site is read-only for them.
+  async function toggleDisabled() {
+    if (!choices) return;
+    const next = !choices.disabled;
+    setBusy(true);
+    setError(null);
+    const started = performance.now();
+    try {
+      setChoices(await setHostDisabled(email, next));
+      console.info(`Host ${next ? "disabled" : "enabled"} (${Math.round(performance.now() - started)} ms)`);
+    } catch (e) {
+      failed(e, "Could not disable or enable the host");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Act as this host (R44b): after a confirmation naming the host, the browser goes to their
   // site through a one-time link, signed in as them (R44a).
   const [asking, setAsking] = useState(false);
@@ -178,6 +196,16 @@ function HostChoicesPanel({ email }: { email: string }) {
           </span>
         </div>
       ))}
+      <div className="host-choice">
+        <button type="button" disabled={busy} onClick={() => void toggleDisabled()}>
+          {choices.disabled ? "Enable" : "Disable"}
+        </button>
+        <span className="muted">
+          {choices.disabled
+            ? "Disabled: their site is read-only for them; only you, acting as them, change it."
+            : "Disable to make their site read-only for them."}
+        </span>
+      </div>
       <div className="host-choice">
         <button type="button" disabled={busy} onClick={() => setAsking(true)}>
           Act as this host

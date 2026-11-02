@@ -109,7 +109,14 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import ACT_PREFIX, DEFAULT_SITE, Host, HostsUnreadable, normal_email
+from imageskin.hosts import (
+    ACT_PREFIX,
+    DEFAULT_SITE,
+    Host,
+    HostsUnreadable,
+    normal_email,
+    refuse_if_disabled,
+)
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -224,6 +231,7 @@ class HostChoices(BaseModel):
     email: str = Field(max_length=320)
     custom_image: Literal["allow", "deny"] | None = None
     custom_voice: Literal["allow", "deny"] | None = None
+    disabled: bool | None = None  # the host's site read-only for them (R44c); None: unchanged
 
 
 class ConsentRequest(BaseModel):
@@ -936,6 +944,7 @@ def create_app(
             "email": email,
             "custom_image": choices[0],
             "custom_voice": choices[1],
+            "disabled": host_accounts.is_disabled(email),
             "default": {
                 "custom_image": "disabled" if settings.disable_custom_image else "enabled",
                 "custom_voice": "disabled" if settings.disable_custom_voice else "enabled",
@@ -955,10 +964,12 @@ def create_app(
     @app.put("/api/admin/hosts/properties", dependencies=[Depends(app.state.require_admin)])
     def put_host_properties(changes: HostChoices) -> dict[str, Any]:
         """Allow or Deny a custom image or sound for one host, or back to the default (None),
-        used by the rule at once (R242)."""
-        wanted = changes.model_dump(exclude_unset=True, exclude={"email"})
+        used by the rule at once (R242); and disable the host or enable them again (R44c)."""
+        wanted = changes.model_dump(exclude_unset=True, exclude={"email", "disabled"})
         try:
             saved = host_accounts.set_choices(changes.email, wanted)
+            if saved is not None and changes.disabled is not None:
+                host_accounts.set_disabled(changes.email, changes.disabled)  # R44c
         except HostsUnreadable as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
         if saved is None:
@@ -1057,6 +1068,7 @@ def create_app(
 
     @app.patch("/api/settings")
     def patch_settings(
+        request: Request,
         changes: Annotated[dict[str, Any], Body()],
         host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
         laptop_token: Annotated[str | None, Cookie(alias=LAPTOP_COOKIE)] = None,
@@ -1074,6 +1086,8 @@ def create_app(
         ):
             logger.info("Settings call refused", extra={"method": "PATCH", "path": "/api/settings"})
             raise HTTPException(status_code=404, detail="Not Found")
+        if host is not None and set(changes) - CHAT_SETTINGS:  # a disabled host's (R44c)
+            refuse_if_disabled(request.method, request.url.path, host)
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
             if host is None:
