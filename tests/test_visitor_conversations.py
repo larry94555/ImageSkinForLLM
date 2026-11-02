@@ -14,14 +14,17 @@ from fastapi.testclient import TestClient
 from test_chat import FakeLlm2
 
 from imageskin import admin
-from imageskin.app import create_app
+from imageskin.app import VISITOR_VIDEOS_FROM, create_app
+from imageskin.prepare_job import PrepareJob, PrepareStatus
+from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.review import Review
-from imageskin.uploads import PhotoResult
+from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
 from imageskin.visitor_chat import COOKIE, FOLDER, UNUSED_DAYS, VisitorConversations, key, valid
 
 pytestmark = pytest.mark.real_hosts
 
 HOST, PASSWORD = "host@example.com", "a long secret"
+JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
 @pytest.fixture(autouse=True)
@@ -37,13 +40,17 @@ def accepted() -> object:
         yield
 
 
+def write_video(photo: Path, text: str, output: Path) -> None:
+    output.write_bytes(text.encode())
+
+
 def site(home: Path, llm: FakeLlm2) -> FastAPI:
     return create_app(
         home,
         check_photo=lambda p: PhotoResult([], 80),
         prepare_voice=lambda: None,
         prepare_face=lambda photo, progress: None,
-        render_clip=lambda photo, text, output: None,
+        render_clip=write_video,
         ask_llm=llm,
     )
 
@@ -159,3 +166,60 @@ def test_a_conversation_not_used_for_30_days_is_removed(
     assert sorted(visitors.open()) == sorted([old, recent])
     assert visitors.forget_all() == 1  # only the kept one has a file
     assert visitors.open() == []
+
+
+def video_of(browser: TestClient, prompt: str) -> int:
+    """Ask, have the reply's video made, and return the reply's turn."""
+    turn = int(browser.post("/api/chat", json={"prompt": prompt}).json()["turn"])
+    assert browser.post("/api/chat/video", json={"turn": turn}).json()["video"]
+    return turn
+
+
+def test_the_hosts_clear_leaves_each_visitors_reply_videos(tmp_path: Path) -> None:
+    """Codex's review of PR #290: Clear conversation removed every reply video, so a visitor's
+    still in their conversation answered 404."""
+    app = site(tmp_path, FakeLlm2())
+    app.state.reply_warm_up.join(5)
+    host = the_host(app, tmp_path)
+    photo = host.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    done = PrepareStatus("done", photo_id=photo["id"])
+    with (
+        patch.object(PrepareJob, "status", return_value=done),
+        patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)),
+    ):
+        ann = TestClient(app)
+        turn = video_of(ann, "I am Ann.")
+        assert ann.get(f"/api/chat/videos/{turn}").content == b"Reply 1"
+        assert host.delete("/api/chat").is_success
+        assert ann.get(f"/api/chat/videos/{turn}").content == b"Reply 1"
+        # The host's own reply videos still go with their conversation.
+        mine = video_of(host, "I am the host.")
+        assert host.get(f"/api/chat/videos/{mine}").is_success
+        # The host's new video replaces their own old ones only, and one visitor's another's.
+        assert ann.get(f"/api/chat/videos/{turn}").is_success
+        bob = TestClient(app)
+        video_of(bob, "I am Bob.")
+        assert ann.get(f"/api/chat/videos/{turn}").is_success
+        again = video_of(ann, "Me again.")
+        assert ann.get(f"/api/chat/videos/{again}").is_success
+        assert ann.get(f"/api/chat/videos/{turn}").status_code == 404
+        assert host.delete("/api/chat").is_success
+        assert host.get(f"/api/chat/videos/{mine}").status_code == 404
+        # Delete my data takes every visitor's.
+        assert any((tmp_path / "replies").glob("*.mp4"))
+        assert host.delete("/api/data").is_success
+        assert not any((tmp_path / "replies").glob("*.mp4"))
+
+
+def test_a_clear_drops_only_its_own_videos_being_made(tmp_path: Path) -> None:
+    videos = ReplyVideos(tmp_path, write_video, VoiceReady(lambda: None, lambda: "v"))
+    visitors = VISITOR_VIDEOS_FROM + 1
+    videos.render(Path("me.jpg"), visitors, "A visitor's reply")
+    before = videos.generation
+    assert videos.clear(lambda n: n < VISITOR_VIDEOS_FROM) == 0  # the host's: none of theirs
+    assert videos.video(visitors) is not None
+    # One being made for the host before the clear is dropped; a visitor's is published.
+    assert videos.render(Path("me.jpg"), 3, "The host's", generation=before) is None
+    assert videos.render(Path("me.jpg"), visitors + 1, "Another", generation=before)
+    assert videos.clear() == 1  # every one, as for Delete my data
+    assert videos.video(visitors + 1) is None

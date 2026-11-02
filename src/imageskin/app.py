@@ -2594,6 +2594,9 @@ def create_app(
     # Replies spoken in one video (not streamed) being made now, each with the event Stop sets
     # (roadmap R19). Guarded by clips_lock.
     whole_videos: dict[str, threading.Event] = {}
+    # Whose conversation each of them says ("" for the site's own), so a clear stops its own
+    # only (Codex's review of PR #290). Guarded by clips_lock.
+    whole_owners: dict[str, str] = {}
     # Prompts being answered, each with the event Stop sets to cut the LLM off (Larry's test of
     # PR #129: Stop left it thinking). Guarded by clips_lock.
     prompts: dict[str, PromptStop] = {}
@@ -2886,6 +2889,7 @@ def create_app(
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
             clips.person = person_of(photo)
+            clips.owner = owner_now()
             with clips_lock:
                 if stop.is_set():  # stopped meanwhile: no clips
                     clips = None
@@ -3033,6 +3037,7 @@ def create_app(
             # ones played last are copied from, then removed with `cancel`.
             clips = SentenceClips(replies, photo, body.reply_id)
             clips.person = person_of(photo)
+            clips.owner = owner_now()
             last: list[SentenceClips] = []
             with clips_lock:  # Stop sees either the marker taken or the clips listed
                 early = body.reply_id in stopped_early
@@ -3279,6 +3284,7 @@ def create_app(
                 stopped_early.discard(body.reply_id)
                 stop.set()
             whole_videos[key] = stop
+            whole_owners[key] = owner_now()
         try:
             # Read before the turns: a clear after this drops the video (R27b), and the turns
             # read after a clear are the new conversation's.
@@ -3298,6 +3304,7 @@ def create_app(
                     turns[body.turn].content,
                     stop.is_set,
                     generation,
+                    old=replaced_videos(),
                 )
             except Exception as e:
                 # The voice and video engines' errors say what went wrong; the reply is still
@@ -3307,6 +3314,7 @@ def create_app(
             with clips_lock:
                 if whole_videos.get(key) is stop:
                     del whole_videos[key]
+                    whole_owners.pop(key, None)
         return {"video": None if path is None else under(request, f"/api/chat/videos/{body.turn}")}
 
     @app.post(
@@ -3366,36 +3374,70 @@ def create_app(
                 visitor_videos[k] = next(video_numbers)
             return visitor_videos.get(k)
 
-    def clear_conversation(which: Conversation) -> int:
+    def clear_conversation(which: Conversation, everyone: bool = False) -> int:
         """Clear the conversation and its videos, with chat_lock held; HTTP 500 if the saved
-        conversation can't be emptied, and then nothing is cleared."""
+        conversation can't be emptied, and then nothing is cleared. Only this browser's videos
+        and the work on them go, so the host's clear leaves each visitor's (Codex's review of
+        PR #290); with `everyone`, as for Delete my data, every one goes."""
         try:
             cleared = which.clear()
         except ClearFailed as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
-        token = this_visitor.get()
+        owner = owner_now()
+        numbers: Callable[[int], bool] | None
         with clips_lock:  # the visitor's videos are no longer theirs to ask for
-            for k in [k for k in visitor_videos if token is None or k[0] == visitor_key(token)]:
-                del visitor_videos[k]
+            gone = [k for k in visitor_videos if everyone or k[0] == owner]
+            taken = {visitor_videos.pop(k) for k in gone}
+        if everyone:
+            numbers = None
+        elif owner:
+            numbers = taken.__contains__
+        else:
+            numbers = site_own_video
         # The replies' videos go too: those being made are stopped and never published,
         # and those made are removed, so none of what was said can still be played.
         with clips_lock:
-            streamed = list(sentence_clips.values())
-            sentence_clips.clear()
-            for stop in whole_videos.values():
-                stop.set()
+            streamed = [c for c in sentence_clips.values() if everyone or c.owner == owner]
+            for reply_id in [r for r, c in sentence_clips.items() if c in streamed]:
+                del sentence_clips[reply_id]
+            for key, stop in whole_videos.items():
+                if everyone or whole_owners.get(key) == owner:
+                    stop.set()
         for clips in streamed:
             threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
         # After the conversation: a video asked for after replies.clear() reads it empty.
-        videos = replies.clear()
+        videos = replies.clear(numbers)
         # The example questions' replies were made with what was said, so they go too (Codex's
         # review of PR #178).
         topic_replies.clear()
         logger.info(
             "Reply videos cleared",
-            extra={"videos": videos, "streamed_replies": len(streamed)},
+            extra={"videos": videos, "streamed_replies": len(streamed), "everyone": everyone},
         )
         return cleared
+
+    def replaced_videos() -> Callable[[int], bool]:
+        """Which reply videos a new one of this browser's replaces: its own conversation's, and
+        a visitor's no longer named (from before a restart), which can't be asked for."""
+        owner = owner_now()
+        with clips_lock:
+            owners = {number: k[0] for k, number in visitor_videos.items()}
+
+        def replaced(number: int) -> bool:
+            if number < VISITOR_VIDEOS_FROM:
+                return owner == ""
+            return owners.get(number, owner) == owner
+
+        return replaced
+
+    def site_own_video(number: int) -> bool:
+        """Whether a reply video is of the site's own conversation, numbered by its turn."""
+        return number < VISITOR_VIDEOS_FROM
+
+    def owner_now() -> str:
+        """Whose conversation this call is on: "" for the site's own, else the visitor's key."""
+        token = this_visitor.get()
+        return "" if token is None else visitor_key(token)
 
     # No consent needed: a delete that left a file behind removed the consent already, and
     # it is tried again from the same page.
@@ -3446,7 +3488,7 @@ def create_app(
         wait_for_warm_up("Delete my data")
 
         def delete() -> Deleted:
-            clear_conversation(conversation)
+            clear_conversation(conversation, everyone=True)
             visitors.forget_all()  # every visitor's too (R65a)
             forget_pdfs()
             # Once the streamed clips stopped above have let the engines go, nothing writes
