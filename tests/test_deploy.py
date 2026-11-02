@@ -240,10 +240,17 @@ def test_the_main_domain_is_the_same_for_caddy_and_the_app() -> None:
     assert load_settings(DEPLOY / "config.toml").main_domain == example.group(1)
 
 
-def test_the_subdomain_guide_is_there_and_linked() -> None:
-    guide = text(DEPLOY / "SUBDOMAINS.md")
-    for step in ("## 1. Move me0.ai's DNS to Cloudflare", "## Checklist", "## If it doesn't work"):
+def test_the_subdomain_guide_and_checklist_are_there_and_linked() -> None:
+    guides = ROOT / "docs" / "guides"
+    guide = text(guides / "Subdomain-Setup-Guide.md")
+    checklist = text(guides / "Subdomain-Setup-Checklist.md")
+    for step in ("## 1. Move me0.ai's DNS to Cloudflare", "## If it doesn't work"):
         assert step in guide
     for check in ("caddy list-modules", "caddy validate", "nslookup anything.me0.ai"):
-        assert check in guide
-    assert "[SUBDOMAINS.md](SUBDOMAINS.md)" in text(DEPLOY / "README.md")
+        assert check in guide and check in checklist
+    assert "(Subdomain-Setup-Checklist.md)" in guide and "(Subdomain-Setup-Guide.md)" in checklist
+    for pdf in ("Subdomain-Setup-Guide.pdf", "Subdomain-Setup-Checklist.pdf"):
+        assert (guides / pdf).read_bytes().startswith(b"%PDF")
+    readme = text(DEPLOY / "README.md")
+    assert "(../docs/guides/Subdomain-Setup-Guide.md)" in readme
+    assert "(../docs/guides/Subdomain-Setup-Checklist.md)" in readme

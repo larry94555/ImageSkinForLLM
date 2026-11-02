@@ -34,7 +34,7 @@
 
 # Every site's own subdomain, such as anna.me0.ai (roadmap R61, R71a): one certificate for all
 # of them, *.me0.ai, which Let's Encrypt gives only after a DNS check that Caddy does through
-# Cloudflare's API (caddy/Dockerfile, SUBDOMAINS.md). The main address above is matched first.
+# Cloudflare's API (caddy/Dockerfile, docs/guides/Subdomain-Setup-Guide.md). The main address above is matched first.
 *.{$MAIN_DOMAIN} {
 	tls {
 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}

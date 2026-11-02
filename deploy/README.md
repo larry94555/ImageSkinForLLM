@@ -137,7 +137,7 @@ LOGIN_PASSWORD_HASH='$2a$14$Xb3k9mQ1vL7pR2sT8uW0yOeZ4aB6cD5fG1hJ2kL3mN4oP5qR6sT7
 ```
 
 - `SITE_ADDRESS`: the name from 6b, with no `https://` and no `/` at the end.
-- `MAIN_DOMAIN` and `CLOUDFLARE_API_TOKEN`: for every site's own subdomain, such as `anna.me0.ai` (roadmap R71a). [SUBDOMAINS.md](SUBDOMAINS.md) says how to get the token and point `*.me0.ai` at the machine.
+- `MAIN_DOMAIN` and `CLOUDFLARE_API_TOKEN`: for every site's own subdomain, such as `anna.me0.ai` (roadmap R71a). The [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md) says how to get the token and point `*.me0.ai` at the machine, and the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) lists every change to confirm.
 - `LOGIN_NAME`: the name the browser will ask for; any word you like.
 - `LOGIN_PASSWORD_HASH`: your own hash from 6c (the one above is only an example), between the single quotes, which keep its `$` signs as they are. The browser asks for the password you typed in 6c, not the hash.
 
@@ -244,7 +244,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 | Set or change the administrator password (the admin view's, not the site's) | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Let only your own laptops sign in as the administrator | list each laptop's ID, from its Settings page, in `admin/admin-laptops.toml` here; no restart (see "Only the laptops you list" in [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Find out why an admin sign-in failed ("Admin login failed with error code A-…") | `docker compose logs app --since 24h \| grep A-…` with the page's code; the reasons are in the [FAQ](../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why) |
-| Serve each site at its own subdomain, such as `anna.me0.ai` | [SUBDOMAINS.md](SUBDOMAINS.md), with a checklist for when one doesn't open |
+| Serve each site at its own subdomain, such as `anna.me0.ai` | [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md), then the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |

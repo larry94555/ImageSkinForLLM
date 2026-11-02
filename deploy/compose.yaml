@@ -60,7 +60,7 @@ services:
       --ctx-size 4096 --threads 2 --threads-batch 4 --swa-full --cache-ram 1024
 
   caddy:
-    # Caddy with Cloudflare's DNS module, for the subdomains' certificate (R71a, SUBDOMAINS.md).
+    # Caddy with Cloudflare's DNS module, for the subdomains' certificate (R71a, docs/guides/Subdomain-Setup-Guide.md).
     build: ./caddy
     image: imageskin-caddy
     restart: unless-stopped

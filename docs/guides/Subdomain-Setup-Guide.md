@@ -1,12 +1,14 @@
-# Each site at its own subdomain (roadmap R71a)
+# Subdomain setup guide
+
+Step by step: how to set up me0.ai's DNS, the certificate and the server so each customer's site opens at its own subdomain (roadmap R71a). Once it's done, tick off every line of the [Subdomain setup checklist](Subdomain-Setup-Checklist.md) to confirm everything is in place. Source of `Subdomain-Setup-Guide.pdf`.
 
 Each customer's site is at a subdomain of me0.ai, such as `anna.me0.ai`, beside the main address, `app.me0.ai` (roadmap R61). Trial sites need nothing more: they are at a path of the main address, such as `app.me0.ai/t/k7q2x9mf3a8w` (R61a), with its certificate. For subdomains, three things have to be in place:
 
 1. **DNS:** a wildcard record, `*.me0.ai`, that sends every subdomain to the Oracle machine, as `app.me0.ai` already goes there.
 2. **One certificate for every subdomain, `*.me0.ai`:** Let's Encrypt gives a wildcard certificate only after a DNS check, where Caddy adds a short-lived record to me0.ai's DNS through the DNS provider's API. Squarespace, where me0.ai is registered, has no such API, so its DNS moves to Cloudflare's free plan. **The domain stays registered and paid for at Squarespace**; only the nameservers change.
-3. **Caddy** serves `*.me0.ai` as it serves `app.me0.ai`, with the certificate from step 2. It is built with Cloudflare's DNS module (`caddy/Dockerfile` here) and finds the API token in `.env`.
+3. **Caddy** serves `*.me0.ai` as it serves `app.me0.ai`, with the certificate from step 2. It is built with Cloudflare's DNS module (`deploy/caddy/Dockerfile`) and finds the API token in `.env`.
 
-**Oracle needs no change.** Ports 80 and 443 are already open from the first setup ([README.md](README.md), steps 3 and 5), and the certificate check goes through DNS, not through the machine.
+**Oracle needs no change.** Ports 80 and 443 are already open from the first setup ([the deployment guide](../../deploy/README.md), steps 3 and 5), and the certificate check goes through DNS, not through the machine.
 
 It takes about 30 minutes, most of it waiting for the nameservers to change. The sites keep working throughout: Cloudflare copies me0.ai's records before anything moves.
 
@@ -49,7 +51,7 @@ The token can change me0.ai's DNS and nothing else. It stays in `.env` on the se
 
 ## 4. Give the server the domain and the token
 
-Connect to the machine as in [README.md](README.md), step 4, then:
+Connect to the machine as in [the deployment guide](../../deploy/README.md), step 4, then:
 
 ```
 cd ~/ImageSkinForLLM/deploy
@@ -105,26 +107,9 @@ Within a minute or two it has `certificate obtained successfully` with `"identif
 
    For a line such as `anna: anna@example.com at anna.localhost`, open `https://anna.me0.ai` (the list names each site's address on a laptop, `.localhost`; hosted, it is the same name with `.me0.ai`). It opens that site, with the padlock. A line `at /t/<code>` is a trial site, at `https://app.me0.ai/t/<code>/`.
 
-## Checklist
+## Then
 
-Each line is something to check when a subdomain doesn't open; the check and what it shows when it's right are beside it.
-
-| ✓ | What | How to check | Right when |
-|---|---|---|---|
-| ☐ | me0.ai's nameservers are Cloudflare's (step 1) | `nslookup -type=NS me0.ai` on your laptop; Cloudflare's **Overview** for me0.ai | two `*.ns.cloudflare.com` names; Cloudflare says **Active** |
-| ☐ | DNSSEC is off at Squarespace, or set up again in Cloudflare | Squarespace: **Domains**, **me0.ai**, **DNS** | off, or Cloudflare's **DNS**, **Settings** shows DNSSEC **Active** |
-| ☐ | Every record from Squarespace is in Cloudflare (step 1.3) | Cloudflare: **DNS**, **Records** | the same `app`, email (MX, TXT) and website records |
-| ☐ | `app.me0.ai` points at the machine, DNS only | `nslookup app.me0.ai`; its **Proxy status** in Cloudflare | the machine's IP; a grey cloud |
-| ☐ | `*.me0.ai` points at the machine, DNS only (step 2) | `nslookup anything.me0.ai`; the `*` record's **Proxy status** | the machine's IP; a grey cloud |
-| ☐ | The token can read the zone and edit its DNS (step 3) | Cloudflare: **My Profile**, **API Tokens**, the token's **Edit** | **Zone · DNS · Edit** and **Zone · Zone · Read**, for **me0.ai**; status **Active** |
-| ☐ | `.env` has the domain and the token (step 4) | `grep -E "MAIN_DOMAIN\|CLOUDFLARE" .env` | `MAIN_DOMAIN=me0.ai` and the whole token, with no spaces or quotes |
-| ☐ | `config.toml` has the same domain (step 4) | `grep main_domain config.toml` | `main_domain = "me0.ai"` |
-| ☐ | Ports 80 and 443 are open in Oracle and on the machine | Oracle: the subnet's **Default Security List**; on the machine, `sudo iptables -L INPUT -n \| grep -E "dpt:(80\|443)"` | ingress rules for TCP 80 and 443 from `0.0.0.0/0`; two `ACCEPT` lines |
-| ☐ | Caddy has Cloudflare's module (step 5) | `docker compose exec caddy caddy list-modules \| grep cloudflare` | `dns.providers.cloudflare` |
-| ☐ | Caddy's settings are valid (step 5) | `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile` | `Valid configuration` |
-| ☐ | The wildcard certificate was obtained (step 6) | `docker compose logs caddy \| grep -i "obtained"` | `certificate obtained successfully` for `*.me0.ai` |
-| ☐ | A subdomain reaches the app (step 6) | open `https://nosuchsite.me0.ai` | a padlock, then **Site not found** after the password |
-| ☐ | A site opens at its subdomain (step 6) | `imageskin site list`, then open one's address | that site, with the padlock |
+Go through the [Subdomain setup checklist](Subdomain-Setup-Checklist.md): every line should be ticked.
 
 ## If it doesn't work
 
