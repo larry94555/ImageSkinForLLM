@@ -33,9 +33,10 @@ import string
 import threading
 import time
 from collections.abc import Awaitable, Callable, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 import anyio
 
@@ -48,6 +49,7 @@ from imageskin.admin_guidelines import value_of as admin_value_of
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import AdminSettingsStore
+from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
@@ -78,6 +80,39 @@ Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 Asgi = Callable[[Scope, Receive, Send], Awaitable[None]]
+
+
+class SignInReturns:
+    """Which site started each Sign in with ChatGPT (R43), and the page to return to. OpenAI
+    sends the browser back to the server's own loopback address, the main address's, so the
+    callback is matched to its site by the sign-in's `state` (Codex's review of PR #277)."""
+
+    KEEP_S = 15 * 60  # longer than a sign-in takes
+    MOST = 100
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._started: dict[str, tuple[str, str, float]] = {}
+
+    def started(self, state: str, site: str, page: str) -> None:
+        with self._lock:
+            now = self._clock()
+            self._started = {s: v for s, v in self._started.items() if now - v[2] < self.KEEP_S}
+            while len(self._started) >= self.MOST:
+                del self._started[next(iter(self._started))]
+            self._started[state] = (site, page, now)
+
+    def site_of(self, state: str) -> str | None:
+        with self._lock:
+            found = self._started.get(state)
+        return None if found is None else found[0]
+
+    def page_of(self, state: str) -> str | None:
+        """The page the sign-in was started from, once: the callback returns there."""
+        with self._lock:
+            found = self._started.pop(state, None)
+        return None if found is None else found[1]
 
 
 class SiteError(Exception):
@@ -193,8 +228,11 @@ class SiteDirectory:
         return folder
 
 
-def site_matcher(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str | None]:
-    """Each request's site by its address (R61): None for an address with no site."""
+def site_matcher(
+    sites: SiteDirectory, main_domain: str, returns: SignInReturns | None = None
+) -> Callable[[Scope], str | None]:
+    """Each request's site by its address (R61), or its trial path (R61a): None for an address
+    with no site. Sign in with ChatGPT's callback goes to the site that started it."""
     domain = main_domain.strip(".").lower()
     suffixes = (".localhost", f".{domain}")
     # Only these are the main address's: any other name, an empty or a malformed Host header
@@ -209,6 +247,10 @@ def site_matcher(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], st
             code = trial_code(scope)
             if code is not None:  # a trial site's path (R61a)
                 return code if sites.is_trial(code) else None
+            if returns is not None and scope.get("path") == CALLBACK_PATH:
+                query = bytes(scope.get("query_string") or b"").decode("latin-1")
+                state = parse_qs(query).get("state", [""])[0]
+                return returns.site_of(state) or DEFAULT_SITE
             return DEFAULT_SITE
         if label is None:
             return None
@@ -253,6 +295,7 @@ class Service:
     admin_history: History
     admin_guidelines: AdminGuidelinesFile
     sites: SiteDirectory
+    sign_in_returns: SignInReturns = field(default_factory=SignInReturns)
 
 
 def make_service(

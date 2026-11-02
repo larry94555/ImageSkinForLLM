@@ -5,13 +5,19 @@ import io
 import logging
 import re
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from test_site_addresses import PASSWORD, PDF, served, sign_in, with_hosts
+from test_chatgpt_signin import NOW, FakeOpenAi
+from test_site_addresses import PASSWORD, PDF, served, with_hosts
 
 from imageskin import admin, cli
-from imageskin.sites import TRIAL_CODE_LENGTH, site_matcher
+from imageskin.app import create_app
+from imageskin.chatgpt_signin import ChatGptSignIn
+from imageskin.sites import TRIAL_CODE_LENGTH, SignInReturns, SiteApps, site_home, site_matcher
+from imageskin.uploads import PhotoResult
 
 pytestmark = pytest.mark.real_hosts
 
@@ -23,6 +29,13 @@ def quick_hashes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(admin, "SCRYPT_N", 2**4)
     cheap = admin.Secret("hash", admin.hash_password("nobody's password"))
     monkeypatch.setattr(admin, "_dummy", lambda: cheap)
+
+
+def sign_in(client: TestClient, email: str, prefix: str = "") -> int:
+    response = client.post(
+        f"{prefix}/api/host/sign-in", json={"email": email, "password": PASSWORD}
+    )
+    return response.status_code
 
 
 def http(host: str, path: str) -> dict[str, object]:
@@ -109,3 +122,61 @@ def test_a_trial_site_is_added_and_listed_from_the_command_line(
     assert "Nothing changed." in capsys.readouterr().err
     assert cli.main(["site", "list"]) == 0
     assert capsys.readouterr().out == f"{code.group(1)}: {ANN} at /t/{code.group(1)}\n"
+
+
+def test_sign_in_with_chatgpt_comes_back_to_the_trial_site_that_started_it(
+    tmp_path: Path,
+) -> None:
+    """OpenAI sends the browser back to the main address: the callback still reaches the trial
+    site that started the sign-in, and returns to its Settings (Codex's review of PR #277)."""
+    openai = FakeOpenAi()
+    home = tmp_path / "home"
+    service = with_hosts(home, CY)
+    code, _ = service.sites.add_trial(CY)
+    signins: dict[str, ChatGptSignIn] = {}
+
+    def make(site: str) -> FastAPI:
+        signins[site] = ChatGptSignIn(
+            site_home(site, home), http=openai, clock=lambda: NOW, sleep=openai.sleeps.append
+        )
+        return create_app(
+            site_home(site, home),
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: None,
+            chatgpt=signins[site],
+            service=service,
+            site=site,
+        )
+
+    sites = SiteApps(make, site_matcher(service.sites, "me0.ai", service.sign_in_returns))
+    browser = TestClient(sites, base_url="http://127.0.0.1:8000", follow_redirects=False)
+    assert sign_in(browser, CY, f"/t/{code}") == 200
+    sent = browser.get(f"/t/{code}/api/chatgpt/sign-in")
+    assert sent.status_code == 303
+    query = dict(parse_qsl(urlsplit(sent.headers["location"]).query))
+    openai.nonce = query["nonce"]
+    back = browser.get(
+        "/auth/callback", params={"state": query["state"], "code": "c", "client_id": "app-1"}
+    )
+    assert back.status_code == 303
+    assert back.headers["location"] == f"http://127.0.0.1:8000/t/{code}/#/settings"
+    assert signins[code].status()["email"] == "larry@example.com"
+    assert browser.get(f"/t/{code}/api/chatgpt").json()["email"] == "larry@example.com"
+    # The main address's site, never asked, has no sign-in of its own.
+    assert not (home / "chatgpt.json").exists()
+    # Each sign-in is matched once; a state no site started goes to the main address's.
+    assert service.sign_in_returns.site_of(query["state"]) is None
+
+
+def test_sign_ins_started_are_kept_a_while_and_only_so_many() -> None:
+    now = [0.0]
+    returns = SignInReturns(clock=lambda: now[0])
+    returns.started("old", "a", "http://a.localhost/")
+    now[0] = SignInReturns.KEEP_S + 1
+    for n in range(SignInReturns.MOST + 1):
+        returns.started(f"s{n}", "b", "http://localhost/t/b/")
+    assert returns.site_of("old") is None  # expired
+    assert returns.site_of("s0") is None and returns.site_of(f"s{SignInReturns.MOST}") == "b"
+    assert returns.page_of("s1") == "http://localhost/t/b/" and returns.page_of("s1") is None

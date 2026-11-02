@@ -539,7 +539,9 @@ def serve(settings: Settings) -> None:
         )
 
     # Each request goes to its site by its address (R61).
-    sites = SiteApps(site_app, site_matcher(service.sites, settings.main_domain))
+    sites = SiteApps(
+        site_app, site_matcher(service.sites, settings.main_domain, service.sign_in_returns)
+    )
     # The one site is made before the server listens, as the app was before R61b.
     app = sites.app(DEFAULT_SITE)
     # This month's network use for the admin dashboard, kept through restarts (R153).

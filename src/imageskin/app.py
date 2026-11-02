@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import (
     Body,
@@ -2364,18 +2364,23 @@ def create_app(
         redirect_uri = f"http://127.0.0.1:{request.url.port or 80}{CALLBACK_PATH}"
         try:
             location = signin.start(redirect_uri, consent, another, account)
+            # The callback comes to the main address: it is sent to this site, and back to
+            # this page, by the sign-in's state (Codex's review of PR #277).
+            state = parse_qs(urlsplit(location).query).get("state", [""])[0]
+            service.sign_in_returns.started(state, host_site, str(request.base_url))
             return RedirectResponse(location, status_code=303)
         except SignInError as e:
             return signed_in_page(str(e), 502)
 
     @app.get(CALLBACK_PATH, response_model=None)
     def chatgpt_callback(request: Request) -> Response:
+        page = service.sign_in_returns.page_of(request.query_params.get("state", "")) or "/"
         try:
             signin.finish(dict(request.query_params))
         except SignInError as e:
             return signed_in_page(str(e), 400)
         follow_plan_account()
-        return RedirectResponse("/#/settings", status_code=303)
+        return RedirectResponse(f"{page}#/settings", status_code=303)
 
     @app.post("/api/chatgpt/use", dependencies=settings_only)
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
