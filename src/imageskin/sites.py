@@ -8,10 +8,19 @@ runs (`SiteApps`); its background jobs, their callbacks and the files they write
 
 What holds no site's data is shared by every site's app (`Service`): the host accounts, the
 administrator's sign-in, settings and guidelines, the listed laptops' passes and the network's
-month. Until R61 matches each request to its site, there is one site, the app's home folder.
+month.
+
+Each request is matched to its site by its address (R61): `name.localhost` locally, and
+`name.<main_domain>` (me0.ai) on the hosted service. The main address, and its `www` and `app`
+subdomains, are the main address's site, kept in the app's home folder as before; every other
+site keeps its files in `sites/<name>` there. The sites are listed in `sites.json`, each with its
+one host, added with `imageskin site add`; an address with no site is answered Site not found.
 """
 
+import json
 import logging
+import os
+import re
 import threading
 import time
 from collections.abc import Awaitable, Callable, MutableMapping
@@ -32,20 +41,141 @@ from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import AdminSettingsStore
 from imageskin.config import default_home
 from imageskin.customization_history import History
+from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HostAccounts
 from imageskin.network import NetworkMonth
 from imageskin.settings_access import SettingsAccess
 
 logger = logging.getLogger(__name__)
 
-# The one site there is until R61: the app's home folder, at every address.
-DEFAULT_SITE = "default"
+# Site names are subdomains (R61): letters, digits and hyphens, not starting or ending with one.
+SITE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+# Subdomains of the main address that are the main address's site, and names kept for the
+# service's own uses, so no site can have them.
+MAIN_NAMES = frozenset({"www", "app"})
+RESERVED = MAIN_NAMES | {"admin", "api", "trial", "mail", DEFAULT_SITE}
+SITES_FILE = "sites.json"
+SITES_FOLDER = "sites"
+NOT_FOUND_PAGE = (
+    "<!doctype html><meta charset=utf-8><title>Site not found</title>"
+    "<p>Site not found. Check the address, or go to the main address.</p>"
+)
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 Asgi = Callable[[Scope, Receive, Send], Awaitable[None]]
+
+
+class SiteError(Exception):
+    """A site can't be added, said in plain words."""
+
+
+class SiteDirectory:
+    """The sites besides the main address's, each with its host, kept in sites.json."""
+
+    def __init__(self, home: Path, hosts: HostAccounts) -> None:
+        self.home = home
+        self.path = home / SITES_FILE
+        self._hosts = hosts
+        self._lock = threading.Lock()
+        self._seen: tuple[int, int] | None = None
+        self._sites: dict[str, dict[str, Any]] = {}
+
+    def _load(self) -> dict[str, dict[str, Any]]:
+        """The sites, read again only when the file has changed. One that can't be read is
+        logged and has no sites, so no request reaches a site it may not be."""
+        try:
+            stat = self.path.stat()
+            seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            seen = None
+        except OSError as e:
+            logger.error("Could not read the sites file", extra={"error": str(e)})
+            return {}
+        if seen != self._seen:
+            sites: dict[str, dict[str, Any]] = {}
+            if seen is not None:
+                try:
+                    sites = json.loads(self.path.read_text(encoding="utf-8"))["sites"]
+                    if not isinstance(sites, dict):
+                        raise ValueError("sites must be an object")
+                except (OSError, ValueError, KeyError, TypeError) as e:
+                    logger.error(
+                        "Could not read the sites file",
+                        extra={"path": str(self.path), "error": str(e)},
+                    )
+                    return {}
+            self._sites, self._seen = sites, seen
+        return self._sites
+
+    def names(self) -> list[str]:
+        with self._lock:
+            return sorted(self._load())
+
+    def exists(self, name: str) -> bool:
+        with self._lock:
+            return name in self._load()
+
+    def host(self, name: str) -> str | None:
+        """The site's host's email."""
+        with self._lock:
+            site = self._load().get(name)
+        return None if site is None else str(site["host"])
+
+    def add(self, name: str, email: str) -> Path:
+        """Add the site, with the host as its one host, and return its folder. SiteError when
+        the name can't be a subdomain or is taken, or the host isn't one or has a site."""
+        name = name.strip().lower()
+        if not SITE_NAME.fullmatch(name):
+            raise SiteError(
+                "A site's name can have only letters, digits and hyphens, at most 63 of them,"
+                " and can't start or end with a hyphen."
+            )
+        if name in RESERVED:
+            raise SiteError(f"{name} is kept for the service. Choose another name.")
+        with self._lock:
+            sites = dict(self._load())
+            if name in sites:
+                raise SiteError(f"There is already a site called {name}.")
+            host_site = self._hosts.site_of(email)
+            if host_site is None:
+                raise SiteError(f"No host has signed up as {email}.")
+            if host_site != DEFAULT_SITE:
+                raise SiteError(f"{email} is already the host of {host_site}.")
+            sites[name] = {"host": email.strip().lower(), "created_at": time.time()}
+            writing = self.path.with_name(f"{SITES_FILE}.writing")
+            writing.write_text(json.dumps({"sites": sites}, indent=2), encoding="utf-8")
+            os.replace(writing, self.path)
+            self._hosts.set_site(email, name)
+        folder = site_home(name, self.home)
+        folder.mkdir(parents=True, exist_ok=True)
+        logger.info("Site added", extra={"site": name, "host": email, "path": str(folder)})
+        return folder
+
+
+def site_matcher(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str | None]:
+    """Each request's site by its address (R61): None for an address with no site."""
+    suffixes = (".localhost", f".{main_domain.strip('.').lower()}")
+
+    def site_of(scope: Scope) -> str | None:
+        host = address_of(scope).lower()
+        label = next((host[: -len(s)] for s in suffixes if host.endswith(s)), None)
+        if label is None or label in MAIN_NAMES:
+            return DEFAULT_SITE  # localhost, the main domain or the server's own IP address
+        return label if sites.exists(label) else None
+
+    return site_of
+
+
+def address_of(scope: Scope) -> str:
+    """The request's Host header without its port."""
+    headers = dict(scope.get("headers") or [])
+    host = bytes(headers.get(b"host", b"")).decode("latin-1")
+    if host.startswith("["):  # an IPv6 address
+        return host[: host.find("]") + 1]
+    return host.rsplit(":", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -60,6 +190,7 @@ class Service:
     network_month: NetworkMonth
     admin_history: History
     admin_guidelines: AdminGuidelinesFile
+    sites: SiteDirectory
 
 
 def make_service(
@@ -89,11 +220,12 @@ def make_service(
         network_month=NetworkMonth(home),
         admin_history=admin_history,
         admin_guidelines=AdminGuidelinesFile(home, admin_history.saved),
+        sites=SiteDirectory(home, host_accounts),
     )
 
 
-def one_site(scope: Scope) -> str:
-    """Every request is the one site's until R61 matches it by its address."""
+def one_site(scope: Scope) -> str | None:
+    """Every request the main address's: for an app with one site, as the tests have."""
     return DEFAULT_SITE
 
 
@@ -101,8 +233,11 @@ class SiteApps:
     """The server's ASGI app: each request goes to its site's own app, made by `make` the first
     time the site is used, once, however many requests ask for it at the same time."""
 
-    def __init__(self, make: Callable[[str], Asgi], site_of: Callable[[Scope], str] = one_site):
+    def __init__(
+        self, make: Callable[[str], Asgi], site_of: Callable[[Scope], str | None] = one_site
+    ):
         self._make = make
+        self._matched: set[str] = set()  # the sites already logged at info level
         self._site_of = site_of
         self._apps: dict[str, Asgi] = {}
         # Held only to look in or change the two dicts, never while a site is made, so a site
@@ -148,11 +283,38 @@ class SiteApps:
             await self._lifespan(receive, send)
             return
         site = self._site_of(scope)
+        address = address_of(scope)
+        if site is None:
+            logger.warning("Site not found", extra={"address": address, "path": scope.get("path")})
+            await self._not_found(scope, send)
+            return
         with self._lock:
+            first = site not in self._matched
+            self._matched.add(site)
             made = self._apps.get(site)
+        # Once per site at info level, then at debug, as every request is matched.
+        logger.log(
+            logging.INFO if first else logging.DEBUG,
+            "Site matched",
+            extra={"site": site, "address": address},
+        )
         if made is None:  # made in a thread, so a slow start never holds up the other sites
             made = await anyio.to_thread.run_sync(self.app, site)
         await made(scope, receive, send)
+
+    @staticmethod
+    async def _not_found(scope: Scope, send: Send) -> None:
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4404})
+            return
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [(b"content-type", b"text/html; charset=utf-8")],
+            }
+        )
+        await send({"type": "http.response.body", "body": NOT_FOUND_PAGE.encode()})
 
     @staticmethod
     async def _lifespan(receive: Receive, send: Send) -> None:
@@ -166,8 +328,12 @@ class SiteApps:
                 return
 
 
-def site_home(site: str) -> Path:
-    """The folder a site's files are kept in. Until R61, the one site's is the app's home."""
-    if site != DEFAULT_SITE:
-        raise ValueError(f"No site {site!r} yet: there is one site until R61.")
-    return default_home()
+def site_home(site: str, home: Path | None = None) -> Path:
+    """The folder a site's files are kept in: the main address's is the app's home folder, as
+    before R61, and every other site's is a folder of its own in it."""
+    home = home or default_home()
+    if site == DEFAULT_SITE:
+        return home
+    if not SITE_NAME.fullmatch(site):
+        raise ValueError(f"{site!r} is not a site's name.")
+    return home / SITES_FOLDER / site

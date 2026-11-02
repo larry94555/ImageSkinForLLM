@@ -10,7 +10,14 @@ from fastapi.responses import JSONResponse
 
 from imageskin.admin_api import address
 from imageskin.admin_settings import CustomUse
-from imageskin.hosts import Host, HostAccounts, HostRefused, HostsUnreadable, normal_email
+from imageskin.hosts import (
+    DEFAULT_SITE,
+    Host,
+    HostAccounts,
+    HostRefused,
+    HostsUnreadable,
+    normal_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +25,8 @@ COOKIE = "imageskin_host"
 # Kept until the host signs out (item 148): the browser's longest, about 400 days.
 COOKIE_MAX_AGE = 400 * 24 * 60 * 60
 NOT_SIGNED_IN = "Sign in as a host to do this."
+# Until R62 makes a site at sign-up, a site other than the main address's has its one host (R61).
+SITE_HAS_HOST = "This site already has its host. Sign up at the main address instead."
 
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 Email = Annotated[str, Body(embed=True)]
@@ -27,15 +36,20 @@ HostPage = Literal["sign-up", "sign-in"]
 
 
 def host_router(
-    accounts: HostAccounts, may_use: Callable[[Host], CustomUse]
+    accounts: HostAccounts, may_use: Callable[[Host], CustomUse], site: str = DEFAULT_SITE
 ) -> tuple[APIRouter, Callable[[str | None], Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
-    Admin settings change applies at once."""
+    Admin settings change applies at once. Only the `site`'s host is signed in here (R61): another
+    site's sign-in, sent here by hand, counts as none."""
+
+    def own_host(token: str | None) -> Host | None:
+        return accounts.host(token, site)
+
     router = APIRouter(prefix="/api/host")
 
     def require_host(token: Token = None) -> Host:
-        host = accounts.host(token)
+        host = own_host(token)
         if host is None:
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
         return host
@@ -57,11 +71,16 @@ def host_router(
     @router.get("/session")
     def session(token: Token = None) -> dict[str, object]:
         """Whether this browser is signed in as a host, and as whom."""
-        host = accounts.host(token)
+        host = own_host(token)
         return {"signed_in": host is not None, "email": host and host.email}
 
     @router.post("/sign-up")
     def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:
+        if site != DEFAULT_SITE:
+            logger.info(
+                "Host sign-up refused", extra={"site": site, "why": "the site has its host"}
+            )
+            return JSONResponse({"detail": SITE_HAS_HOST}, status_code=403)
         try:
             token = accounts.sign_up(email, password, address(request))
         except HostRefused as e:
@@ -74,7 +93,7 @@ def host_router(
     @router.post("/sign-in")
     def sign_in(request: Request, email: Email, password: Password) -> JSONResponse:
         try:
-            token = accounts.sign_in(email, password, address(request))
+            token = accounts.sign_in(email, password, address(request), site)
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:

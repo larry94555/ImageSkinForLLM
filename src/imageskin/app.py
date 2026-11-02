@@ -106,7 +106,7 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import Host, HostsUnreadable, normal_email
+from imageskin.hosts import DEFAULT_SITE, Host, HostsUnreadable, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -655,6 +655,8 @@ def create_app(
     app.state.startup = startup
     data_home = home or default_home()
     site_name = site or data_home.name
+    # Whose host signs in here (R61): the site's, or the main address's for an app made alone.
+    host_site = site or DEFAULT_SITE
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -714,7 +716,7 @@ def create_app(
     # Settings only for a signed-in host or a listed admin laptop (R191): its calls, and the
     # admin sign-in on it, refuse anyone else as if not found.
     settings_access = service.settings_access
-    settings_routes, require_settings = settings_router(settings_access)
+    settings_routes, require_settings = settings_router(settings_access, host_site)
     settings_only = [Depends(require_settings)]
     app.include_router(settings_routes)
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins, [require_settings])
@@ -750,7 +752,7 @@ def create_app(
 
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
-        host_accounts, lambda host: may_use(host.email)
+        host_accounts, lambda host: may_use(host.email), host_site
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -800,7 +802,7 @@ def create_app(
         host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
         admin_token: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
     ) -> dict[str, int]:
-        host = host_accounts.host(host_token)
+        host = host_accounts.host(host_token, host_site)
         admin = admin_sign_ins.signed_in(admin_token)
         wanted = normal_email(email) if email else (host.email if host else None)
 
@@ -990,7 +992,7 @@ def create_app(
         # The view follows who is signed in (R190): anyone not signed in as a host gets the
         # participant view; a host gets the view chosen in the settings, so they can look at the
         # app as a participant does.
-        host = host_accounts.host(host_token)
+        host = host_accounts.host(host_token, host_site)
         if host is None:
             settings["view"] = "participant"
         logger.info(
@@ -1011,11 +1013,14 @@ def create_app(
         # The saved view is the host's, so only a signed-in host changes it (Codex's review of
         # PR #233). The rest are the Settings page's (R191), but the level of detail, which the
         # chat's own bar sets for anyone.
-        host = host_accounts.host(host_token)
+        host = host_accounts.host(host_token, host_site)
         if "view" in changes and host is None:
             logger.warning("View change refused", extra={"why": "no host signed in"})
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
-        if set(changes) - CHAT_SETTINGS and settings_access.who(host_token, laptop_token) is None:
+        if (
+            set(changes) - CHAT_SETTINGS
+            and settings_access.who(host_token, laptop_token, host_site) is None
+        ):
             logger.info("Settings call refused", extra={"method": "PATCH", "path": "/api/settings"})
             raise HTTPException(status_code=404, detail="Not Found")
         try:

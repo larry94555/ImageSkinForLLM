@@ -27,6 +27,9 @@ from imageskin.admin_settings import Choice
 logger = logging.getLogger(__name__)
 
 FILENAME = "hosts.json"
+# The site at the main address (R61): every host's until they are given a site of their own.
+DEFAULT_SITE = "default"
+SITE = "site"  # the host's site, kept with the host; none for the main address's
 MIN_PASSWORD = 10
 # Enough to catch a typo, not a full check: confirming the address comes with R62.
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -74,6 +77,7 @@ def token_key(token: str) -> str:
 class Host:
     email: str
     created_at: float
+    site: str = DEFAULT_SITE  # the site the host signs in to and manages (R61)
 
 
 class HostAccounts:
@@ -171,9 +175,9 @@ class HostAccounts:
         )
         return token
 
-    def sign_in(self, email: str, password: str, address: str) -> str:
+    def sign_in(self, email: str, password: str, address: str, site: str = DEFAULT_SITE) -> str:
         """A new sign-in's token; HostRefused, with the same words for an unknown email and a
-        wrong password, when either is wrong."""
+        wrong password, when either is wrong, or the host is another site's (R61)."""
         start = time.perf_counter()
         email = normal_email(email)
         with self._lock:
@@ -183,6 +187,8 @@ class HostAccounts:
         if not check_password(password, secret):
             reason = "wrong password" if account else "no such host"
             self._refuse(WRONG, reason, "sign-in", email, address)
+        if account and account.get(SITE, DEFAULT_SITE) != site:
+            self._refuse(WRONG, "another site's host", "sign-in", email, address)
         with self._lock:
             data = self._load()
             now = data["hosts"].get(email)
@@ -219,8 +225,9 @@ class HostAccounts:
             hosts = list(self._load()["hosts"])
         return sorted(e for e in hosts if wanted in e.lower())
 
-    def host(self, token: str | None) -> Host | None:
-        """The host the token is signed in as, or None."""
+    def host(self, token: str | None, site: str | None = None) -> Host | None:
+        """The host the token is signed in as, or None; with `site`, only that site's host
+        (R61), so another site's sign-in counts as none."""
         if not token:
             return None
         with self._lock:
@@ -232,7 +239,14 @@ class HostAccounts:
             account = session and data["hosts"].get(session["email"])
         if not account:
             return None
-        return Host(session["email"], account["created_at"])
+        host = Host(session["email"], account["created_at"], account.get(SITE, DEFAULT_SITE))
+        if site is not None and host.site != site:
+            logger.warning(
+                "Another site's host refused",
+                extra={"email": host.email, "site": site, "host_site": host.site},
+            )
+            return None
+        return host
 
     def sign_out(self, token: str | None, address: str) -> None:
         """End the token's sign-in on the server, so the same cookie is refused from now on."""
@@ -266,6 +280,32 @@ class HostAccounts:
             ended = len(data["sessions"]) - len(sessions)
             self._save({**data, "hosts": hosts, "sessions": sessions})
         logger.info("Host password reset", extra={"email": email, "sign_ins_ended": ended})
+        return True
+
+    def site_of(self, email: str) -> str | None:
+        """The host's site (R61), or None when there is no such host."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email))
+        return None if account is None else str(account.get(SITE, DEFAULT_SITE))
+
+    def set_site(self, email: str, site: str) -> bool:
+        """Make the host the site's (R61), ending their sign-ins, which were the old site's.
+        False when there is no such host."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            if email not in data["hosts"]:
+                logger.warning("Host site not set", extra={"email": email, "why": "no host"})
+                return False
+            account = {**data["hosts"][email]}
+            old = account.get(SITE, DEFAULT_SITE)
+            if site == DEFAULT_SITE:
+                account.pop(SITE, None)
+            else:
+                account[SITE] = site
+            sessions = {k: v for k, v in data["sessions"].items() if v["email"] != email}
+            self._save({**data, "hosts": {**data["hosts"], email: account}, "sessions": sessions})
+        logger.info("Host site set", extra={"email": email, "site": site, "old_site": old})
         return True
 
     def choices(self, email: str) -> tuple[Choice, Choice]:

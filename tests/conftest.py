@@ -25,10 +25,12 @@ def signed_in_host(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
     anyone else; tests marked `real_hosts` sign in, or don't, for themselves."""
     if request.node.get_closest_marker("real_hosts"):
         return
-    from imageskin.hosts import Host
+    from imageskin.hosts import DEFAULT_SITE, Host
 
+    # The host of whichever site asks (R61).
     monkeypatch.setattr(
-        "imageskin.hosts.HostAccounts.host", lambda self, token: Host("host@example.com", 0.0)
+        "imageskin.hosts.HostAccounts.host",
+        lambda self, token, site=None: Host("host@example.com", 0.0, site or DEFAULT_SITE),
     )
 
 
