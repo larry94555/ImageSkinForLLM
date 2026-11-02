@@ -45,7 +45,13 @@ def test_only_caddy_reaches_the_app() -> None:
 def test_every_variable_compose_needs_is_in_the_example_env() -> None:
     needed = set(re.findall(r"\$\{(\w+):\?", text(DEPLOY / "compose.yaml")))
     example = set(re.findall(r"^(\w+)=", text(DEPLOY / ".env.example"), re.MULTILINE))
-    assert needed == {"SITE_ADDRESS", "LOGIN_NAME", "LOGIN_PASSWORD_HASH"}
+    assert needed == {
+        "SITE_ADDRESS",
+        "LOGIN_NAME",
+        "LOGIN_PASSWORD_HASH",
+        "MAIN_DOMAIN",
+        "CLOUDFLARE_API_TOKEN",
+    }
     assert needed <= example
     assert "deploy/.env" in text(ROOT / ".gitignore").splitlines()  # the hash stays on the server
 
@@ -206,3 +212,38 @@ def test_the_guide_and_the_faq_cover_the_allowed_laptops() -> None:
     faq_link = "../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why"
     assert faq_link in text(DEPLOY / "README.md")
     assert "Only the laptops you list" in text(DEPLOY / "README.md")
+
+
+def test_every_subdomain_is_served_with_the_wildcard_certificate() -> None:
+    # Each site at its own subdomain (roadmap R71a): *.<MAIN_DOMAIN>, with the certificate from
+    # Cloudflare's DNS check, served as the main address is, password and all.
+    caddyfile = text(DEPLOY / "Caddyfile")
+    main = caddyfile.split("\n{$SITE_ADDRESS} {")[1].split("\n}")[0]
+    wildcard = caddyfile.split("\n*.{$MAIN_DOMAIN} {")[1].split("\n}")[0]
+    assert "import site" in main and "import site" in wildcard
+    assert "dns cloudflare {env.CLOUDFLARE_API_TOKEN}" in wildcard
+    snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
+    assert snippet.index("basic_auth") < snippet.index("reverse_proxy app:8000")
+    # Caddy is built with that module, and given the domain and the token.
+    assert "xcaddy build --with github.com/caddy-dns/cloudflare" in text(
+        DEPLOY / "caddy/Dockerfile"
+    )
+    caddy = text(DEPLOY / "compose.yaml").split("\n  caddy:")[1]
+    assert "build: ./caddy" in caddy and "image: caddy:2" not in caddy
+    assert "MAIN_DOMAIN: ${MAIN_DOMAIN:?" in caddy
+    assert "CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?" in caddy
+
+
+def test_the_main_domain_is_the_same_for_caddy_and_the_app() -> None:
+    example = re.search(r"^MAIN_DOMAIN=(.+)$", text(DEPLOY / ".env.example"), re.MULTILINE)
+    assert example is not None
+    assert load_settings(DEPLOY / "config.toml").main_domain == example.group(1)
+
+
+def test_the_subdomain_guide_is_there_and_linked() -> None:
+    guide = text(DEPLOY / "SUBDOMAINS.md")
+    for step in ("## 1. Move me0.ai's DNS to Cloudflare", "## Checklist", "## If it doesn't work"):
+        assert step in guide
+    for check in ("caddy list-modules", "caddy validate", "nslookup anything.me0.ai"):
+        assert check in guide
+    assert "[SUBDOMAINS.md](SUBDOMAINS.md)" in text(DEPLOY / "README.md")

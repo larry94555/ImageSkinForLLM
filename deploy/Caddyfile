@@ -1,6 +1,8 @@
 # HTTPS and the password in front of the app (roadmap R32). Caddy gets and renews the
-# certificate from Let's Encrypt for SITE_ADDRESS by itself. The values come from .env.
-{$SITE_ADDRESS} {
+# certificates from Let's Encrypt by itself. The values come from .env.
+
+# What every address serves: the default people's packs, then the app behind the password.
+(site) {
 	# The default people's packs (roadmap R32a), for Start now on any computer: made-up people,
 	# so they are served without the password. Only the .zip files in default-people/ are sent.
 	handle_path /default-people/* {
@@ -12,7 +14,8 @@
 		respond 404
 	}
 	handle {
-		# One name and password for the rest of the site, asked for once by the browser.
+		# One name and password for the rest of the site, asked for once by the browser, until
+		# R71 removes it for the customers' sites.
 		basic_auth {
 			{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}
 		}
@@ -22,6 +25,23 @@
 		}
 	}
 	log
+}
+
+# The main address, such as app.me0.ai, with its own certificate, as before.
+{$SITE_ADDRESS} {
+	import site
+}
+
+# Every site's own subdomain, such as anna.me0.ai (roadmap R61, R71a): one certificate for all
+# of them, *.me0.ai, which Let's Encrypt gives only after a DNS check that Caddy does through
+# Cloudflare's API (caddy/Dockerfile, SUBDOMAINS.md). The main address above is matched first.
+*.{$MAIN_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+		# Ask Cloudflare's own resolver whether the check's record is there yet.
+		resolvers 1.1.1.1
+	}
+	import site
 }
 
 # The same packs for the hosted app itself, over plain HTTP inside Docker only (no port of
