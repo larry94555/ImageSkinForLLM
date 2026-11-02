@@ -650,3 +650,25 @@ test("an answer to an earlier Compare, or one asked before Go back, is ignored w
   await new Promise((r) => setTimeout(r, 20));
   expect(history.queryByRole("region", { name: "Goals compared" })).toBeNull();
 });
+
+test("a disabled host reads the customization and its history, with every change turned off", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  server(true);
+  const real = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, init) =>
+    url === "/api/host/session"
+      ? Response.json({ signed_in: true, email: "host@example.com", disabled: true })
+      : real(url, init),
+  );
+  const identity = within(await opened());
+  expect(identity.getByRole("textbox", { name: /^Name/ }).matches(":disabled")).toBe(true);
+  expect(identity.getByRole("button", { name: "Save the identity" }).matches(":disabled")).toBe(true);
+  const history = within(screen.getByRole("region", { name: "History" }));
+  const toggle = history.getByRole("button", { name: "History" });
+  expect(toggle.matches(":disabled")).toBe(false); // reading stays on
+  fireEvent.click(toggle);
+  await history.findByRole("group", { name: "Goals" });
+  for (const b of history.getAllByRole("button", { name: /^Go back to/ })) expect(b.matches(":disabled")).toBe(true);
+  for (const b of history.getAllByRole("button", { name: "Edit" })) expect(b.matches(":disabled")).toBe(true);
+  for (const b of history.getAllByRole("button", { name: /^Compare/ })) expect(b.matches(":disabled")).toBe(false);
+});

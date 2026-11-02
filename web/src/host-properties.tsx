@@ -23,7 +23,7 @@ import { navigation } from "./host";
 // What the server answered, and the search it answered: only the answer for what is in the box
 // now is shown (Codex's review of PR #267), so while a new search is read, the last one's list or
 // message isn't shown under it.
-type Answer = { query: string; hosts: string[] } | { query: string; error: string };
+type Answer = { query: string; hosts: string[]; disabled: string[] } | { query: string; error: string };
 
 export function HostProperties() {
   const { refresh } = useAdmin();
@@ -39,8 +39,8 @@ export function HostProperties() {
     getAdminHosts(query).then(
       (found) => {
         if (!active) return;
-        console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
-        setAnswer({ query, hosts: found });
+        console.info(`Host list: ${found.hosts.length} shown (${Math.round(performance.now() - started)} ms)`);
+        setAnswer({ query, ...found });
       },
       (e: unknown) => {
         if (!active) return;
@@ -88,14 +88,31 @@ export function HostProperties() {
               >
                 {email}
               </button>
+              {current.disabled.includes(email) && <span className="host-state">Disabled: read-only for them</span>}
               {/* Keyed by the host, so one host's answer is never shown for another. */}
-              {email === selected && <HostChoicesPanel key={email} email={email} />}
+              {email === selected && (
+                <HostChoicesPanel
+                  key={email}
+                  email={email}
+                  onDisabled={(disabled) => setAnswer(withDisabled(current, email, disabled))}
+                />
+              )}
             </li>
           ))}
         </ul>
       )}
     </section>
   );
+}
+
+// The list with one host's state changed, as Disable or Enable saved it (R44d).
+function withDisabled(
+  answer: { query: string; hosts: string[]; disabled: string[] },
+  email: string,
+  disabled: boolean,
+): Answer {
+  const others = answer.disabled.filter((e) => e !== email);
+  return { ...answer, disabled: disabled ? [...others, email] : others };
 }
 
 const KINDS: { kind: CustomKind; label: string }[] = [
@@ -106,7 +123,13 @@ const KINDS: { kind: CustomKind; label: string }[] = [
 // The selected host's Allow and Deny (R242). Allow and Deny of the same thing can't both be
 // chosen: choosing one clears the other, and choosing it again clears it, back to the default.
 // Each choice is saved at once and used from the host's next page.
-function HostChoicesPanel({ email }: { email: string }) {
+function HostChoicesPanel({
+  email,
+  onDisabled,
+}: {
+  email: string;
+  onDisabled?: (disabled: boolean) => void;
+}) {
   const { refresh } = useAdmin();
   const [choices, setChoices] = useState<HostChoices | null>(null);
   const [busy, setBusy] = useState(false);
@@ -139,14 +162,19 @@ function HostChoicesPanel({ email }: { email: string }) {
   }
 
   // Disable or Enable (R44c): a disabled host's site is read-only for them.
+  // Disable asks first, naming the host (R44d); Enable doesn't, as it only gives back.
+  const [askingDisable, setAskingDisable] = useState(false);
   async function toggleDisabled() {
     if (!choices) return;
     const next = !choices.disabled;
+    setAskingDisable(false);
     setBusy(true);
     setError(null);
     const started = performance.now();
     try {
-      setChoices(await setHostDisabled(email, next));
+      const saved = await setHostDisabled(email, next);
+      setChoices(saved);
+      onDisabled?.(saved.disabled === true);
       console.info(`Host ${next ? "disabled" : "enabled"} (${Math.round(performance.now() - started)} ms)`);
     } catch (e) {
       failed(e, "Could not disable or enable the host");
@@ -197,7 +225,11 @@ function HostChoicesPanel({ email }: { email: string }) {
         </div>
       ))}
       <div className="host-choice">
-        <button type="button" disabled={busy} onClick={() => void toggleDisabled()}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => (choices.disabled ? void toggleDisabled() : setAskingDisable(true))}
+        >
           {choices.disabled ? "Enable" : "Disable"}
         </button>
         <span className="muted">
@@ -213,6 +245,20 @@ function HostChoicesPanel({ email }: { email: string }) {
         <span className="muted">Open their site as them, with all of their abilities.</span>
       </div>
       {error && <p className="error">{error}</p>}
+      {askingDisable && (
+        <ConfirmDialog
+          title={`Disable ${email}?`}
+          keepLabel="No, keep it as it is"
+          confirmLabel="Yes, disable this host"
+          onCancel={() => setAskingDisable(false)}
+          onConfirm={() => void toggleDisabled()}
+        >
+          <p>
+            Their site becomes read-only for them: they can still sign in and read it, but every
+            change is turned off. You can still change it by acting as them, and Enable undoes it.
+          </p>
+        </ConfirmDialog>
+      )}
       {asking && (
         <ConfirmDialog
           title={`Act as ${email}?`}

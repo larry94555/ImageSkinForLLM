@@ -533,7 +533,11 @@ async function getAdminSettings() {
 async function getAdminHosts(q = "") {
 	const response = await fetch(q ? `/api/admin/hosts?q=${encodeURIComponent(q)}` : "/api/admin/hosts");
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-	return (await response.json()).hosts;
+	const found = await response.json();
+	return {
+		hosts: found.hosts,
+		disabled: found.disabled ?? []
+	};
 }
 async function getHostChoices(email) {
 	const response = await fetch(`/api/admin/hosts/properties?email=${encodeURIComponent(email)}`);
@@ -2580,88 +2584,90 @@ function SettingsPage({ back, onDataDeleted }) {
 				className: "error",
 				children: "The setting could not be changed. Try again."
 			}),
-			host && /* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "settings-view",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "settings-view",
-						children: "View"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "Who the app is set out for."
-					}),
-					/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", {
-						className: "sr-only",
-						children: "View"
-					}), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
-						className: "choice",
-						children: [
-							/* @__PURE__ */ u("input", {
-								type: "radio",
-								name: "view",
-								value: view,
-								checked: settings.view === view,
-								onChange: () => chooseView(view)
-							}),
-							" ",
-							/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+			/* @__PURE__ */ u(ReadOnly, { children: [
+				host && /* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "settings-view",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "settings-view",
+							children: "View"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Who the app is set out for."
+						}),
+						/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", {
+							className: "sr-only",
+							children: "View"
+						}), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
+							className: "choice",
+							children: [
+								/* @__PURE__ */ u("input", {
+									type: "radio",
+									name: "view",
+									value: view,
+									checked: settings.view === view,
+									onChange: () => chooseView(view)
+								}),
+								" ",
+								/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+									className: "muted",
+									children: [" · ", about]
+								})] })
+							]
+						}, view))] })
+					]
+				}),
+				SWITCHES.map(({ group, about, items }) => /* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": `settings-${group}`,
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: `settings-${group}`,
+							children: group
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: about
+						}),
+						items.map(([name, label, help]) => /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: [/* @__PURE__ */ u("label", { children: [
+								/* @__PURE__ */ u("input", {
+									type: "checkbox",
+									checked: settings[name],
+									onChange: (e) => {
+										const box = e.currentTarget;
+										save({ [name]: box.checked }, () => box.checked = !box.checked);
+									}
+								}),
+								" ",
+								label
+							] }), /* @__PURE__ */ u("p", {
 								className: "muted",
-								children: [" · ", about]
-							})] })
-						]
-					}, view))] })
-				]
-			}),
-			SWITCHES.map(({ group, about, items }) => /* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": `settings-${group}`,
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: `settings-${group}`,
-						children: group
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: about
-					}),
-					items.map(([name, label, help]) => /* @__PURE__ */ u("div", {
-						className: "switch",
-						children: [/* @__PURE__ */ u("label", { children: [
-							/* @__PURE__ */ u("input", {
-								type: "checkbox",
-								checked: settings[name],
-								onChange: (e) => {
-									const box = e.currentTarget;
-									save({ [name]: box.checked }, () => box.checked = !box.checked);
-								}
-							}),
-							" ",
-							label
-						] }), /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: help
-						})]
-					}, name)),
-					group === "Chat" && host && /* @__PURE__ */ u("div", {
-						className: "switch",
-						children: [/* @__PURE__ */ u("a", {
-							href: "#/customization",
-							children: "Customization"
-						}), /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "Who the person in the video is and their goals, given to the LLM with every prompt."
-						})]
-					})
-				]
-			}, group)),
-			settings.view === "host" && /* @__PURE__ */ u(LlmSettingSection, {}),
-			settings.view === "host" && /* @__PURE__ */ u(ChatGptPlanSection, {}),
-			/* @__PURE__ */ u(YourFiles, {}),
-			settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
-			/* @__PURE__ */ u(VideoAndChat, {}),
-			settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+								children: help
+							})]
+						}, name)),
+						group === "Chat" && host && /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: [/* @__PURE__ */ u("a", {
+								href: "#/customization",
+								children: "Customization"
+							}), /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: "Who the person in the video is and their goals, given to the LLM with every prompt."
+							})]
+						})
+					]
+				}, group)),
+				settings.view === "host" && /* @__PURE__ */ u(LlmSettingSection, {}),
+				settings.view === "host" && /* @__PURE__ */ u(ChatGptPlanSection, {}),
+				/* @__PURE__ */ u(YourFiles, {}),
+				settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
+				/* @__PURE__ */ u(VideoAndChat, {}),
+				settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted })
+			] }),
 			/* @__PURE__ */ u(AdminSection, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
@@ -2852,6 +2858,31 @@ function ActingBar() {
 			onClick: () => void stop(),
 			children: "Stop acting"
 		})]
+	});
+}
+function useReadOnly() {
+	const { session } = useHost();
+	return session?.signed_in === true && session.disabled === true && session.acting_as_admin !== true;
+}
+var READ_ONLY_WORDS = "Your site is read-only. Changes are turned off by the administrator.";
+function ReadOnlyBar() {
+	const readOnly = useReadOnly();
+	h(() => {
+		if (readOnly) console.info("Site read-only: host disabled");
+	}, [readOnly]);
+	if (!readOnly) return null;
+	return /* @__PURE__ */ u("div", {
+		className: "read-only-bar",
+		role: "status",
+		children: READ_ONLY_WORDS
+	});
+}
+function ReadOnly({ children }) {
+	const readOnly = useReadOnly();
+	return /* @__PURE__ */ u("fieldset", {
+		className: "read-only",
+		disabled: readOnly,
+		children
 	});
 }
 function ActAsFailedPage() {
@@ -3356,10 +3387,10 @@ function HostProperties() {
 		const started = performance.now();
 		getAdminHosts(query).then((found) => {
 			if (!active) return;
-			console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
+			console.info(`Host list: ${found.hosts.length} shown (${Math.round(performance.now() - started)} ms)`);
 			setAnswer({
 				query,
-				hosts: found
+				...found
 			});
 		}, (e) => {
 			if (!active) return;
@@ -3408,19 +3439,36 @@ function HostProperties() {
 			current && "hosts" in current && current.hosts.length > 0 && /* @__PURE__ */ u("ul", {
 				className: "host-list",
 				"aria-label": "Hosts",
-				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("button", {
-					type: "button",
-					className: email === selected ? "host-pick picked" : "host-pick",
-					"aria-pressed": email === selected,
-					onClick: () => {
-						console.info("Host selected in Host properties");
-						setSelected(email === selected ? null : email);
-					},
-					children: email
-				}), email === selected && /* @__PURE__ */ u(HostChoicesPanel, { email }, email)] }, email))
+				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: email === selected ? "host-pick picked" : "host-pick",
+						"aria-pressed": email === selected,
+						onClick: () => {
+							console.info("Host selected in Host properties");
+							setSelected(email === selected ? null : email);
+						},
+						children: email
+					}),
+					current.disabled.includes(email) && /* @__PURE__ */ u("span", {
+						className: "host-state",
+						children: "Disabled: read-only for them"
+					}),
+					email === selected && /* @__PURE__ */ u(HostChoicesPanel, {
+						email,
+						onDisabled: (disabled) => setAnswer(withDisabled(current, email, disabled))
+					}, email)
+				] }, email))
 			})
 		]
 	});
+}
+function withDisabled(answer, email, disabled) {
+	const others = answer.disabled.filter((e) => e !== email);
+	return {
+		...answer,
+		disabled: disabled ? [...others, email] : others
+	};
 }
 var KINDS = [{
 	kind: "custom_image",
@@ -3429,7 +3477,7 @@ var KINDS = [{
 	kind: "custom_voice",
 	label: "Custom Sound"
 }];
-function HostChoicesPanel({ email }) {
+function HostChoicesPanel({ email, onDisabled }) {
 	const { refresh } = useAdmin();
 	const [choices, setChoices] = d(null);
 	const [busy, setBusy] = d(false);
@@ -3457,14 +3505,18 @@ function HostChoicesPanel({ email }) {
 			setBusy(false);
 		}
 	}
+	const [askingDisable, setAskingDisable] = d(false);
 	async function toggleDisabled() {
 		if (!choices) return;
 		const next = !choices.disabled;
+		setAskingDisable(false);
 		setBusy(true);
 		setError(null);
 		const started = performance.now();
 		try {
-			setChoices(await setHostDisabled(email, next));
+			const saved = await setHostDisabled(email, next);
+			setChoices(saved);
+			onDisabled?.(saved.disabled === true);
 			console.info(`Host ${next ? "disabled" : "enabled"} (${Math.round(performance.now() - started)} ms)`);
 		} catch (e) {
 			failed(e, "Could not disable or enable the host");
@@ -3525,7 +3577,7 @@ function HostChoicesPanel({ email }) {
 				children: [/* @__PURE__ */ u("button", {
 					type: "button",
 					disabled: busy,
-					onClick: () => void toggleDisabled(),
+					onClick: () => choices.disabled ? void toggleDisabled() : setAskingDisable(true),
 					children: choices.disabled ? "Enable" : "Disable"
 				}), /* @__PURE__ */ u("span", {
 					className: "muted",
@@ -3547,6 +3599,14 @@ function HostChoicesPanel({ email }) {
 			error && /* @__PURE__ */ u("p", {
 				className: "error",
 				children: error
+			}),
+			askingDisable && /* @__PURE__ */ u(ConfirmDialog, {
+				title: `Disable ${email}?`,
+				keepLabel: "No, keep it as it is",
+				confirmLabel: "Yes, disable this host",
+				onCancel: () => setAskingDisable(false),
+				onConfirm: () => void toggleDisabled(),
+				children: /* @__PURE__ */ u("p", { children: "Their site becomes read-only for them: they can still sign in and read it, but every change is turned off. You can still change it by acting as them, and Enable undoes it." })
 			}),
 			asking && /* @__PURE__ */ u(ConfirmDialog, {
 				title: `Act as ${email}?`,
@@ -4233,7 +4293,7 @@ var CUSTOMIZATION_HISTORY = {
 	restore: restoreCustomizationChange,
 	compare: compareCustomizationChange
 };
-function HistorySection({ source, onRestored }) {
+function HistorySection({ source, onRestored, readOnly = false }) {
 	const [histories, setHistories] = d(null);
 	const [open, setOpen] = d(false);
 	const [error, setError] = d(null);
@@ -4367,6 +4427,7 @@ function HistorySection({ source, onRestored }) {
 						] }), c.number === h.current ? /* @__PURE__ */ u("button", {
 							type: "button",
 							className: "secondary",
+							disabled: readOnly,
 							onClick: () => edit(h),
 							children: "Edit"
 						}) : /* @__PURE__ */ u("span", {
@@ -4379,7 +4440,7 @@ function HistorySection({ source, onRestored }) {
 								children: "Compare"
 							}), /* @__PURE__ */ u("button", {
 								type: "button",
-								disabled: busy,
+								disabled: busy || readOnly,
 								"aria-label": `Go back to ${h.label} change ${c.number}`,
 								onClick: () => void goBack(h, c.number),
 								children: "Go back"
@@ -4404,6 +4465,7 @@ function HistorySection({ source, onRestored }) {
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
+	const readOnly = useReadOnly();
 	const [read, setRead] = d(null);
 	const [saves, setSaves] = d(0);
 	const [failed, setFailed] = d(false);
@@ -4440,7 +4502,7 @@ function CustomizationPage() {
 				children: "Loading…"
 			}),
 			read && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u(GenerateSection, {
+				/* @__PURE__ */ u(ReadOnly, { children: /* @__PURE__ */ u(GenerateSection, {
 					now: read,
 					onSaved: (saved) => {
 						setRead({
@@ -4449,8 +4511,9 @@ function CustomizationPage() {
 						});
 						setSaves((n) => n + 1);
 					}
-				}),
+				}) }),
 				/* @__PURE__ */ u(HistorySection, {
+					readOnly,
 					source: CUSTOMIZATION_HISTORY,
 					onRestored: (saved) => {
 						setRead({
@@ -4460,15 +4523,17 @@ function CustomizationPage() {
 						setSaves((n) => n + 1);
 					}
 				}),
-				/* @__PURE__ */ u(IdentitySection$1, { identity: read.identity }, `identity-${saves}`),
-				/* @__PURE__ */ u(GoalsSection$1, { goals: read.goals }, `goals-${saves}`),
-				read.features.length ? sections$1(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
-					name,
-					features
-				}, `${name}-${saves}`)) : /* @__PURE__ */ u(GuidelineSection, {
-					name: "Guidelines",
-					features: []
-				})
+				/* @__PURE__ */ u(ReadOnly, { children: [
+					/* @__PURE__ */ u(IdentitySection$1, { identity: read.identity }, `identity-${saves}`),
+					/* @__PURE__ */ u(GoalsSection$1, { goals: read.goals }, `goals-${saves}`),
+					read.features.length ? sections$1(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
+						name,
+						features
+					}, `${name}-${saves}`)) : /* @__PURE__ */ u(GuidelineSection, {
+						name: "Guidelines",
+						features: []
+					})
+				] })
 			] })
 		]
 	});
@@ -10418,18 +10483,18 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 					target: "_blank",
 					rel: "noreferrer",
 					children: "Open the PDF"
-				}), !participant && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Rebuild, {
+				}), !participant && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(ReadOnly, { children: /* @__PURE__ */ u(Rebuild, {
 					build,
 					onRebuild
-				}), /* @__PURE__ */ u(WikiTools, {
+				}) }), /* @__PURE__ */ u(WikiTools, {
 					contents,
 					onChanged
 				})] })]
 			}),
-			!participant && contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
+			!participant && contents.lost_edits.length > 0 && /* @__PURE__ */ u(ReadOnly, { children: /* @__PURE__ */ u(LostEdits, {
 				edits: contents.lost_edits,
 				onChanged
-			}),
+			}) }),
 			/* @__PURE__ */ u(Outline, {
 				pdf: contents.pdf_id,
 				entries: contents.entries,
@@ -10520,6 +10585,7 @@ function message(e, fallback) {
 	return e instanceof Error ? e.message : fallback;
 }
 function WikiTools({ contents, onChanged }) {
+	const readOnly = useReadOnly();
 	const pdf = contents.pdf_id;
 	const [showing, setShowing] = d(false);
 	const [asking, setAsking] = d(null);
@@ -10591,6 +10657,7 @@ function WikiTools({ contents, onChanged }) {
 					/* @__PURE__ */ u("button", {
 						type: "button",
 						className: "secondary",
+						disabled: readOnly,
 						onClick: () => picker.current?.click(),
 						children: "Load from a file"
 					}),
@@ -10645,6 +10712,7 @@ function WikiTools({ contents, onChanged }) {
 	});
 }
 function History({ contents, onRestore }) {
+	const readOnly = useReadOnly();
 	const pdf = contents.pdf_id;
 	const [versions, setVersions] = d(null);
 	const [failed, setFailed] = d(false);
@@ -10699,6 +10767,7 @@ function History({ contents, onRestore }) {
 				i > 0 && /* @__PURE__ */ u(S, { children: [" · ", /* @__PURE__ */ u("button", {
 					type: "button",
 					className: "link",
+					disabled: readOnly,
 					onClick: () => onRestore(v.id, v.at),
 					children: "Restore"
 				})] }),
@@ -10712,6 +10781,7 @@ function History({ contents, onRestore }) {
 	});
 }
 function VersionView({ pdf, id, onRestore }) {
+	const readOnly = useReadOnly();
 	const [shown, setShown] = d(null);
 	const [error, setError] = d(null);
 	h(() => {
@@ -10750,6 +10820,7 @@ function VersionView({ pdf, id, onRestore }) {
 			}),
 			onRestore && /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
 				type: "button",
+				disabled: readOnly,
 				onClick: onRestore,
 				children: "Restore this version"
 			}) })
@@ -10890,11 +10961,11 @@ function WikiDetailPage({ entry }) {
 					pdf: page.pdf_id,
 					pages: page.pages
 				}),
-				!participant && /* @__PURE__ */ u(EditActions, {
+				!participant && /* @__PURE__ */ u(ReadOnly, { children: /* @__PURE__ */ u(EditActions, {
 					entry: page,
 					onEdit: () => setEditing(true),
 					onChanged: reload
-				})
+				}) })
 			] }),
 			page.entries.length > 0 && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h2", { children: "In this topic" }), /* @__PURE__ */ u(Outline, {
 				pdf: page.pdf_id,
@@ -10907,6 +10978,7 @@ function WikiDetailPage({ entry }) {
 function Outline({ pdf, entries, onChanged }) {
 	const ref = A(null);
 	const participant = useSettings().view === "participant";
+	const readOnly = useReadOnly();
 	const [editing, setEditing] = d(null);
 	const opens = entries.some((e) => e.entries.length > 0);
 	const openAll = (open) => {
@@ -10936,7 +11008,7 @@ function Outline({ pdf, entries, onChanged }) {
 		}), /* @__PURE__ */ u(Entries, {
 			pdf,
 			entries,
-			edit: participant ? void 0 : {
+			edit: participant || readOnly ? void 0 : {
 				id: editing,
 				start: setEditing,
 				done: (saved) => {
@@ -12428,6 +12500,15 @@ function current(page, view) {
 	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : void 0;
 	return page;
 }
+var READ_ONLY_PAGES = [
+	"setup",
+	"wizard",
+	"start-now",
+	"avatar-voice",
+	"guide",
+	"content",
+	"host-account"
+];
 var ACCOUNT_PAGES = ["host-forgot", "host-reset"];
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) });
@@ -12539,10 +12620,11 @@ function Shell() {
 		}),
 		/* @__PURE__ */ u("main", { children: [
 			/* @__PURE__ */ u(ActingBar, {}),
+			/* @__PURE__ */ u(ReadOnlyBar, {}),
 			/* @__PURE__ */ u(AdminEndedNotice, {}),
 			/* @__PURE__ */ u(CustomUseProvider, {
 				value: customUse ?? ALLOWED,
-				children: content
+				children: route && READ_ONLY_PAGES.includes(route.page) ? /* @__PURE__ */ u(ReadOnly, { children: content }) : content
 			})
 		] }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })

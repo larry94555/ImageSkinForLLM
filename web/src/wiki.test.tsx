@@ -7,6 +7,7 @@ import type { Pdf, UiSettings, WikiBuild, WikiContents, WikiDetail } from "./api
 import { App } from "./App";
 import { openSettings, returnToApp } from "./settings.test.util";
 import { SettingsContext, SettingsProvider, useSettings } from "./settings";
+import { HostProvider } from "./host";
 import { WIKI_POLL_MS, WikiDetailPage, WikiPage } from "./wiki";
 
 const GUIDE: Pdf = {
@@ -718,4 +719,41 @@ test("a change saved before the first read finishes is not undone by it", async 
     await new Promise((r) => setTimeout(r, 20)); // time for the read to be applied, if it were
   });
   expect(screen.getByText("participant")).toBeTruthy();
+});
+
+// A host the administrator disabled (R44d): the wiki reads as before, with every change turned off.
+async function disabledHost() {
+  const api = await import("./api");
+  vi.mocked(api.getHostSession).mockResolvedValue({
+    signed_in: true,
+    email: "host@example.com",
+    disabled: true,
+  });
+}
+
+test("a disabled host reads the wiki with Rebuild, Load and editing turned off", async () => {
+  await disabledHost();
+  server([GUIDE], [CONTENTS], { "a1-drops": DROPS });
+  render(
+    <HostProvider>
+      <WikiPage pdf="a1" />
+    </HostProvider>,
+  );
+  await screen.findByText("How the weather changes.");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Rebuild the wiki" }).matches(":disabled")).toBe(true),
+  );
+  expect(screen.getByRole("button", { name: "Load from a file" }).matches(":disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "History" }).matches(":disabled")).toBe(false);
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull(); // the outline only reads
+  cleanup();
+  render(
+    <HostProvider>
+      <WikiDetailPage entry="a1-drops" />
+    </HostProvider>,
+  );
+  await screen.findByRole("heading", { name: "Drops", level: 1 });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Edit" }).matches(":disabled")).toBe(true));
+  const api = await import("./api");
+  vi.mocked(api.getHostSession).mockResolvedValue({ signed_in: true, email: "host@example.com" });
 });
