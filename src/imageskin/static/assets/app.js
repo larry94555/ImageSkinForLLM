@@ -469,7 +469,9 @@ async function listModels(provider, apiKey) {
 }
 var CHATGPT_ACCOUNT_CHANGED = "chatgpt-account-changed";
 async function getChatGpt() {
-	return json(await fetch("/api/chatgpt"));
+	const response = await fetch("/api/chatgpt");
+	if (response.status === 404) return null;
+	return json(response);
 }
 async function useChatGptAccount(account) {
 	return json(await fetch("/api/chatgpt/use", {
@@ -1808,8 +1810,14 @@ function ChatGptPlanSection() {
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
 	const [unconfirmed, setUnconfirmed] = d(false);
+	const [offered, setOffered] = d(true);
 	h(() => {
 		getChatGpt().then((read) => {
+			if (read === null) {
+				console.info("ChatGPT plan not offered on this site");
+				setOffered(false);
+				return;
+			}
 			setStatus(read);
 			console.info(`ChatGPT sign-in: ${read.connected ? "connected" : "not connected"}`);
 		}).catch((e) => {
@@ -1851,6 +1859,7 @@ function ChatGptPlanSection() {
 		setBusy(false);
 	}
 	const others = status?.accounts ?? [];
+	if (!offered) return null;
 	return /* @__PURE__ */ u("section", {
 		className: "panel chatgpt-plan",
 		"aria-labelledby": "settings-chatgpt",
@@ -4919,8 +4928,9 @@ function AdminSection() {
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
 	const shown = Boolean(session?.signed_in || listed);
+	const here = session?.here !== false;
 	h(() => {
-		if (session) askListed();
+		if (session && here) askListed();
 	}, [session !== null]);
 	h(() => {
 		if (shown) console.info("Admin sign-in shown");
@@ -5010,6 +5020,7 @@ function AdminSection() {
 			})
 		]
 	});
+	if (!here) return null;
 	if (!shown) {
 		if (listed !== false) return null;
 		return /* @__PURE__ */ u("section", {
@@ -5042,8 +5053,9 @@ function AdminSection() {
 function AdminPage({ section = "resources" }) {
 	const { session, listed, askListed } = useAdmin();
 	h(() => {
-		if (session) askListed();
+		if (session && session.here !== false) askListed();
 	}, [session !== null]);
+	if (session?.here === false) return null;
 	if (!session?.signed_in) {
 		if (!listed) return null;
 		return /* @__PURE__ */ u("div", {

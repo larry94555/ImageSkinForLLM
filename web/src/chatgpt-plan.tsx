@@ -23,10 +23,16 @@ export function ChatGptPlanSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unconfirmed, setUnconfirmed] = useState(false);
+  const [offered, setOffered] = useState(true);
 
   useEffect(() => {
     getChatGpt()
       .then((read) => {
+        if (read === null) {
+          console.info("ChatGPT plan not offered on this site");
+          setOffered(false);
+          return;
+        }
         setStatus(read);
         console.info(`ChatGPT sign-in: ${read.connected ? "connected" : "not connected"}`);
       })
@@ -72,6 +78,7 @@ export function ChatGptPlanSection() {
   }
 
   const others = status?.accounts ?? [];
+  if (!offered) return null;
 
   return (
     <section className="panel chatgpt-plan" aria-labelledby="settings-chatgpt">

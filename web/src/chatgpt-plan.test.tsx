@@ -175,3 +175,14 @@ test("accounts that share an email are told apart by their labels", async () => 
   const third = screen.getByRole("link", { name: "larry@example.com (3)" });
   expect(third.getAttribute("href")).toBe("/api/chatgpt/sign-in?account=app-3");
 });
+
+test("on a customer's site, where the plan isn't offered, it shows nothing (R44)", async () => {
+  const fetchMock = server(new Response("", { status: 404 }));
+  const { container } = render(<ChatGptPlanSection />);
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chatgpt"));
+  await vi.waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith("ChatGPT plan not offered on this site"),
+  );
+  expect(container.innerHTML).toBe("");
+  expect(console.error).not.toHaveBeenCalled();
+});

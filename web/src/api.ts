@@ -1060,8 +1060,11 @@ export interface ChatGptStatus {
   revoked?: boolean; // after Disconnect: false when ChatGPT couldn't confirm it ended the sign-in
 }
 
-export async function getChatGpt(): Promise<ChatGptStatus> {
-  return json<ChatGptStatus>(await fetch("/api/chatgpt"));
+// null where the plan isn't offered: a customer's site on me0.ai (roadmap R44).
+export async function getChatGpt(): Promise<ChatGptStatus | null> {
+  const response = await fetch("/api/chatgpt");
+  if (response.status === 404) return null;
+  return json<ChatGptStatus>(response);
 }
 
 export async function useChatGptAccount(account: string): Promise<ChatGptStatus> {
@@ -1081,6 +1084,8 @@ export async function signOutChatGpt(): Promise<ChatGptStatus> {
 // Signing in as the administrator (roadmap R149, R150). The password is set in a file on the
 // computer, never in the app; `ended` says once why a sign-in ended by itself.
 export interface AdminSession {
+  // false on a customer's site: the administrator is at the main address only (roadmap R44).
+  here?: boolean;
   signed_in: boolean;
   password_set: boolean;
   timeout_minutes: number;

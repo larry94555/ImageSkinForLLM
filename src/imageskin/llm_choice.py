@@ -165,9 +165,10 @@ def write_owner_only(path: Path, data: dict[str, Any]) -> None:
     os.replace(part, path)
 
 
-def described(choice: LlmChoice, signed_in: bool = False) -> dict[str, Any]:
+def described(choice: LlmChoice, signed_in: bool = False, plan: bool = True) -> dict[str, Any]:
     """The choice for the Settings page: which providers have a key, but never the keys. The
-    ChatGPT plan "has a key" while a ChatGPT account that allowed plan use is `signed_in`."""
+    ChatGPT plan "has a key" while a ChatGPT account that allowed plan use is `signed_in`; it is
+    left out where it isn't offered, not `plan`: a customer's site (R44)."""
     return {
         "provider": choice.provider,
         "providers": [
@@ -182,6 +183,7 @@ def described(choice: LlmChoice, signed_in: bool = False) -> dict[str, Any]:
                 "signs_in": p.signs_in,
             }
             for pid, p in PROVIDERS.items()
+            if plan or not p.signs_in
         ],
     }
 

@@ -256,8 +256,10 @@ export function AdminSection() {
   const [error, setError] = useState<string | null>(null);
   const shown = Boolean(session?.signed_in || listed);
 
+  const here = session?.here !== false;
+
   useEffect(() => {
-    if (session) askListed();
+    if (session && here) askListed();
   }, [session !== null]);
 
   useEffect(() => {
@@ -342,7 +344,8 @@ export function AdminSection() {
   }
 
   // On a laptop that isn't listed, only its ID: nothing of the administrator, so the page gives no
-  // clue (Larry, 2026-10-30). Nothing while asking.
+  // clue (Larry, 2026-10-30). Nothing while asking, and nothing on a customer's site (R44).
+  if (!here) return null;
   if (!shown) {
     if (listed !== false) return null;
     return (
@@ -369,8 +372,9 @@ export function AdminSection() {
 export function AdminPage({ section = "resources" }: { section?: AdminSection }) {
   const { session, listed, askListed } = useAdmin();
   useEffect(() => {
-    if (session) askListed();
+    if (session && session.here !== false) askListed();
   }, [session !== null]);
+  if (session?.here === false) return null; // not on a customer's site (R44)
   if (!session?.signed_in) {
     // Opened on a laptop that isn't listed: the page any unknown address shows.
     if (!listed) return null;

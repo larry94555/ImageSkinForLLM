@@ -5,7 +5,6 @@ import io
 import logging
 import re
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 from fastapi import FastAPI
@@ -124,11 +123,10 @@ def test_a_trial_site_is_added_and_listed_from_the_command_line(
     assert capsys.readouterr().out == f"{code.group(1)}: {ANN} at /t/{code.group(1)}\n"
 
 
-def test_sign_in_with_chatgpt_comes_back_to_the_trial_site_that_started_it(
-    tmp_path: Path,
-) -> None:
-    """OpenAI sends the browser back to the main address: the callback still reaches the trial
-    site that started the sign-in, and returns to its Settings (Codex's review of PR #277)."""
+def test_sign_in_with_chatgpt_is_not_offered_on_a_trial_site(tmp_path: Path) -> None:
+    """The ChatGPT plan is for the app on the user's own computer, or the main address's own
+    server, never a customer's site (R44, which replaces Codex's review of PR #277 that brought
+    the sign-in back to the trial site that started it)."""
     openai = FakeOpenAi()
     home = tmp_path / "home"
     service = with_hosts(home, CY)
@@ -153,21 +151,10 @@ def test_sign_in_with_chatgpt_comes_back_to_the_trial_site_that_started_it(
     sites = SiteApps(make, site_matcher(service.sites, "me0.ai", service.sign_in_returns))
     browser = TestClient(sites, base_url="http://127.0.0.1:8000", follow_redirects=False)
     assert sign_in(browser, CY, f"/t/{code}") == 200
-    sent = browser.get(f"/t/{code}/api/chatgpt/sign-in")
-    assert sent.status_code == 303
-    query = dict(parse_qsl(urlsplit(sent.headers["location"]).query))
-    openai.nonce = query["nonce"]
-    back = browser.get(
-        "/auth/callback", params={"state": query["state"], "code": "c", "client_id": "app-1"}
-    )
-    assert back.status_code == 303
-    assert back.headers["location"] == f"http://127.0.0.1:8000/t/{code}/#/settings"
-    assert signins[code].status()["email"] == "larry@example.com"
-    assert browser.get(f"/t/{code}/api/chatgpt").json()["email"] == "larry@example.com"
-    # The main address's site, never asked, has no sign-in of its own.
-    assert not (home / "chatgpt.json").exists()
-    # Each sign-in is matched once; a state no site started goes to the main address's.
-    assert service.sign_in_returns.site_of(query["state"]) is None
+    assert browser.get(f"/t/{code}/api/chatgpt/sign-in").status_code == 404
+    assert browser.get(f"/t/{code}/api/chatgpt").status_code == 404
+    assert openai.forms == [] and openai.jwks_reads == 0  # OpenAI was never asked
+    assert not (site_home(code, home) / "chatgpt.json").exists()
 
 
 def test_sign_ins_started_are_kept_a_while_and_only_so_many() -> None:

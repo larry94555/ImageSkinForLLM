@@ -8,7 +8,13 @@ import { indexedDbStore, type KeyStore, useKeyStore } from "./laptop-key";
 // A server with consent given, the settings as `settings`, and an administrator password
 // "secret" unless `passwordSet` is false. `state` is changed by the tests to sign out by itself.
 function server(settings: Record<string, unknown> = {}, passwordSet = true) {
-  const state = { signedIn: false, ended: null as string | null, activityOk: true, listed: true };
+  const state = {
+    signedIn: false,
+    ended: null as string | null,
+    activityOk: true,
+    listed: true,
+    here: true,
+  };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json(settings);
@@ -16,6 +22,7 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
       const ended = state.ended;
       state.ended = null;
       return Response.json({
+        here: state.here,
         signed_in: state.signedIn,
         password_set: passwordSet,
         timeout_minutes: 30,
@@ -410,4 +417,20 @@ test("when the laptop can't be checked, the sign-in is still shown", async () =>
     "Could not ask whether this laptop is listed",
     expect.anything(),
   );
+});
+
+test("on a customer's site, nothing of the administrator or the laptop is shown (R44)", async () => {
+  secureBrowser();
+  const { fetchMock, state } = server();
+  state.here = false;
+  await openAt("#/settings", false);
+  await vi.waitFor(() => expect(calls(fetchMock, "/api/admin/session")).toBeGreaterThan(0));
+  await screen.findByRole("link", { name: "Return to the app" });
+  expect(screen.queryByRole("region", { name: "Administrator" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "This laptop" })).toBeNull();
+  cleanup();
+  await openAt("#/admin", false);
+  expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
+  expect(calls(fetchMock, "/api/admin/laptop")).toBe(0);
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(0);
 });
