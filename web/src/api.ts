@@ -1208,10 +1208,12 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 
 // Admin settings' Host properties (R241): every host's email, sorted, or those containing `q`
 // anywhere in them, ignoring capitals. The server does the matching, so a long list isn't all sent.
-export async function getAdminHosts(q = ""): Promise<string[]> {
+// With the hosts the administrator disabled (R44d), to say so beside their emails.
+export async function getAdminHosts(q = ""): Promise<{ hosts: string[]; disabled: string[] }> {
   const response = await fetch(q ? `/api/admin/hosts?q=${encodeURIComponent(q)}` : "/api/admin/hosts");
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-  return ((await response.json()) as { hosts: string[] }).hosts;
+  const found = (await response.json()) as { hosts: string[]; disabled?: string[] };
+  return { hosts: found.hosts, disabled: found.disabled ?? [] };
 }
 
 // One host's own Allow or Deny of a custom image and a custom sound (R242), null when they follow
@@ -1332,6 +1334,8 @@ export interface HostSession {
   confirmed?: boolean;
   // True when this is the administrator acting as the host (roadmap R44a), for the bar (R44b).
   acting_as_admin?: boolean;
+  // True while the administrator has disabled the host: the site is read-only for them (R44c).
+  disabled?: boolean;
 }
 
 // The administrator acting as a host (roadmap R44a, R44b): a one-time link to the host's site.

@@ -7,7 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { AdminSection } from "./admin";
-import { useHost } from "./host";
+import { ReadOnly, useHost } from "./host";
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
 import { ChatGptPlanSection } from "./chatgpt-plan";
@@ -192,6 +192,9 @@ export function SettingsPage({
       <h1>Settings</h1>
       <p className="lead">Changes are saved at once and kept after a restart.</p>
       {failed && <p className="error">The setting could not be changed. Try again.</p>}
+      {/* Every change turned off while the site is read-only for its host (R44d); the admin
+          sign-in below stays on, so an administrator whose host is disabled can still sign in. */}
+      <ReadOnly>
       {/* Only a signed-in host chooses the view; anyone else has the participant view (R190). */}
       {host && (
       <section className="panel" aria-labelledby="settings-view">
@@ -258,6 +261,7 @@ export function SettingsPage({
       <VideoAndChat />
       {/* The photos and recordings are the host's (R41b), so only they can delete them. */}
       {settings.view === "host" && <DeleteData onDeleted={onDataDeleted} />}
+      </ReadOnly>
       {/* In either view: the admin view is apart from both (R150). */}
       <AdminSection />
       <p>

@@ -52,6 +52,8 @@ def test_a_disabled_host_reads_but_changes_nothing(
     assert "Host disabled" in caplog.messages
     assert service.host_accounts.is_disabled(ANN)
     assert boss.get("/api/admin/hosts/properties", params={"email": ANN}).json()["disabled"]
+    # The admin view's list says so beside the email (R44d).
+    assert boss.get("/api/admin/hosts").json() == {"hosts": [ANN, BOB], "disabled": [ANN]}
 
     # Still signed in, and reading as before.
     assert ann.get("/api/host/session").json()["disabled"] is True
@@ -81,6 +83,10 @@ def test_a_disabled_host_reads_but_changes_nothing(
 
     # Signing out and in again stays open.
     assert ann.post("/api/host/sign-out").is_success
+    answer = TestClient(sites, base_url=SITE_A).post(
+        "/api/host/sign-in", json={"email": ANN, "password": PASSWORD}
+    )
+    assert answer.json()["disabled"] is True  # the pages are read-only at once (R44d)
     again = signed_in(sites, SITE_A, ANN)
     assert again.patch("/api/settings", json={"teach_me": True}).status_code == 403
 

@@ -23,7 +23,7 @@ import {
   saveIdentity,
   ServerRefusal,
 } from "./api";
-import { HostOnlyPage, useHost } from "./host";
+import { HostOnlyPage, ReadOnly, useHost, useReadOnly } from "./host";
 
 type Identity = Customization["identity"];
 
@@ -454,9 +454,11 @@ const CUSTOMIZATION_HISTORY: HistorySource<Customization> = {
 export function HistorySection<T>({
   source,
   onRestored,
+  readOnly = false,
 }: {
   source: HistorySource<T>;
   onRestored: (saved: T, part: string) => void; // the part gone back on
+  readOnly?: boolean; // Edit and Go back turned off, as the site is read-only (R44d)
 }) {
   const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -576,7 +578,7 @@ export function HistorySection<T>({
                     <span className="change-preview">{preview(c)}</span>
                   </span>
                   {c.number === h.current ? (
-                    <button type="button" className="secondary" onClick={() => edit(h)}>
+                    <button type="button" className="secondary" disabled={readOnly} onClick={() => edit(h)}>
                       Edit
                     </button>
                   ) : (
@@ -593,7 +595,7 @@ export function HistorySection<T>({
                       )}
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || readOnly}
                         aria-label={`Go back to ${h.label} change ${c.number}`}
                         onClick={() => void goBack(h, c.number)}
                       >
@@ -618,6 +620,7 @@ export function HistorySection<T>({
 export function CustomizationPage() {
   const session = useHost().session;
   const host = session?.signed_in === true;
+  const readOnly = useReadOnly();
   const [read, setRead] = useState<Customization | null>(null);
   // Counts drafts saved, so each editor starts again from what was saved.
   const [saves, setSaves] = useState(0);
@@ -653,6 +656,7 @@ export function CustomizationPage() {
       {!failed && read === null && <p className="muted busy">Loading…</p>}
       {read && (
         <>
+          <ReadOnly>
           <GenerateSection
             now={read}
             onSaved={(saved) => {
@@ -660,13 +664,16 @@ export function CustomizationPage() {
               setSaves((n) => n + 1);
             }}
           />
+          </ReadOnly>
           <HistorySection
+            readOnly={readOnly}
             source={CUSTOMIZATION_HISTORY}
             onRestored={(saved) => {
               setRead({ ...saved, shipped: false });
               setSaves((n) => n + 1);
             }}
           />
+          <ReadOnly>
           <IdentitySection key={`identity-${saves}`} identity={read.identity} />
           <GoalsSection key={`goals-${saves}`} goals={read.goals} />
           {read.features.length ? (
@@ -676,6 +683,7 @@ export function CustomizationPage() {
           ) : (
             <GuidelineSection name="Guidelines" features={[]} />
           )}
+          </ReadOnly>
         </>
       )}
     </div>

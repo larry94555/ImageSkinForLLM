@@ -108,6 +108,8 @@ def host_router(
         body: dict[str, object] = {"signed_in": True, "email": normal_email(email)}
         host = accounts.host(token, unconfirmed=True)
         body["confirmed"] = host is None or host.confirmed
+        if host is not None and host.disabled:
+            body["disabled"] = True  # so the pages are read-only at once (R44d)
         name, path = COOKIE, "/"
         if code is not None:
             path = f"{request.scope.get('root_path', '')}/t/{code}/"

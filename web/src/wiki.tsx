@@ -37,6 +37,7 @@ import {
   wikiPageHref,
 } from "./api";
 import { wikiText } from "./content";
+import { ReadOnly, useReadOnly } from "./host";
 import { useSettings } from "./settings";
 
 // How often a rebuild's progress is checked.
@@ -225,13 +226,17 @@ function Contents({ contents, linked, build, onRebuild, onChanged }: ContentsPro
         </a>
         {!participant && (
           <>
-            <Rebuild build={build} onRebuild={onRebuild} />
+            <ReadOnly>
+              <Rebuild build={build} onRebuild={onRebuild} />
+            </ReadOnly>
             <WikiTools contents={contents} onChanged={onChanged} />
           </>
         )}
       </div>
       {!participant && contents.lost_edits.length > 0 && (
-        <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
+        <ReadOnly>
+          <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
+        </ReadOnly>
       )}
       <Outline pdf={contents.pdf_id} entries={contents.entries} onChanged={onChanged} />
     </article>
@@ -334,6 +339,7 @@ interface Asking {
 
 // History, Save to a file and Load from a file, for one PDF's wiki.
 function WikiTools({ contents, onChanged }: { contents: WikiContents; onChanged: () => void }) {
+  const readOnly = useReadOnly(); // Load and Restore turned off (R44d)
   const pdf = contents.pdf_id;
   const [showing, setShowing] = useState(false);
   const [asking, setAsking] = useState<Asking | null>(null);
@@ -411,7 +417,12 @@ function WikiTools({ contents, onChanged }: { contents: WikiContents; onChanged:
         <a className="button secondary" href={wikiFileUrl(pdf)} download>
           Save to a file
         </a>{" "}
-        <button type="button" className="secondary" onClick={() => picker.current?.click()}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={readOnly}
+          onClick={() => picker.current?.click()}
+        >
           Load from a file
         </button>
         <input
@@ -455,6 +466,7 @@ function History({
   contents: WikiContents;
   onRestore: (id: string, at: string) => void;
 }) {
+  const readOnly = useReadOnly();
   const pdf = contents.pdf_id;
   const [versions, setVersions] = useState<Awaited<ReturnType<typeof listWikiVersions>> | null>(
     null,
@@ -508,7 +520,12 @@ function History({
             {i > 0 && (
               <>
                 {" · "}
-                <button type="button" className="link" onClick={() => onRestore(v.id, v.at)}>
+                <button
+                  type="button"
+                  className="link"
+                  disabled={readOnly}
+                  onClick={() => onRestore(v.id, v.at)}
+                >
                   Restore
                 </button>
               </>
@@ -529,6 +546,7 @@ function History({
 
 // One version's table of contents, to read.
 function VersionView({ pdf, id, onRestore }: { pdf: string; id: string; onRestore?: () => void }) {
+  const readOnly = useReadOnly();
   const [shown, setShown] = useState<Awaited<ReturnType<typeof getWikiVersion>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -558,7 +576,7 @@ function VersionView({ pdf, id, onRestore }: { pdf: string; id: string; onRestor
       )}
       {onRestore && (
         <p>
-          <button type="button" onClick={onRestore}>
+          <button type="button" disabled={readOnly} onClick={onRestore}>
             Restore this version
           </button>
         </p>
@@ -699,7 +717,9 @@ export function WikiDetailPage({ entry }: { entry: string }) {
           <p>{page.summary}</p>
           <PageLinks pdf={page.pdf_id} pages={page.pages} />
           {!participant && (
-            <EditActions entry={page} onEdit={() => setEditing(true)} onChanged={reload} />
+            <ReadOnly>
+              <EditActions entry={page} onEdit={() => setEditing(true)} onChanged={reload} />
+            </ReadOnly>
           )}
         </>
       )}
@@ -726,6 +746,7 @@ function Outline({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const participant = useSettings().view === "participant"; // to read only (R41b)
+  const readOnly = useReadOnly(); // the host's site read-only for them (R44d)
   const [editing, setEditing] = useState<string | null>(null);
   const opens = entries.some((e) => e.entries.length > 0);
   const openAll = (open: boolean) => {
@@ -754,7 +775,7 @@ function Outline({
           </button>
         </p>
       )}
-      <Entries pdf={pdf} entries={entries} edit={participant ? undefined : edit} />
+      <Entries pdf={pdf} entries={entries} edit={participant || readOnly ? undefined : edit} />
     </div>
   );
 }

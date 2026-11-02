@@ -22,6 +22,8 @@ import {
   HostLinks,
   HostOnlyPage,
   HostProvider,
+  ReadOnly,
+  ReadOnlyBar,
   ResetPasswordPage,
   useHost,
 } from "./host";
@@ -70,6 +72,19 @@ function current(page: Page | undefined, view: View): Page | undefined {
   if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : undefined;
   return page;
 }
+
+// The pages whose every control changes the site, all turned off while it is read-only for its
+// host (R44d). Settings, the customization and the wiki turn off their own changing controls,
+// as they also have controls that only read.
+const READ_ONLY_PAGES: Page[] = [
+  "setup",
+  "wizard",
+  "start-now",
+  "avatar-voice",
+  "guide",
+  "content",
+  "host-account",
+];
 
 // The pages a customer who hasn't confirmed their email can still open (R62a).
 const ACCOUNT_PAGES: Page[] = ["host-forgot", "host-reset"];
@@ -246,8 +261,11 @@ function Shell() {
       </header>
       <main>
         <ActingBar />
+        <ReadOnlyBar />
         <AdminEndedNotice />
-        <CustomUseProvider value={customUse ?? ALLOWED}>{content}</CustomUseProvider>
+        <CustomUseProvider value={customUse ?? ALLOWED}>
+          {route && READ_ONLY_PAGES.includes(route.page) ? <ReadOnly>{content}</ReadOnly> : content}
+        </CustomUseProvider>
       </main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>

@@ -75,8 +75,11 @@ def test_the_administrator_searches_the_hosts(
     with caplog.at_level(logging.INFO, logger="imageskin.app"):
         every = client.get("/api/admin/hosts")
         some = client.get("/api/admin/hosts", params={"q": "ANN@"})
-    assert every.json() == {"hosts": ["ann@example.com", "bob@ann.net", "joanne@site.org"]}
-    assert some.json() == {"hosts": ["ann@example.com"]}
+    assert every.json() == {
+        "hosts": ["ann@example.com", "bob@ann.net", "joanne@site.org"],
+        "disabled": [],
+    }
+    assert some.json() == {"hosts": ["ann@example.com"], "disabled": []}
     shown = [r for r in caplog.records if r.message == "Host list shown"]
     assert [(r.matched, r.searched) for r in shown] == [(3, False), (1, True)]  # type: ignore[attr-defined]
     assert all(isinstance(r.__dict__["duration_ms"], float) for r in shown)

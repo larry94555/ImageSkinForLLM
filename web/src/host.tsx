@@ -237,6 +237,41 @@ export function ActingBar() {
   );
 }
 
+// Whether this site is read-only for the signed-in host (R44d): the administrator disabled them
+// (R44c). The administrator acting as them (R44a) still changes everything, so it isn't for them.
+export function useReadOnly(): boolean {
+  const { session } = useHost();
+  return session?.signed_in === true && session.disabled === true && session.acting_as_admin !== true;
+}
+
+export const READ_ONLY_WORDS = "Your site is read-only. Changes are turned off by the administrator.";
+
+// The bar on every page while the site is read-only for its host (R44d).
+export function ReadOnlyBar() {
+  const readOnly = useReadOnly();
+  useEffect(() => {
+    if (readOnly) console.info("Site read-only: host disabled");
+  }, [readOnly]);
+  if (!readOnly) return null;
+  return (
+    <div className="read-only-bar" role="status">
+      {READ_ONLY_WORDS}
+    </div>
+  );
+}
+
+// What changes the site, turned off while it is read-only for its host (R44d): a fieldset turns
+// off every button, box and field inside it, so nothing is offered that the server would refuse.
+// Links still work, so every page still reads as before.
+export function ReadOnly({ children }: { children: ComponentChildren }) {
+  const readOnly = useReadOnly();
+  return (
+    <fieldset className="read-only" disabled={readOnly}>
+      {children}
+    </fieldset>
+  );
+}
+
 // Where an Act as this host link that didn't work goes (R44b).
 export function ActAsFailedPage() {
   useEffect(() => console.info("Act as host link failed page shown"), []);

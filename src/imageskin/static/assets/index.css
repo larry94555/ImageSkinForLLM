@@ -1272,6 +1272,7 @@ ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }
 .host-pick { all: unset; cursor: pointer; display: block; width: 100%; }
 .host-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .host-pick.picked { font-weight: 600; color: var(--accent); }
+.host-state { display: block; font-size: 0.85em; color: #b45309; }
 .host-choices { display: grid; gap: 8px; margin-top: 10px; }
 .host-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .host-choice .choice { background: var(--surface, transparent); color: inherit; border: 1px solid var(--line); }
@@ -1280,3 +1281,5 @@ ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }
 /* The administrator acting as a host (R44b): a bar on every page of the host's site. */
 .acting-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 16px; padding: 10px 14px; border: 1px solid #f59e0b; border-radius: 10px; background: #fffbeb; color: #78350f; }
 .acting-bar.ended { justify-content: flex-start; }
+.read-only-bar { margin: 0 0 16px; padding: 10px 14px; border: 1px solid #94a3b8; border-radius: 10px; background: #f1f5f9; color: #334155; }
+fieldset.read-only { border: 0; margin: 0; padding: 0; min-width: 0; }

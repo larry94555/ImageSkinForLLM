@@ -920,11 +920,12 @@ def create_app(
     @app.get("/api/admin/hosts", dependencies=[Depends(app.state.require_admin)])
     def get_admin_hosts(q: Annotated[str, Query(max_length=320)] = "") -> dict[str, Any]:
         """Admin settings' Host properties (R241): every host's email, or those containing `q`
-        anywhere in them, ignoring capitals. The text searched for isn't logged, as it may be
-        part of an email."""
+        anywhere in them, ignoring capitals, with those disabled (R44d) to say so beside them.
+        The text searched for isn't logged, as it may be part of an email."""
         start = time.perf_counter()
         try:
             hosts = host_accounts.emails(q)
+            disabled = [e for e in hosts if host_accounts.is_disabled(e)]  # R44d
         except HostsUnreadable as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
         logger.info(
@@ -935,7 +936,7 @@ def create_app(
                 "duration_ms": ms_since(start),
             },
         )
-        return {"hosts": hosts}
+        return {"hosts": hosts, "disabled": disabled}
 
     def host_properties(email: str, choices: tuple[HostChoice, HostChoice]) -> dict[str, Any]:
         """One host's own choices, and what they follow with none ("enabled" or "disabled")."""

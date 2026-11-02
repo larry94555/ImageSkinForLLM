@@ -272,20 +272,41 @@ test("a choice that can't be saved says so and keeps what was shown", async () =
   expect(pressed("Allow Custom Sound")).toBe(false);
 });
 
-test("Disable makes the host's site read-only for them, and Enable undoes it (R44c)", async () => {
+test("Disable asks first, makes the host's site read-only for them, and Enable undoes it", async () => {
   const fetchMock = choicesServer();
   render(<HostProperties />);
   await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
   await screen.findByRole("group");
   expect(screen.getByText("Disable to make their site read-only for them.")).toBeTruthy();
+  expect(screen.queryByText("Disabled: read-only for them")).toBeNull();
   await click("Disable");
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog.textContent).toContain("Disable ann@example.com?");
+  await click("No, keep it as it is");
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/hosts/properties", expect.objectContaining({ method: "PUT" }));
+  await click("Disable");
+  await click("Yes, disable this host");
   await screen.findByRole("button", { name: "Enable" });
   expect(screen.getByText(/^Disabled: their site is read-only for them/)).toBeTruthy();
+  expect(screen.getByText("Disabled: read-only for them")).toBeTruthy(); // beside the email
   expect(String(fetchMock.mock.lastCall?.[1]?.body)).toBe('{"email":"ann@example.com","disabled":true}');
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Host disabled \(\d+ ms\)$/));
-  await click("Enable");
+  await click("Enable"); // no question: it only gives back
   await screen.findByRole("button", { name: "Disable" });
   expect(String(fetchMock.mock.lastCall?.[1]?.body)).toBe('{"email":"ann@example.com","disabled":false}');
+  expect(screen.queryByText("Disabled: read-only for them")).toBeNull();
+});
+
+test("the list says which hosts are disabled", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ hosts: HOSTS, disabled: ["bob@ann.net"] })),
+  );
+  render(<HostProperties />);
+  const bob = await screen.findByRole("button", { name: "bob@ann.net" });
+  expect(bob.parentElement?.textContent).toContain("Disabled: read-only for them");
+  const ann = screen.getByRole("button", { name: "ann@example.com" });
+  expect(ann.parentElement?.textContent).not.toContain("Disabled");
 });
 
 test("a Disable that can't be saved says so", async () => {
@@ -298,6 +319,7 @@ test("a Disable that can't be saved says so", async () => {
     init?.method === "PUT" ? Response.json({ detail: "Not now." }, { status: 503 }) : ok(url, init),
   );
   await click("Disable");
+  await click("Yes, disable this host");
   expect(await screen.findByText("Not now.")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Disable" })).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not disable or enable the host", expect.any(Error));
