@@ -223,8 +223,15 @@ def host_router(
         start = time.perf_counter()
         try:
             code = make_site(email)
-            # A new link, unless they confirmed already: signing up again sends another.
-            link = accounts.confirmation(email)
+            # A new link, unless they confirmed already. Signing up again sends another only as
+            # Send it again would, at most once a minute, and keeps the last link working till
+            # then (Codex's review of PR #280).
+            try:
+                link = accounts.confirmation(email, again=True)
+            except HostRefused as e:
+                if e.reason != "too soon":
+                    raise
+                link = None
             # Making the site ends the sign-in made with the account, which was the main
             # address's: the host is signed in again, to their site.
             token = accounts.sign_in_now(email)

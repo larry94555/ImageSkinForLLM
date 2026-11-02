@@ -172,3 +172,38 @@ def test_only_an_unconfirmed_host_gets_a_link(tmp_path: Path) -> None:
     token = accounts.confirmation(DAN)
     assert token is not None and accounts.confirm(token) == DAN
     assert accounts.confirmation(DAN) is None
+
+
+def test_signing_up_again_sends_another_link_only_as_send_it_again_would(
+    tmp_path: Path,
+) -> None:
+    # Codex's review of PR #280: signing up again doesn't get round the minute between emails.
+    sites, _, service = served(tmp_path, sign_up_makes_site=True)
+    home = tmp_path / "home"
+    clock = Clock()
+    service.host_accounts.clock = clock
+    browser = TestClient(sites, base_url="http://localhost:8000")
+    code = str(sign_up(browser, DAN)["site"])
+    first = confirmation_link(home)
+
+    again = sign_up(browser, DAN)
+    assert again["go_to"] == f"/t/{code}/" and again["confirmed"] is False
+    assert len(outbox(home)) == 1
+    clock.now += 61
+    sign_up(browser, DAN)
+    assert len(outbox(home)) == 2
+    second = confirmation_link(home)
+    assert second != first
+    failed = browser.get(first, follow_redirects=False)
+    assert failed.headers["location"].endswith("#/host/confirm-failed")
+    assert browser.get(second, follow_redirects=False).headers["location"].endswith("#/setup")
+
+
+def test_the_first_link_still_works_after_signing_up_again_at_once(tmp_path: Path) -> None:
+    sites, _, _ = served(tmp_path, sign_up_makes_site=True)
+    browser = TestClient(sites, base_url="http://localhost:8000")
+    code = str(sign_up(browser, DAN)["site"])
+    first = confirmation_link(tmp_path / "home")
+    sign_up(browser, DAN)
+    assert browser.get(first, follow_redirects=False).headers["location"].endswith("#/setup")
+    assert browser.get(f"/t/{code}/api/host/session").json()["confirmed"] is True
