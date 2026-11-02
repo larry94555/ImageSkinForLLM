@@ -363,3 +363,30 @@ test("a Forgot password link sets a new password, or says it didn't work (R62a)"
     "Your new password is set. Sign in with it.",
   );
 });
+
+test("a reset link opens while a customer who hasn't confirmed is signed in (R62a)", async () => {
+  // Codex's review of PR #281: Confirm your email doesn't hide Forgot password's pages.
+  const { state } = server("new@example.com");
+  state.confirmed = false;
+  window.location.hash = "#/host/reset/good-token";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Set a new password" });
+  expect(screen.queryByRole("heading", { name: "Confirm your email" })).toBeNull();
+  fill(/^New password \(/, "a new long secret");
+  fill(/^New password again/, "a new long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "Your new password is set. Sign in with it.",
+  );
+
+  cleanup();
+  window.location.hash = "#/host/forgot";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Forgot your password?" });
+
+  // Every other page still says to confirm.
+  cleanup();
+  window.location.hash = "#/setup";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Confirm your email" });
+});

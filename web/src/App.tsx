@@ -67,6 +67,9 @@ function current(page: Page | undefined, view: View): Page | undefined {
   return page;
 }
 
+// The pages a customer who hasn't confirmed their email can still open (R62a).
+const ACCOUNT_PAGES: Page[] = ["host-forgot", "host-reset"];
+
 export function App() {
   return (
     <SettingsProvider>
@@ -143,7 +146,9 @@ function Shell() {
   if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 
   let content = <p>Loading…</p>;
-  if (unconfirmed) {
+  // Forgot password's pages stay open, so a reset link works in a browser still signed in
+  // (Codex's review of PR #281).
+  if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) {
     content = (
       <ConfirmEmailPage
         email={hostSession.email ?? ""}
