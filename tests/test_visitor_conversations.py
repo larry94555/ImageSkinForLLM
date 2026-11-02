@@ -134,8 +134,13 @@ def test_a_conversation_not_used_for_30_days_is_removed(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     made: list[Path] = []
+
+    def make(path: Path) -> Path:
+        made.append(path)
+        return path
+
     now = [time.time()]
-    visitors = VisitorConversations(tmp_path, lambda p: made.append(p) or p, lambda: now[0])
+    visitors = VisitorConversations(tmp_path, make, lambda: now[0])
     old, recent = visitors.of("a" * 32), visitors.of("b" * 32)
     for path in (old, recent):
         path.write_text("{}")
