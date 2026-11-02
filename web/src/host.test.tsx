@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
 import { hostPageOpened } from "./api";
+import { navigation } from "./host";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -123,6 +124,37 @@ test("signing up checks the fields, says the server's message, and signs in", as
   expect(await within(topBar()).findByText("new@example.com")).toBeTruthy();
   await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
   expect(within(topBar()).queryByRole("link", { name: "Host sign up" })).toBeNull();
+});
+
+test("signing up at the main address goes to the new site's setup at its trial path (R62)", async () => {
+  const { state, fetchMock } = server();
+  const real = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/host/sign-up") {
+      return Response.json({
+        signed_in: true,
+        email: "new@example.com",
+        site: "k7q2x9mf3a8w",
+        go_to: "/t/k7q2x9mf3a8w/",
+      });
+    }
+    return real(url, init);
+  });
+  const went: string[] = [];
+  vi.spyOn(navigation, "goTo").mockImplementation((url: string) => {
+    went.push(url);
+  });
+  window.location.hash = "#/host/sign-up";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Host sign up" });
+  fill(/^Email/, "new@example.com");
+  fill(/^Password \(/, "a long secret");
+  fill(/^Password again/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+  await vi.waitFor(() => expect(went).toEqual(["/t/k7q2x9mf3a8w/#/setup"]));
+  // Left as it was: the browser is on its way to the new site.
+  expect(window.location.hash).toBe("#/host/sign-up");
+  expect(state.email).toBeNull();
 });
 
 test("a wrong password is refused with its message, then the right one signs in", async () => {

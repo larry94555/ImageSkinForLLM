@@ -134,7 +134,9 @@ def lesson(path: Path, progress: Progress) -> Reading:
     return Reading("text", 1, [Piece(1, "paragraph", "Text.")], [])
 
 
-def served(tmp_path: Path) -> tuple[SiteApps, dict[str, FastAPI], Service]:
+def served(
+    tmp_path: Path, sign_up_makes_site: bool = False
+) -> tuple[SiteApps, dict[str, FastAPI], Service]:
     home = tmp_path / "home"
     service = with_hosts(home, "ann@example.com", "bob@example.com")
     service.sites.add("a", "ann@example.com")
@@ -152,6 +154,7 @@ def served(tmp_path: Path) -> tuple[SiteApps, dict[str, FastAPI], Service]:
             build_wiki=MagicMock(),
             service=service,
             site=site,
+            sign_up_makes_site=sign_up_makes_site,
         )
         return made[site]
 

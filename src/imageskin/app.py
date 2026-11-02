@@ -653,6 +653,9 @@ def create_app(
     engines: Engines | None = None,
     # The site's name in the logs (R61d); left out, its home folder's.
     site: str | None = None,
+    # Whether a host signing up at the main address gets a trial site of their own (R62), as
+    # when served; left out, as for one app on its own, they are the main address's host.
+    sign_up_makes_site: bool = False,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -757,7 +760,11 @@ def create_app(
 
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
-        host_accounts, lambda host: may_use(host.email), host_site, service.sites.is_trial
+        host_accounts,
+        lambda host: may_use(host.email),
+        host_site,
+        service.sites.is_trial,
+        (lambda email: service.sites.add_trial(email)[0]) if sign_up_makes_site else None,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

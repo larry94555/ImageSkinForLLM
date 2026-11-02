@@ -2956,8 +2956,8 @@ function SettingsPage({ back, onDataDeleted }) {
 }
 var HostContext = X({
 	session: null,
-	signUp: async () => {},
-	signIn: async () => {},
+	signUp: async () => false,
+	signIn: async () => false,
 	signOut: async () => {}
 });
 function useHost() {
@@ -2967,6 +2967,10 @@ var SIGNED_OUT = {
 	signed_in: false,
 	email: null
 };
+var navigation = { goTo: (url) => window.location.assign(url) };
+function goTo(url) {
+	navigation.goTo(url);
+}
 function HostProvider({ children }) {
 	const [session, setSession] = d(null);
 	const reload = useSettingsReload();
@@ -2980,8 +2984,14 @@ function HostProvider({ children }) {
 		const started = performance.now();
 		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
 		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		if (signedIn.go_to) {
+			console.info(`Host's new site: ${signedIn.go_to}`);
+			goTo(`${signedIn.go_to}#/setup`);
+			return true;
+		}
 		setSession(signedIn);
 		await reload();
+		return false;
 	}
 	async function signOut() {
 		await signOutAsHost();
@@ -3074,8 +3084,7 @@ function HostAccountPage({ kind }) {
 		if (found) return;
 		setBusy(true);
 		try {
-			await (up ? signUp : signIn)(email, password);
-			window.location.hash = "#/";
+			if (!await (up ? signUp : signIn)(email, password)) window.location.hash = "#/";
 		} catch (err) {
 			console.error(`Could not sign ${kind} as host`, err);
 			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");

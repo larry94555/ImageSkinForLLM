@@ -27,11 +27,12 @@ from imageskin.admin_settings import Choice
 logger = logging.getLogger(__name__)
 
 FILENAME = "hosts.json"
+HOST_COOKIE = "imageskin_host"  # the cookie that keeps a host signed in (R188)
 # The site at the main address (R61): every host's until they are given a site of their own.
 DEFAULT_SITE = "default"
 SITE = "site"  # the host's site, kept with the host; none for the main address's
 MIN_PASSWORD = 10
-# Enough to catch a typo, not a full check: confirming the address comes with R62.
+# Enough to catch a typo, not a full check: the confirmation email checks the address (R62b).
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 BAD_EMAIL = "Enter an email address, such as name@example.com."
@@ -71,6 +72,13 @@ class HostElsewhere(HostRefused):
     def __init__(self, site: str) -> None:
         super().__init__(WRONG, "another site's host")
         self.site = site
+
+
+def trial_cookie(code: str) -> str:
+    """The name of a trial site's host cookie (R62). Every trial site is at the same address,
+    so each has a cookie of its own, kept for its path only; the main address's never reaches
+    it, and a trial site's app reads and sets its own as `imageskin_host`, as any site does."""
+    return f"{HOST_COOKIE}_{code}"
 
 
 def normal_email(email: str) -> str:
@@ -152,6 +160,18 @@ class HostAccounts:
     def _new_sign_in(self, data: dict[str, Any], email: str) -> str:
         token = secrets.token_urlsafe(32)
         data["sessions"][token_key(token)] = {"email": email, "created_at": self.clock()}
+        return token
+
+    def sign_in_now(self, email: str) -> str:
+        """A new sign-in for the host, as after signing up (R62): its token."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            if email not in data["hosts"]:
+                raise HostRefused(WRONG, "no such host")
+            data = {**data, "sessions": {**data["sessions"]}}
+            token = self._new_sign_in(data, email)
+            self._save(data)
         return token
 
     def sign_up(self, email: str, password: str, address: str) -> str:
@@ -258,10 +278,14 @@ class HostAccounts:
             account = session and data["hosts"].get(session["email"])
         if not account:
             return None
-        host = Host(session["email"], account["created_at"], account.get(SITE, DEFAULT_SITE))
+        host = Host(
+            session["email"],
+            account["created_at"],
+            account.get(SITE, DEFAULT_SITE),
+        )
         if site is not None and host.site != site:
             logger.warning(
-                "Another site's host refused",
+                "Host sign-in refused: another site",
                 extra={"email": host.email, "site": site, "host_site": host.site},
             )
             return None

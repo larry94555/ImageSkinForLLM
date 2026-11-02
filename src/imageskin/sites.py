@@ -53,7 +53,8 @@ from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
-from imageskin.hosts import HostAccounts
+from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
+from imageskin.hosts import HostAccounts, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.settings_access import SettingsAccess
 
@@ -265,6 +266,42 @@ def trial_code(scope: Scope) -> str | None:
     return found.group(1) if found else None
 
 
+def trial_cookies_in(headers: list[tuple[bytes, bytes]], code: str) -> list[tuple[bytes, bytes]]:
+    """The request's headers with the trial site's host cookie as the host cookie, and no other."""
+    own, plain = trial_cookie(code).encode(), HOST_COOKIE.encode()
+    kept: list[tuple[bytes, bytes]] = []
+    for name, value in headers:
+        if name.lower() != b"cookie":
+            kept.append((name, value))
+            continue
+        pairs = []
+        for pair in value.split(b";"):
+            key = pair.split(b"=", 1)[0].strip()
+            if key == plain:
+                continue
+            pairs.append(plain + pair.strip()[len(own) :] if key == own else pair.strip())
+        kept.append((name, b"; ".join(p for p in pairs if p)))
+    return kept
+
+
+def trial_cookies_out(send: Send, code: str, path: str) -> Send:
+    """`send`, with the host cookie the site's app sets renamed to its own, for its path."""
+    plain, own = f"{HOST_COOKIE}=".encode(), f"{trial_cookie(code)}=".encode()
+
+    async def sending(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            headers = []
+            for name, value in message.get("headers", []):
+                if name.lower() == b"set-cookie" and value.startswith(plain):
+                    value = own + value[len(plain) :]
+                    value = re.sub(rb"(?i)(;\s*path=)[^;]*", rb"\g<1>" + path.encode(), value)
+                headers.append((name, value))
+            message = {**message, "headers": headers}
+        await send(message)
+
+    return sending
+
+
 def is_ip_address(host: str) -> bool:
     try:
         ipaddress.ip_address(host.strip("[]"))
@@ -402,6 +439,9 @@ class SiteApps:
                 return
             # The site's app sees the paths it always has (Starlette strips its root_path).
             scope = dict(scope, root_path=f"{scope.get('root_path', '')}{prefix}")
+            # And the host's cookie it always has: each trial site's is its own (R62).
+            scope["headers"] = trial_cookies_in(scope.get("headers") or [], site)
+            send = trial_cookies_out(send, site, f"{scope['root_path']}/")
         with self._lock:
             first = site not in self._matched
             self._matched.add(site)
