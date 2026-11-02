@@ -24,6 +24,7 @@ from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
 if TYPE_CHECKING:
     from imageskin.chat import LlmSettings
+    from imageskin.email_sending import Mailer
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,10 @@ def build_parser() -> argparse.ArgumentParser:
         "host-password-reset", help="set a new password for a host account, signing it out"
     )
     reset.add_argument("email", help="the host's email address")
+    email_test = commands.add_parser(
+        "email-test", help="send a test email, to check the mail service in the config (R215)"
+    )
+    email_test.add_argument("address", help="where to send it")
     site = commands.add_parser("site", help="add a site or list the sites (R61)")
     site_commands = site.add_subparsers(dest="site_command", required=True)
     site_add = site_commands.add_parser(
@@ -604,6 +609,38 @@ def reset_host_password(email: str) -> int:
     return 0
 
 
+def mailer(settings: Settings) -> "Mailer":
+    """Sends email through the config's mail service, or to the outbox without one (R215)."""
+    from imageskin.email_sending import Mailer, mail_service
+
+    service = mail_service(
+        settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.mail_from
+    )
+    return Mailer(default_home(), service)
+
+
+def send_test_email(settings: Settings, address: str) -> int:
+    from imageskin.email_sending import Email, EmailFailed
+
+    sending = mailer(settings)
+    email = Email(
+        address,
+        "ImageSkinForLLM test email",
+        "This is a test email from ImageSkinForLLM. The mail service settings work.",
+        "test",
+    )
+    try:
+        written = sending.send(email)
+    except EmailFailed:
+        print("The test email could not be sent: the log says why.", file=sys.stderr)
+        return 1
+    if written is not None:
+        print(f"No mail service is set, so the test email was written to {written}")
+    else:
+        print(f"Sent a test email to {address} through {settings.smtp_host}.")
+    return 0
+
+
 def manage_sites(command: str, name: str, host: str) -> int:
     """Add a site with its host, or list the sites (R61). A running server sees it at once."""
     from imageskin.hosts import HostAccounts, HostsUnreadable
@@ -700,6 +737,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return print_admin_password_hash()
     if args.command == "host-password-reset":
         return reset_host_password(args.email)
+    if args.command == "email-test":
+        return send_test_email(settings, args.address)
     if args.command == "site":
         return manage_sites(args.site_command, getattr(args, "name", ""), getattr(args, "host", ""))
     if args.command == "check-packs":
