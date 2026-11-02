@@ -2,8 +2,8 @@
 
 import { afterEach, expect, test } from "vitest";
 
-import { loadLesson } from "./pages";
-import { clearProgress, LESSON_KEY, progressKey, QUIZ_KEY } from "./progress";
+import { loadAssessment, loadLesson, loadQuiz } from "./pages";
+import { ASSESSMENT_KEY, clearProgress, LESSON_KEY, progressKey, QUIZ_KEY } from "./progress";
 
 afterEach(() => {
   localStorage.clear();
@@ -32,4 +32,21 @@ test("a lesson on one trial site isn't shown on another at the same address", ()
   clearProgress();
   expect(loadLesson()).toBeNull();
   expect(localStorage.getItem(LESSON_KEY)).not.toBeNull();
+});
+
+test("a quiz and an assessment on one trial site aren't shown on another", () => {
+  const quiz = { topic: "Mars", number: 2, question: "Why red?", part: 1, asked: [], right: 1, partly: 0 };
+  const assessment = { topic: "Mars", question: "Why red?", source: "", total: 5, number: 1, level: 2, part: 0, answers: [] };
+  window.history.pushState(null, "", "/t/aaaa/");
+  localStorage.setItem(progressKey(QUIZ_KEY), JSON.stringify(quiz));
+  localStorage.setItem(progressKey(ASSESSMENT_KEY), JSON.stringify(assessment));
+  expect(loadQuiz()?.question).toBe("Why red?");
+  expect(loadAssessment()?.total).toBe(5);
+  expect(Object.keys(localStorage).sort()).toEqual(["imageskin.assessment.aaaa", "imageskin.quiz.aaaa"]);
+  window.history.pushState(null, "", "/t/bbbb/");
+  expect(loadQuiz()).toBeNull();
+  expect(loadAssessment()).toBeNull();
+  window.history.pushState(null, "", "/");
+  expect(loadQuiz()).toBeNull();
+  expect(loadAssessment()).toBeNull();
 });

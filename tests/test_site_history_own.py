@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_chat import FakeLlm2
 from test_site_addresses import PASSWORD, served
 
 from imageskin import admin
+from imageskin.chat import Conversation
 from imageskin.hosts import DEFAULT_SITE
 from imageskin.sites import site_home
 
@@ -61,19 +63,34 @@ def files(folder: Path, leave_out: Path) -> dict[str, str]:
     }
 
 
+def ok(answer: object) -> dict[str, object]:
+    assert answer.is_success, answer.text  # type: ignore[attr-defined]
+    return dict(answer.json())  # type: ignore[attr-defined]
+
+
 def changes_on(browser: TestClient, path: str = "") -> None:
-    """What a site's host does: consent, the settings, a PDF, the customization, the accent, the
-    setup wizard's step, and Clear conversation."""
-    assert browser.post(f"{path}/api/consent", json={"agreed": True}).is_success
-    changed = browser.patch(f"{path}/api/settings", json={"general_prompts": True, "detail": 5})
-    assert changed.is_success, changed.text
-    added = browser.post(f"{path}/api/content", files={"file": ("mars.pdf", io.BytesIO(PDF))})
-    assert added.is_success, added.text
-    identity = {"name": "Ada", "purpose": "to teach the stars", "background": "", "style": ""}
-    browser.put(f"{path}/api/customization/identity", json=identity)
-    browser.put(f"{path}/api/accent", json={"accent": "british"})
-    browser.put(f"{path}/api/wizard", json={"step": "photo"})
-    browser.delete(f"{path}/api/chat")
+    """What a site's host does, each checked to have happened (Codex's review of PR #289):
+    consent, the settings, a PDF, the customization's identity and goals, the setup wizard's step,
+    and Clear conversation."""
+    ok(browser.post(f"{path}/api/consent", json={"agreed": True}))
+    ok(browser.patch(f"{path}/api/settings", json={"general_prompts": True, "detail": 5}))
+    ok(browser.post(f"{path}/api/content", files={"file": ("mars.pdf", io.BytesIO(PDF))}))
+    ok(browser.put(f"{path}/api/customization/identity", json={"name": "Ada"}))
+    ok(browser.put(f"{path}/api/customization/goals", json={"goals": ["Love the night sky."]}))
+    ok(browser.put(f"{path}/api/wizard", json={"step": "photo"}))
+    assert browser.delete(f"{path}/api/chat").is_success
+    # Read back on the site itself.
+    assert browser.get(f"{path}/api/settings").json()["general_prompts"] is True
+    customization = ok(browser.get(f"{path}/api/customization"))
+    assert customization["identity"]["name"] == "Ada"  # type: ignore[index]
+    assert customization["goals"] == ["Love the night sky."]
+    assert ok(browser.get(f"{path}/api/wizard"))["step"] == "photo"
+
+
+def a_conversation(folder: Path) -> None:
+    """A saved conversation of one exchange, as the chat keeps it."""
+    folder.mkdir(parents=True, exist_ok=True)
+    Conversation(FakeLlm2(), lambda: 4096, saved=folder / "conversation.json").send("Hello")
 
 
 def test_nothing_one_site_does_shows_on_another(tmp_path: Path) -> None:
@@ -81,6 +98,9 @@ def test_nothing_one_site_does_shows_on_another(tmp_path: Path) -> None:
     service.host_accounts.sign_up(CY, PASSWORD, "test")
     code, _ = service.sites.add_trial(CY)
     home = tmp_path / "home"
+    # Each site has a conversation before: Clear conversation on site a clears its own only.
+    a_conversation(home)
+    a_conversation(site_home("a", home))
     bob = signed_in(sites, "http://localhost:8000", BOB)
     visitor = TestClient(sites, base_url="http://localhost:8000")
     cy = signed_in(sites, "http://localhost:8000", CY, f"/t/{code}")
@@ -98,7 +118,8 @@ def test_nothing_one_site_does_shows_on_another(tmp_path: Path) -> None:
     changes_on(ann)
     made["a"].state.readings.wait()
     assert [p["name"] for p in ann.get("/api/content").json()] == ["mars.pdf"]
-    assert ann.get("/api/settings").json()["general_prompts"] is True
+    assert json.loads((site_home("a", home) / "conversation.json").read_text())["turns"] == []
+    assert len(json.loads((home / "conversation.json").read_text())["turns"]) == 2  # the main's
 
     after = {who: readings(main_app, b) for who, b in browsers.items()}
     for who in before:
