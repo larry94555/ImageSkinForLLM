@@ -40,6 +40,7 @@ from urllib.parse import parse_qs
 
 import anyio
 
+from imageskin.acting import ActingAsHost
 from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
 from imageskin.admin_guidelines import EMPTY as NO_ADMIN_GUIDELINES
@@ -369,6 +370,8 @@ class Service:
     # outbox with no mail service set (R215).
     mailer: Mailer
     sign_in_returns: SignInReturns = field(default_factory=SignInReturns)
+    # The administrator acting as a host (R44a); made with the administrator's sign-in.
+    acting: ActingAsHost | None = None
 
 
 def make_service(
@@ -389,6 +392,8 @@ def make_service(
         laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
     )
     host_accounts = HostAccounts(home)
+    acting = ActingAsHost(admin_sign_ins)
+    host_accounts.acting = acting.email_of
     # The administrator's guidelines keep a history of each part, as a host's do (R253).
     admin_history = History(
         home, ADMIN_HISTORY_FILE, admin_value_of, NO_ADMIN_GUIDELINES, "Admin guidelines"
@@ -404,6 +409,7 @@ def make_service(
         admin_guidelines=AdminGuidelinesFile(home, admin_history.saved),
         sites=SiteDirectory(home, host_accounts),
         mailer=mailer or Mailer(home, None),
+        acting=acting,
     )
 
 
