@@ -613,6 +613,14 @@ async function reportRecording(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getSubscription() {
+	return json(await fetch("/api/site/subscription"));
+}
+async function startSubscribing() {
+	const response = await fetch("/api/site/subscribe", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).url;
+}
 async function cancelTrial() {
 	const response = await fetch("/api/site/cancel", { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
@@ -2166,6 +2174,79 @@ function modelsNote(models, model, provider) {
 	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
 	return `${listed} ${blank}`;
 }
+//#endregion
+//#region src/subscription.tsx
+var go = { to: (url) => window.location.assign(url) };
+function SubscriptionSection() {
+	const session = useHost().session;
+	const host = session?.signed_in === true;
+	const [subscription, setSubscription] = d(null);
+	const [starting, setStarting] = d(false);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		if (!host) return;
+		getSubscription().then(setSubscription, (e) => console.error("Could not read the subscription", e));
+	}, [host]);
+	if (!host || subscription === null) return null;
+	if (!subscription.subscribed && !subscription.available) return null;
+	async function subscribe() {
+		setStarting(true);
+		setFailed(null);
+		try {
+			const url = await startSubscribing();
+			console.info("Subscribing: going to Stripe's page");
+			go.to(url);
+		} catch (e) {
+			console.error("Could not start subscribing", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "Subscribing could not start. Try again.");
+			setStarting(false);
+		}
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-subscription",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-subscription",
+				children: "Subscription"
+			}),
+			subscription.subscribed ? /* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Subscribed: ",
+					subscription.price,
+					"."
+				]
+			}) : /* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						disabled: starting,
+						onClick: subscribe,
+						children: "Subscribe"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							subscription.price,
+							", paid on Stripe's secure page; your card details never reach this site.",
+							session?.paused ? " Subscribing brings your paused site back." : ""
+						]
+					}),
+					starting && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Opening Stripe…"
+					})
+				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			})
+		]
+	});
+}
 function reason(e, fallback) {
 	return e instanceof ServerRefusal ? e.message : fallback;
 }
@@ -2768,6 +2849,7 @@ function SettingsPage({ back, onDataDeleted }) {
 				settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
 				/* @__PURE__ */ u(VideoAndChat, {}),
 				settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+				/* @__PURE__ */ u(SubscriptionSection, {}),
 				/* @__PURE__ */ u(CancelTrial, {})
 			] }),
 			/* @__PURE__ */ u(AdminSection, {}),

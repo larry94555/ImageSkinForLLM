@@ -59,6 +59,7 @@ from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
 from imageskin.hosts import TRIAL_USED, HostAccounts, normal_email, trial_cookie
 from imageskin.network import NetworkMonth
+from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,10 @@ class SignInReturns:
 
 class SiteError(Exception):
     """A site can't be added, said in plain words."""
+
+
+# Stripe's statuses of a subscription in force (R67).
+ACTIVE = ("active", "trialing", "past_due")
 
 
 class TrialUsed(SiteError):
@@ -261,6 +266,72 @@ class SiteDirectory:
         with self._lock:
             site = self._load().get(name)
         return None if site is None else str(site["host"])
+
+    def subscription(self, name: str) -> dict[str, Any] | None:
+        """The site's subscription as Stripe's events recorded it (R67): its id, customer and
+        status, or None for a site that never subscribed."""
+        with self._lock:
+            site = self._load().get(name)
+        found = None if site is None else site.get("subscription")
+        return dict(found) if isinstance(found, dict) else None
+
+    def subscribed(self, name: str) -> bool:
+        """Whether the site's subscription is in force (R67)."""
+        found = self.subscription(name)
+        return found is not None and found.get("status") in ACTIVE
+
+    def subscribe(self, name: str, subscription_id: str, customer: str) -> bool:
+        """Record the site's paid subscription from Stripe's event (R67), and unpause it: whether
+        the site is there. The same event again changes nothing."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None:
+                return False
+            kept = site.get("subscription") or {}
+            if kept.get("id") == subscription_id and kept.get("status") in ACTIVE:
+                return True
+            was_paused = "paused" in site
+            site = {k: v for k, v in site.items() if k not in ("paused", "paused_at")}
+            site["subscription"] = {
+                "id": subscription_id,
+                "customer": customer,
+                "status": "active",
+                "since": time.time(),
+            }
+            sites[name] = site
+            self._write(sites)
+        logger.info(
+            "Site subscribed",
+            extra={"site": name, "subscription": subscription_id, "was_paused": was_paused},
+        )
+        return True
+
+    def subscription_changed(self, subscription_id: str, status: str) -> str | None:
+        """Record a subscription's new status from Stripe's event (R67): the site's name, or None
+        for a subscription no site has. What a cancelled or unpaid one does is R69's."""
+        with self._lock:
+            sites = dict(self._load())
+            name = next(
+                (
+                    n
+                    for n, s in sites.items()
+                    if (s.get("subscription") or {}).get("id") == subscription_id
+                ),
+                None,
+            )
+            if name is None:
+                return None
+            sites[name] = {
+                **sites[name],
+                "subscription": {**sites[name]["subscription"], "status": status},
+            }
+            self._write(sites)
+        logger.info(
+            "Subscription changed",
+            extra={"site": name, "subscription": subscription_id, "status": status},
+        )
+        return name
 
     def set_host(self, name: str, email: str, new_email: str) -> bool:
         """Give the site the host's new email (R62c), if `email` is its host: whether it did."""
@@ -457,6 +528,8 @@ class Service:
     sign_in_returns: SignInReturns = field(default_factory=SignInReturns)
     # The administrator acting as a host (R44a); made with the administrator's sign-in.
     acting: ActingAsHost | None = None
+    # Subscribing through Stripe (R67), or None when it isn't set up.
+    payments: Stripe | None = None
 
 
 def make_service(
@@ -464,6 +537,7 @@ def make_service(
     admin_file: Path | None = None,
     admin_laptops_file: Path | None = None,
     mailer: Mailer | None = None,
+    payments: Stripe | None = None,
 ) -> Service:
     """The shared part, kept in `home`. The administrator's password file is admin.toml there
     unless `admin_file` says otherwise (R149), and the laptops file is beside it (R163). Without
@@ -495,6 +569,7 @@ def make_service(
         sites=SiteDirectory(home, host_accounts),
         mailer=mailer or Mailer(home, None),
         acting=acting,
+        payments=payments,
     )
 
 

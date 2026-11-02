@@ -82,6 +82,7 @@ def host_router(
     send_email: Callable[[Message], object] | None = None,
     trial_used: Callable[[str], bool] = lambda _: False,
     paused: Callable[[str], str | None] = lambda _: None,
+    subscribed: Callable[[str], bool] = lambda _: False,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -90,7 +91,8 @@ def host_router(
     address makes the new host a trial site of their own (R62): it is given their email and
     returns the site's trial code. The customer then confirms their email from a link sent with
     `send_email` before managing it (R62b). `trial_used` says whether an email address has had
-    its one free trial, and `paused` why a site is paused (R66)."""
+    its one free trial, and `paused` why a site is paused (R66); `subscribed` whether it is paid
+    for (R67)."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -147,7 +149,9 @@ def host_router(
             answer["acting_as_admin"] = True
         if host and host.disabled:
             answer["disabled"] = True  # read-only for the host (R44c)
-        if is_trial(site):
+        if subscribed(site):
+            answer["subscribed"] = True  # paid for (R67)
+        elif is_trial(site):
             answer["trial"] = True  # its host can cancel it (R66)
         if paused(site):
             answer["paused"] = True  # visitors see a notice (R66, R69)

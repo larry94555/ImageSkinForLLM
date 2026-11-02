@@ -109,7 +109,7 @@ from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.email_change import email_router
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
-from imageskin.host_api import NOT_SIGNED_IN, host_router
+from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import SERVICE as SERVICE_FILES
 from imageskin.host_disk import count as count_disk
@@ -135,6 +135,8 @@ from imageskin.llm_choice import (
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.password_reset import reset_router
+from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
+from imageskin.payments import SUBSCRIPTION, BadEvent, PaymentError
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -857,6 +859,7 @@ def create_app(
         service.mailer.send,
         trial_used=service.sites.trial_used,
         paused=service.sites.paused,
+        subscribed=service.sites.subscribed,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -867,12 +870,73 @@ def create_app(
     @app.post("/api/site/cancel")
     def cancel_trial(host: SignedInHost) -> dict[str, bool]:
         """Cancel the free trial from Settings (R66): the site is paused, as in R69."""
-        if not service.sites.is_trial(host_site):
+        if not service.sites.is_trial(host_site) or service.sites.subscribed(host_site):
             logger.warning("Trial not cancelled", extra={"site": host_site, "why": "not a trial"})
             raise HTTPException(status_code=409, detail="Only a free trial is cancelled here.")
         if not service.sites.cancel_trial(host_site):
             raise HTTPException(status_code=409, detail="This trial was cancelled already.")
         return {"paused": True}
+
+    @app.get("/api/site/subscription")
+    def get_subscription(host: SignedInHost) -> dict[str, object]:
+        """What Settings shows of subscribing (R67): whether it is set up here, what is sold, and
+        the site's subscription's status, if it has one."""
+        found = service.sites.subscription(host_site)
+        return {
+            "available": service.payments is not None and host_site != DEFAULT_SITE,
+            "price": SUBSCRIPTION,
+            "status": found and found.get("status"),
+            "subscribed": service.sites.subscribed(host_site),
+        }
+
+    @app.post("/api/site/subscribe")
+    def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:
+        """Start subscribing on Stripe's page (R67): its address, which the browser goes to.
+        Stripe sends the browser back to Settings, and its event records the subscription."""
+        if host_site == DEFAULT_SITE:
+            raise HTTPException(status_code=409, detail="The main address has no subscription.")
+        if service.sites.subscribed(host_site):
+            raise HTTPException(status_code=409, detail="This site is subscribed already.")
+        if service.payments is None:
+            logger.warning("Subscribe refused", extra={"site": host_site, "why": "not set up"})
+            raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+        back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/settings"
+        try:
+            url = service.payments.checkout(host_site, host.email, back, back)
+        except PaymentError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        return {"url": url}
+
+    if host_site == DEFAULT_SITE:
+
+        @app.post("/api/payments/stripe/events", include_in_schema=False)
+        async def stripe_events(request: Request) -> dict[str, bool]:
+            """Stripe's events (R67), at the main address, each checked by its signature: a
+            completed checkout subscribes its site, and a changed subscription is recorded."""
+            if service.payments is None:
+                raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+            body = await request.body()
+            try:
+                event = service.payments.event(body, request.headers.get("stripe-signature"))
+            except BadEvent as e:
+                logger.warning("Stripe event refused", extra={"why": str(e)})
+                raise HTTPException(status_code=400, detail="Not a Stripe event.") from e
+            kind, thing = event["type"], event["data"]["object"]
+            logger.info("Stripe event", extra={"event": event.get("id"), "type": kind})
+            site = None
+            if kind == "checkout.session.completed" and thing.get("mode") == "subscription":
+                site = thing.get("client_reference_id")
+                paid = thing.get("payment_status") in ("paid", "no_payment_required")
+                if site and paid and thing.get("subscription"):
+                    if not service.sites.subscribe(
+                        site, str(thing["subscription"]), str(thing.get("customer") or "")
+                    ):
+                        logger.error("Subscription for no site", extra={"site": site})
+            elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
+                site = service.sites.subscription_changed(
+                    str(thing.get("id")), str(thing.get("status"))
+                )
+            return {"received": True}
 
     # The host's own photo and voice where the administrator turned them off (R240): refused,
     # so an old page or the API can't use them. The files already stored are kept.
