@@ -1309,6 +1309,8 @@ export async function reportRecording(
 export interface HostSession {
   signed_in: boolean;
   email: string | null;
+  // After signing up at the main address: the new site's page, at its trial path (R62).
+  go_to?: string;
 }
 
 export async function getHostSession(): Promise<HostSession> {

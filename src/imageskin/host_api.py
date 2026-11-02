@@ -3,6 +3,7 @@ host-only route (R190 on)."""
 
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import Annotated, Literal
 
@@ -13,22 +14,26 @@ from imageskin.admin_api import address
 from imageskin.admin_settings import CustomUse
 from imageskin.hosts import (
     DEFAULT_SITE,
+    HOST_COOKIE,
     Host,
     HostAccounts,
     HostElsewhere,
     HostRefused,
     HostsUnreadable,
     normal_email,
+    trial_cookie,
 )
 
 logger = logging.getLogger(__name__)
 
-COOKIE = "imageskin_host"
+COOKIE = HOST_COOKIE
 # Kept until the host signs out (item 148): the browser's longest, about 400 days.
 COOKIE_MAX_AGE = 400 * 24 * 60 * 60
 NOT_SIGNED_IN = "Sign in as a host to do this."
-# Until R62 makes a site at sign-up, a site other than the main address's has its one host (R61).
+# Hosts sign up at the main address, which makes each one a site (R62); every other site has its
+# one host.
 SITE_HAS_HOST = "This site already has its host. Sign up at the main address instead."
+NO_SITE_MADE = "Your account was made, but its site wasn't. Please try signing in in a minute."
 
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 Email = Annotated[str, Body(embed=True)]
@@ -60,11 +65,14 @@ def host_router(
     may_use: Callable[[Host], CustomUse],
     site: str = DEFAULT_SITE,
     is_trial: Callable[[str], bool] = lambda _: False,
+    make_site: Callable[[str], str] | None = None,
 ) -> tuple[APIRouter, Callable[[str | None], Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
     Admin settings change applies at once. Only the `site`'s host is signed in here (R61): another
-    site's sign-in, sent here by hand, counts as none."""
+    site's sign-in, sent here by hand, counts as none. With `make_site`, each sign-up at the main
+    address makes the new host a trial site of their own (R62): it is given their email and
+    returns the site's trial code."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -77,17 +85,27 @@ def host_router(
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
         return host
 
-    def signed_in(request: Request, token: str, email: str) -> JSONResponse:
-        response = JSONResponse({"signed_in": True, "email": normal_email(email)})
+    def signed_in(
+        request: Request, token: str, email: str, code: str | None = None
+    ) -> JSONResponse:
+        """Signed in, with the cookie that keeps them so; with a trial `code`, signed in to that
+        new trial site, whose page the browser goes to (R62)."""
+        body: dict[str, object] = {"signed_in": True, "email": normal_email(email)}
+        name, path = COOKIE, "/"
+        if code is not None:
+            path = f"{request.scope.get('root_path', '')}/t/{code}/"
+            body |= {"site": code, "go_to": path}
+            name = trial_cookie(code)
+        response = JSONResponse(body)
         https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response.set_cookie(
-            COOKIE,
+            name,
             token,
             max_age=COOKIE_MAX_AGE,
             httponly=True,
             samesite="strict",
             secure=https,
-            path="/",
+            path=path,
         )
         return response
 
@@ -96,6 +114,17 @@ def host_router(
         """Whether this browser is signed in as a host, and as whom."""
         host = own_host(token)
         return {"signed_in": host is not None, "email": host and host.email}
+
+    def unfinished(request: Request, email: str, password: str) -> bool:
+        """Whether the host signed up with this password and has no site yet, or only a trial
+        site, so signing up again finishes making it (Codex's review of PR #279)."""
+        try:
+            accounts.sign_in(email, password, address(request), DEFAULT_SITE)
+        except HostElsewhere as e:
+            return is_trial(e.site)
+        except (HostRefused, HostsUnreadable):
+            return False
+        return True
 
     @router.post("/sign-up")
     def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:
@@ -107,11 +136,35 @@ def host_router(
         try:
             token = accounts.sign_up(email, password, address(request))
         except HostRefused as e:
-            status = 409 if e.reason == "email already signed up" else 400
-            return JSONResponse({"detail": str(e)}, status_code=status)
+            if e.reason != "email already signed up":
+                return JSONResponse({"detail": str(e)}, status_code=400)
+            if make_site is None or not unfinished(request, email, password):
+                return JSONResponse({"detail": str(e)}, status_code=409)
+            # Signed up before, and making their site stopped partway: it is finished now.
+            logger.info("Sign-up finished from before", extra={"email": normal_email(email)})
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
-        return signed_in(request, token, email)
+        else:
+            if make_site is None:
+                return signed_in(request, token, email)
+        start = time.perf_counter()
+        try:
+            code = make_site(email)
+            # Making the site ends the sign-in made with the account, which was the main
+            # address's: the host is signed in again, to their site.
+            token = accounts.sign_in_now(email)
+        except Exception:
+            logger.exception("Site not created", extra={"email": normal_email(email)})
+            return JSONResponse({"detail": NO_SITE_MADE}, status_code=503)
+        logger.info(
+            "Site created",
+            extra={
+                "trial": code,
+                "email": normal_email(email),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return signed_in(request, token, email, code)
 
     @router.post("/sign-in")
     def sign_in(request: Request, email: Email, password: Password) -> JSONResponse:

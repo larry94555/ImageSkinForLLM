@@ -23,15 +23,16 @@ export const MIN_PASSWORD = 10;
 
 interface Shared {
   session: HostSession | null; // null until the server has answered
-  signUp: (email: string, password: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  // Each resolves to true when the browser is leaving for the host's new site (R62).
+  signUp: (email: string, password: string) => Promise<boolean>;
+  signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
 const HostContext = createContext<Shared>({
   session: null,
-  signUp: async () => {},
-  signIn: async () => {},
+  signUp: async () => false,
+  signIn: async () => false,
   signOut: async () => {},
 });
 
@@ -40,6 +41,12 @@ export function useHost(): Shared {
 }
 
 const SIGNED_OUT: HostSession = { signed_in: false, email: null };
+
+// Leaves this page for another address; a function of its own so tests can see where.
+export const navigation = { goTo: (url: string) => window.location.assign(url) };
+function goTo(url: string) {
+  navigation.goTo(url);
+}
 
 export function HostProvider({ children }: { children: ComponentChildren }) {
   const [session, setSession] = useState<HostSession | null>(null);
@@ -58,8 +65,15 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
     const started = performance.now();
     const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
     console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+    if (signedIn.go_to) {
+      // Signing up made the host a site of their own (R62): its setup is next.
+      console.info(`Host's new site: ${signedIn.go_to}`);
+      goTo(`${signedIn.go_to}#/setup`);
+      return true;
+    }
     setSession(signedIn);
     await reload();
+    return false;
   }
 
   async function signOut() {
@@ -163,8 +177,8 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
     if (found) return;
     setBusy(true);
     try {
-      await (up ? signUp : signIn)(email, password);
-      window.location.hash = "#/";
+      const leaving = await (up ? signUp : signIn)(email, password);
+      if (!leaving) window.location.hash = "#/";
     } catch (err) {
       console.error(`Could not sign ${kind} as host`, err);
       setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");

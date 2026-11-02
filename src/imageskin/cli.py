@@ -541,6 +541,7 @@ def serve(settings: Settings) -> None:
             service=service,
             engines=engines,
             site=site,
+            sign_up_makes_site=True,
         )
 
     # Each request goes to its site by its address (R61).

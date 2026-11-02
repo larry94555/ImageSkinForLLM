@@ -53,7 +53,8 @@ from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
-from imageskin.hosts import HostAccounts
+from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
+from imageskin.hosts import HostAccounts, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.settings_access import SettingsAccess
 
@@ -179,12 +180,30 @@ class SiteDirectory:
             site = self._load().get(name)
         return None if site is None else str(site["host"])
 
-    def add_trial(self, email: str) -> tuple[str, Path]:
+    def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
-        host: its code and folder. SiteError as for `add`."""
-        letters = string.ascii_lowercase + string.digits
+        host: its code and folder. SiteError as for `add`.
+
+        With `finish`, for a host who has a trial site, it is that site, finished where making
+        it stopped partway (Codex's review of PR #279): the host's account says it's theirs,
+        and its folder is there."""
+        host = email.strip().lower()
         with self._lock:
-            taken = set(self._load())
+            sites = self._load()
+            taken = set(sites)
+            own = next(
+                (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
+            )
+            if not finish:
+                own = None
+            if own is not None and self._hosts.site_of(email) != own:
+                self._hosts.set_site(email, own)
+        if own is not None:
+            folder = site_home(own, self.home)
+            folder.mkdir(parents=True, exist_ok=True)
+            logger.info("Trial site finished", extra={"site": own, "host": host})
+            return own, folder
+        letters = string.ascii_lowercase + string.digits
         code = ""
         while not code or code in taken:
             code = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
@@ -263,6 +282,42 @@ def trial_code(scope: Scope) -> str | None:
     """The trial code the request's path starts with (`/t/<code>`), if any."""
     found = TRIAL_PATH.match(str(scope.get("path", "")))
     return found.group(1) if found else None
+
+
+def trial_cookies_in(headers: list[tuple[bytes, bytes]], code: str) -> list[tuple[bytes, bytes]]:
+    """The request's headers with the trial site's host cookie as the host cookie, and no other."""
+    own, plain = trial_cookie(code).encode(), HOST_COOKIE.encode()
+    kept: list[tuple[bytes, bytes]] = []
+    for name, value in headers:
+        if name.lower() != b"cookie":
+            kept.append((name, value))
+            continue
+        pairs = []
+        for pair in value.split(b";"):
+            key = pair.split(b"=", 1)[0].strip()
+            if key == plain:
+                continue
+            pairs.append(plain + pair.strip()[len(own) :] if key == own else pair.strip())
+        kept.append((name, b"; ".join(p for p in pairs if p)))
+    return kept
+
+
+def trial_cookies_out(send: Send, code: str, path: str) -> Send:
+    """`send`, with the host cookie the site's app sets renamed to its own, for its path."""
+    plain, own = f"{HOST_COOKIE}=".encode(), f"{trial_cookie(code)}=".encode()
+
+    async def sending(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            headers = []
+            for name, value in message.get("headers", []):
+                if name.lower() == b"set-cookie" and value.startswith(plain):
+                    value = own + value[len(plain) :]
+                    value = re.sub(rb"(?i)(;\s*path=)[^;]*", rb"\g<1>" + path.encode(), value)
+                headers.append((name, value))
+            message = {**message, "headers": headers}
+        await send(message)
+
+    return sending
 
 
 def is_ip_address(host: str) -> bool:
@@ -402,6 +457,9 @@ class SiteApps:
                 return
             # The site's app sees the paths it always has (Starlette strips its root_path).
             scope = dict(scope, root_path=f"{scope.get('root_path', '')}{prefix}")
+            # And the host's cookie it always has: each trial site's is its own (R62).
+            scope["headers"] = trial_cookies_in(scope.get("headers") or [], site)
+            send = trial_cookies_out(send, site, f"{scope['root_path']}/")
         with self._lock:
             first = site not in self._matched
             self._matched.add(site)
