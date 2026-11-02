@@ -45,6 +45,9 @@ class Settings:
     # comma-separated list of addresses or networks, or "*" when only a proxy can reach the app,
     # as on the hosted site. Others' requests are taken to come from where they connect from.
     trusted_proxies: str = "127.0.0.1"
+    # How many sites keep the voice clone (about 3 GB each) loaded at once (roadmap R61d): the
+    # one used least recently is unloaded, and learns its voice again when next needed.
+    clones_loaded: int = 2
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -92,6 +95,8 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"admin_laptops_file in {path} must be a string")
     if not isinstance(settings.trusted_proxies, str) or not settings.trusted_proxies.strip():
         raise ConfigError(f'trusted_proxies in {path} must be a list of addresses, or "*"')
+    if type(settings.clones_loaded) is not int or settings.clones_loaded < 1:
+        raise ConfigError(f"clones_loaded in {path} must be a number of at least 1")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})

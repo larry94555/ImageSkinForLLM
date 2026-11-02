@@ -327,6 +327,10 @@ test("a failed progress check is logged", async () => {
 test("reading progress reads as a sentence", () => {
   expect(readingText({ ...READ, state: "reading", pages: 0 })).toBe("Reading…");
   expect(readingText({ ...READ, state: "failed" })).toBe("Could not be read.");
+  // Waiting for another site's job to finish (R61d).
+  const waiting = "Waiting for another site's preparation to finish";
+  expect(readingText({ ...READ, state: "waiting", activity: waiting })).toBe(waiting);
+  expect(readingText({ ...READ, state: "waiting" })).toBe("Waiting to be read…");
   expect(
     readingText({
       ...READ,

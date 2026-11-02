@@ -8092,7 +8092,7 @@ function ReadingLine({ reading }) {
 	});
 }
 function readingText(r) {
-	if (r.state === "waiting") return "Waiting to be read…";
+	if (r.state === "waiting") return r.activity ?? "Waiting to be read…";
 	if (r.state === "reading") return r.pages ? `Reading page ${r.page} of ${r.pages}…` : "Reading…";
 	if (r.state === "failed") return r.error ?? "Could not be read.";
 	const found = [

@@ -712,6 +712,7 @@ export interface Reading {
   counts: { paragraph: number; slide: number; table: number } | null; // once done
   pages_without_text: number[] | null; // once done: maybe scanned, so not read
   error: string | null;
+  activity?: string | null; // while waiting: what for, such as another site's job (R61d)
 }
 
 // The reading progress of each PDF, by its id. A PDF not read yet may be missing.

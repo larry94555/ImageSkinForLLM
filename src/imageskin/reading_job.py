@@ -10,6 +10,7 @@ file that is open).
 """
 
 import contextlib
+import functools
 import json
 import logging
 import threading
@@ -20,6 +21,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from imageskin.across_sites import WAITING, Turns
 from imageskin.content import ContentStore, Pdf
 from imageskin.pdf_reading import Progress, Reading, ReadingError, read_pdf
 
@@ -41,6 +43,8 @@ class ReadingStatus:
     counts: dict[str, int] | None = None  # once done: paragraphs, slides and tables found
     pages_without_text: list[int] | None = None  # once done: maybe scanned, not read
     error: str | None = None  # why it failed
+    # While waiting: what it waits for, such as another site's job (R61d).
+    activity: str | None = None
 
 
 class ReadingStopped(Exception):
@@ -71,7 +75,12 @@ class ReadingJob:
         store: ContentStore,
         read: ReadPdf = read_pdf,
         on_read: Callable[[str], None] | None = None,  # given the id once a reading is saved
+        # Prepare and PDF reading run one site at a time (R61d); left out, the job's own.
+        turns: Turns | None = None,
+        site: str = "",  # the site's name in the logs
     ) -> None:
+        self._turns = turns or Turns()
+        self._site = site or store.root.name
         self.store = store
         self.read = read
         self.on_read = on_read
@@ -156,10 +165,23 @@ class ReadingJob:
                     return
                 pdf_id = self._waiting.pop(0)
             try:
-                self._read(pdf_id)
+                # Once no other site's Prepare or PDF reading runs (R61d).
+                waiting = functools.partial(self._wait_turn, pdf_id)
+                with self._turns.turn("pdf-reading", self._site, waiting):
+                    self._read(pdf_id)
+            except ReadingStopped:  # removed while it waited
+                logger.info("PDF reading stopped: the PDF was removed", extra={"id": pdf_id})
             except Exception as e:  # never let one PDF stop the PDFs queued after it
                 logger.exception("Could not read the PDF", extra={"id": pdf_id, "error": repr(e)})
                 self._set(pdf_id, ReadingStatus("failed", error="Something went wrong reading it."))
+
+    def _wait_turn(self, pdf_id: str) -> None:
+        """While another site's job runs: the PDF says so, until it is removed."""
+        with self._lock:
+            if pdf_id not in self._status:
+                raise ReadingStopped
+            if self._status[pdf_id].activity != WAITING:
+                self._status[pdf_id] = ReadingStatus("waiting", activity=WAITING)
 
     def _read(self, pdf_id: str) -> None:
         # A private copy, so the stored PDF can be replaced or removed while it is read.
