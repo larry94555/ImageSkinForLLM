@@ -25,6 +25,7 @@ export type Page =
   | "host-account"
   | "email-changed"
   | "email-failed"
+  | "act-as-failed"
   | "resources"
   | "customization"
   | "not-found";
@@ -56,6 +57,8 @@ const PAGES: Record<string, Page> = {
   "/host/account": "host-account",
   "/host/email-changed": "email-changed",
   "/host/email-failed": "email-failed",
+  // Where an Act as this host link that didn't work goes (R44b).
+  "/host/act-as-failed": "act-as-failed",
   // The signed-in host's disk space used (R193), in either view; it checks the sign-in itself.
   "/resources": "resources",
   // The identity and goals (R92), in either view; it checks the sign-in itself.

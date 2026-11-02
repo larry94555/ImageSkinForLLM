@@ -1318,6 +1318,33 @@ export interface HostSession {
   go_to?: string;
   // False until a customer who signed up at the main address confirms their email (R62b).
   confirmed?: boolean;
+  // True when this is the administrator acting as the host (roadmap R44a), for the bar (R44b).
+  acting_as_admin?: boolean;
+}
+
+// The administrator acting as a host (roadmap R44a, R44b): a one-time link to the host's site.
+export async function actAsHost(email: string): Promise<string> {
+  const response = await fetch("/api/admin/act-as", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { link: string }).link;
+}
+
+// Stops acting: where to go back to, the admin view at the main address, or null if it had
+// already stopped.
+export async function stopActing(): Promise<string | null> {
+  const response = await fetch("/api/host/act-as/stop", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { go_to: string | null }).go_to;
+}
+
+// A click while acting counts as the administrator's activity; false once acting has ended.
+export async function actingActivity(): Promise<boolean> {
+  const response = await fetch("/api/host/act-as/activity", { method: "POST" });
+  return response.ok;
 }
 
 export async function getHostSession(): Promise<HostSession> {

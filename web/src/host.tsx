@@ -4,11 +4,12 @@
 
 import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
-import { useContext, useEffect, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { useSettingsReload } from "./settings";
 
 import {
+  actingActivity,
   changeEmail,
   forgotPassword,
   getHostSession,
@@ -20,6 +21,7 @@ import {
   signInAsHost,
   signOutAsHost,
   signUpAsHost,
+  stopActing,
 } from "./api";
 
 // As the server checks (R188), so a short password is said at once.
@@ -27,6 +29,8 @@ export const MIN_PASSWORD = 10;
 
 interface Shared {
   session: HostSession | null; // null until the server has answered
+  // Acting ended by itself (R44b): the session is read again, signed out of the host's site.
+  actingEnded: () => void;
   // Each resolves to true when the browser is leaving for the host's new site (R62).
   signUp: (email: string, password: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
@@ -35,6 +39,7 @@ interface Shared {
 
 const HostContext = createContext<Shared>({
   session: null,
+  actingEnded: () => {},
   signUp: async () => false,
   signIn: async () => false,
   signOut: async () => {},
@@ -89,6 +94,10 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
 
   const shared = {
     session,
+    actingEnded: () => {
+      setSession(SIGNED_OUT);
+      void reload();
+    },
     signUp: (email: string, password: string) => account("up", email, password),
     signIn: (email: string, password: string) => account("in", email, password),
     signOut,
@@ -143,6 +152,103 @@ export function HostLinks({ page }: { page?: string }) {
       {link("host-sign-up", "#/host/sign-up", "Host sign up")}
       {link("host-sign-in", "#/host/sign-in", "Host sign in")}
     </span>
+  );
+}
+
+// A click while acting counts as the administrator's activity, at most once a minute (R44b),
+// as on the Settings page (R150).
+export const ACTIVITY_MS = 60_000;
+
+// The bar on every page while the administrator acts as this site's host (R44a, R44b): who they
+// act as, and Stop acting, which goes back to the admin view at the main address. When acting
+// ends by itself (the administrator signed out, or out for inactivity), it says so instead.
+export function ActingBar() {
+  const { session, actingEnded } = useHost();
+  const [busy, setBusy] = useState(false);
+  const [ended, setEnded] = useState<string | null>(null);
+  // Set as Stop acting is clicked, before that click reaches the page's listener, so the click
+  // isn't also sent as activity just as acting stops.
+  const stopping = useRef(false);
+  const acting = session?.signed_in === true && session.acting_as_admin === true;
+  const email = session?.email ?? "";
+
+  useEffect(() => {
+    if (acting) console.info("Acting as host started");
+  }, [acting]);
+
+  useEffect(() => {
+    if (!acting) return;
+    let last = 0;
+    const onClick = () => {
+      if (stopping.current) return;
+      const now = Date.now();
+      if (now - last < ACTIVITY_MS) return;
+      last = now;
+      actingActivity().then(
+        (still) => {
+          if (still) return;
+          console.info("Acting as host stopped: no longer signed in as the administrator");
+          setEnded(email);
+          actingEnded();
+        },
+        (e: unknown) => console.error("Could not note the administrator's activity", e),
+      );
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [acting, email]);
+
+  async function stop() {
+    stopping.current = true;
+    setBusy(true);
+    try {
+      const back = await stopActing();
+      console.info("Acting as host stopped");
+      if (back) goTo(back);
+      else {
+        setEnded(email);
+        actingEnded();
+      }
+    } catch (e) {
+      console.error("Could not stop acting as the host", e);
+      stopping.current = false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (ended) {
+    return (
+      <div className="acting-bar ended" role="status">
+        Stopped acting as {ended}.
+      </div>
+    );
+  }
+  if (!acting) return null;
+  return (
+    <div className="acting-bar" role="status">
+      <span>
+        Acting as <strong>{email}</strong>, as the administrator
+      </span>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void stop()}>
+        Stop acting
+      </button>
+    </div>
+  );
+}
+
+// Where an Act as this host link that didn't work goes (R44b).
+export function ActAsFailedPage() {
+  useEffect(() => console.info("Act as host link failed page shown"), []);
+  return (
+    <div className="host-page host-account">
+      <h1>Couldn't act as this host</h1>
+      <p className="error" role="alert">
+        That link didn't work: it was already used, is more than a minute old, was opened on
+        another host's site, or the administrator has signed out. Make a new one with Act as this
+        host in Admin settings.
+      </p>
+    </div>
   );
 }
 
@@ -542,7 +648,8 @@ export function AccountPage() {
           />
         </label>
         <label>
-          Your password
+          {/* The administrator acting as the host gives their own password (R44b). */}
+          {session.acting_as_admin ? "Administrator password" : "Your password"}
           <input
             type="password"
             autoComplete="current-password"

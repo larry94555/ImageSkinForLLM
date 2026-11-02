@@ -141,7 +141,7 @@ def test_acting_ends_with_stop_sign_out_or_acting_as_another_host(
     assert browser.post("/api/host/act-as/activity").status_code == 204
     with caplog.at_level(logging.INFO):
         stopped = browser.post("/api/host/act-as/stop")
-    assert stopped.json() == {"stopped": True}
+    assert stopped.json() == {"stopped": True, "go_to": "http://localhost:8000/#/admin/settings"}
     assert browser.get("/api/host/me").status_code == 401
     why = next(r for r in caplog.records if r.message == "Admin acting as host stopped")
     assert why.__dict__["why"] == "stopped"
@@ -206,7 +206,7 @@ def test_an_unknown_acting_token_is_no_one() -> None:
     signs = admin.AdminSignIns(Path("/nonexistent/admin.toml"))
     acts = ActingAsHost(signs)
     assert acts.email_of("act-nothing") is None
-    assert acts.stop("act-nothing") is False
+    assert acts.stop("act-nothing") is None
     assert acts.activity("act-nothing") is False
     assert acting.key("x") != acting.key("y")
 
@@ -222,3 +222,18 @@ def test_acting_ends_when_the_administrator_is_signed_out_for_inactivity(tmp_pat
     assert browser.get("/api/host/me").status_code == 200  # 20 minutes since the click
     clock.now += 31 * 60
     assert browser.get("/api/host/me").status_code == 401
+
+
+def test_change_email_while_acting_asks_for_the_administrators_password(tmp_path: Path) -> None:
+    sites, _, _ = served(tmp_path)
+    boss = administrator(sites, tmp_path)
+    browser = opened(sites, link_for(boss))
+    new = {"new_email": "ann.new@example.com"}
+    refused = browser.post("/api/host/email", json={**new, "password": PASSWORD})
+    assert refused.status_code == 401  # the host's own password isn't the administrator's
+    sent = browser.post("/api/host/email", json={**new, "password": "secret"})
+    assert sent.status_code == 200 and sent.json()["sent_to"] == "ann.new@example.com"
+    # The host, signed in themselves, still gives their own.
+    ann = TestClient(sites, base_url="http://a.localhost:8000")
+    assert ann.post("/api/host/sign-in", json={"email": ANN, "password": PASSWORD}).is_success
+    assert ann.post("/api/host/email", json={**new, "password": "secret"}).status_code == 401

@@ -39,6 +39,7 @@ class Acting:
     admin_token: str
     email: str
     made_at: float
+    back: str = ""  # the main address the link was made at, to go back to (R44b)
 
 
 class ActingAsHost:
@@ -56,7 +57,7 @@ class ActingAsHost:
         if acting is not None:
             logger.info("Admin acting as host stopped", extra={"email": acting.email, "why": why})
 
-    def link(self, admin_token: str, email: str) -> str:
+    def link(self, admin_token: str, email: str, back: str = "") -> str:
         """A one-time link token for acting as the host; acting as another host ends the first,
         and an earlier link of this administrator stops working."""
         email = normal_email(email)
@@ -65,7 +66,7 @@ class ActingAsHost:
             for k in [k for k, a in self._acting.items() if a.admin_token == admin_token]:
                 self._end(k, "acting as another host")
             self._links = {k: a for k, a in self._links.items() if a.admin_token != admin_token}
-            self._links[key(token)] = Acting(admin_token, email, self.clock())
+            self._links[key(token)] = Acting(admin_token, email, self.clock(), back)
         logger.info("Admin acting link made", extra={"email": email})
         return token
 
@@ -91,7 +92,9 @@ class ActingAsHost:
                 return None
             del self._links[key(link)]
             token = ACT_PREFIX + secrets.token_urlsafe(32)
-            self._acting[key(token)] = Acting(acting.admin_token, acting.email, self.clock())
+            self._acting[key(token)] = Acting(
+                acting.admin_token, acting.email, self.clock(), acting.back
+            )
         logger.info("Admin acting as host started", extra={"email": acting.email})
         return token, acting.email
 
@@ -112,11 +115,12 @@ class ActingAsHost:
             acting = self._acting.get(key(token))
         return acting is not None and self.admin.activity(acting.admin_token)
 
-    def stop(self, token: str) -> bool:
+    def stop(self, token: str) -> str | None:
+        """Stop acting: the main address it was started from, or None for an unknown token."""
         with self._lock:
-            known = key(token) in self._acting
+            acting = self._acting.get(key(token))
             self._end(key(token), "stopped")
-        return known
+        return None if acting is None else acting.back
 
 
 def site_address(request: Request, site: str, is_trial: Callable[[str], bool]) -> str:
@@ -156,7 +160,7 @@ def acting_routes(
         target = accounts.site_of(email)
         if target is None or admin_token is None:
             raise HTTPException(status_code=404, detail=NO_SUCH_HOST)
-        link = acting.link(admin_token, email)
+        link = acting.link(admin_token, email, site_address(request, DEFAULT_SITE, is_trial))
         return {"link": f"{site_address(request, target, is_trial)}/api/host/act-as/{link}"}
 
     @host.get("/{link}", response_model=None)
@@ -181,9 +185,14 @@ def acting_routes(
             raise HTTPException(status_code=401, detail="Not acting as a host.")
 
     @host.post("/stop")
-    def stop(token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None) -> JSONResponse:
-        stopped = bool(token and token.startswith(ACT_PREFIX) and acting.stop(token))
-        response = JSONResponse({"stopped": stopped})
+    def stop(
+        request: Request, token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None
+    ) -> JSONResponse:
+        """Stop acting; the page then goes back to the admin view at the main address (R44b)."""
+        back = acting.stop(token) if token and token.startswith(ACT_PREFIX) else None
+        stopped = back is not None
+        go_to = f"{back}/#/admin/settings" if back else None
+        response = JSONResponse({"stopped": stopped, "go_to": go_to})
         if stopped:
             response.delete_cookie(HOST_COOKIE, path="/")
         return response
