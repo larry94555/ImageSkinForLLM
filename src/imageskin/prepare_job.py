@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
 from imageskin.failure import Failure, report
-from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
+from imageskin.kokoro_engine import DEFAULT_VOICE, LANG_CODE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.ui_settings import DEFAULTS, load_ui_settings
 from imageskin.uploads import UploadStore
@@ -1114,7 +1114,11 @@ def cloned_voice(
 
 
 def clip_voice(
-    voice_sample: Path, accent: Callable[[], Accent], speakers: "SpeakerChecker"
+    voice_sample: Path,
+    accent: Callable[[], Accent],
+    speakers: "SpeakerChecker",
+    # Kokoro for a language code; the shared voices every site uses (R61c), or its own.
+    kokoro: Callable[[str], VoiceEngine] | None = None,
 ) -> tuple[PrepareVoice, VoiceEngine, str, str]:
     """The voice step, the engine, the voice the clips are spoken in and its kind ("pocket",
     "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
@@ -1130,19 +1134,24 @@ def clip_voice(
     except VoiceError as e:
         message = "Prepare speaks in a ready-made Kokoro voice, not the person's"
         logger.warning(message, extra={"reason": str(e)})
-        kokoro = KokoroEngine()
-        return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
+        ready = kokoro(LANG_CODE) if kokoro else KokoroEngine()
+        return kokoro_voice(ready), ready, DEFAULT_VOICE, "kokoro"
     if pocket_engine.usable():
         logger.info("Prepare speaks in the person's own voice, cloned with Pocket TTS")
         clone, kind = pocket_engine.pocket_engine(), "pocket"
     else:
         logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
         clone, kind = ChatterboxEngine(), "clone"
-    engine = accent_engine(clone, kind, speakers)
+    engine = accent_engine(clone, kind, speakers, kokoro)
     return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), kind
 
 
-def accent_engine(clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecker") -> AccentEngine:
+def accent_engine(
+    clone: "ChatterboxEngine",
+    kind: str,
+    speakers: "SpeakerChecker",
+    kokoro: Callable[[str], VoiceEngine] | None = None,
+) -> AccentEngine:
     """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
     one-speaker check) for other accents. Each is loaded only when another accent is first used.
     The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones.
@@ -1159,7 +1168,7 @@ def accent_engine(clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecke
 
     return AccentEngine(
         clone,
-        kokoro_for,
+        kokoro or kokoro_for,
         converter,
         lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
         clone_keeps_accent=kind == "pocket",

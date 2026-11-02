@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
 from urllib.parse import quote
@@ -461,6 +461,45 @@ def sound_checker(
     return functools.partial(sound_checks.check, voices=speakers.check)
 
 
+@dataclass(frozen=True)
+class Engines:
+    """The models every site's app shares, loaded once for the server (R61c): the speaker model
+    for the one-speaker check and an accent's base voice, the face checks (None without
+    MediaPipe, or when photos are checked another way) and Kokoro's ready-made voices, one
+    speaking at a time. Each holds no site's data: the files are given with each call."""
+
+    speakers: SpeakerChecker
+    check_photo: PhotoCheck | None
+    check_sound: SoundCheck
+    kokoro: KokoroVoices
+    # The threads loading them at the start, which wait_until_loaded waits for.
+    loading: tuple[threading.Thread, ...]
+
+
+def make_engines(
+    home: Path, startup: StartupTimes | None = None, face_checks: bool = True
+) -> Engines:
+    """The shared models, kept in `home`'s models folder and loaded in the background."""
+    start = time.perf_counter()
+    loading: list[threading.Thread] = []
+    speakers = SpeakerChecker(home / "models" / "speakers")
+    engines = Engines(
+        speakers=speakers,
+        check_photo=face_checker(home, loading, startup) if face_checks else None,
+        check_sound=sound_checker(speakers, loading, startup),
+        kokoro=KokoroVoices(),
+        loading=tuple(loading),
+    )
+    logger.info(
+        "Engines made",
+        extra={
+            "face_checks": engines.check_photo is not None,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        },
+    )
+    return engines
+
+
 MAX_WIKI_FILE_BYTES = 50 * 1024 * 1024
 
 
@@ -596,6 +635,8 @@ def create_app(
     # What every site's app shares (R61b): the host accounts and the administrator's files.
     # Left out, they are kept in `home`, as for the one site there is.
     service: Service | None = None,
+    # The models every site's app shares (R61c). Left out, the app loads its own.
+    engines: Engines | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -1010,14 +1051,17 @@ def create_app(
             not_deleted_since(seen)
             yield
 
-    # One speaker model for the one-speaker check and for picking an accent's base voice.
-    speakers = SpeakerChecker(data_home / "models" / "speakers")
+    # The shared models (R61c), with one speaker model for the one-speaker check and for
+    # picking an accent's base voice.
+    engines = engines or make_engines(data_home, startup, face_checks=check_photo is None)
+    app.state.engines = engines
+    speakers = engines.speakers
     # What loads in the background at the start; wait_until_loaded waits for it.
-    app.state.loading = []
+    app.state.loading = list(engines.loading)
     store = UploadStore(
         data_home,
-        check_photo or face_checker(data_home, app.state.loading, startup),
-        check_sound or sound_checker(speakers, app.state.loading, startup),
+        check_photo or engines.check_photo,
+        check_sound or engines.check_sound,
     )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
@@ -1354,13 +1398,14 @@ def create_app(
     def accent() -> Accent:
         return load_accent(data_home)
 
+    # Kokoro's ready-made voices are every site's (R61c), as is the speaker model.
+    kokoro_voices = engines.kokoro
     voice_step, own_engine, voice, voice_kind = clip_voice(
-        store.voice_sample_file, accent, speakers
+        store.voice_sample_file, accent, speakers, kokoro_voices.engine
     )
     # While a default person is chosen, replies speak in their ready-made Kokoro voice (R24c).
     # Prepare's clips are always the person's own, except the default person's own lines, which
     # Start now renders with Prepare's engines while no Prepare runs (review on PR #113).
-    kokoro_voices = KokoroVoices()
     voice_engine = PresetVoice(own_engine, lambda: reply_preset(), kokoro_voices)
     prepare_engine = PresetVoice(
         own_engine, lambda: start_now.rendering_voice() or no_sample(), kokoro_voices
