@@ -39,3 +39,9 @@ trusted_proxies = "127.0.0.1"
 # (roadmap R61d). When another site's is needed, the one used least recently is unloaded, and
 # loads again and learns its site's voice and accent, from what was kept, the next time it speaks.
 clones_loaded = 2
+
+# The hosted service's domain (roadmap R61). Each site is at name.<main_domain>, as it is at
+# name.localhost locally; the domain itself, www and app are the main address's site, and any
+# other name gets Site not found, so set it to the domain the app is reached at. Sites are
+# added with: imageskin site add name --host their-host@example.com
+main_domain = "me0.ai"

@@ -223,11 +223,12 @@ def test_a_site_that_cant_be_made_is_logged_and_tried_again(
     assert sites.app("a") is not None and sites.sites() == ["a"]
 
 
-def test_every_request_is_the_one_sites_until_sites_are_matched() -> None:
+def test_an_app_alone_has_the_one_site_and_each_site_its_own_folder() -> None:
     assert one_site({"type": "http", "headers": [(b"host", b"a.localhost")]}) == DEFAULT_SITE
     assert site_home(DEFAULT_SITE) == default_home()
+    assert site_home("a") == default_home() / "sites" / "a"  # R61
     with pytest.raises(ValueError):
-        site_home("a")
+        site_home("../a")
 
 
 def test_the_server_starts_and_stops_with_no_site_made() -> None:

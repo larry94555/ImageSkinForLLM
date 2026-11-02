@@ -48,6 +48,9 @@ class Settings:
     # How many sites keep the voice clone (about 3 GB each) loaded at once (roadmap R61d): the
     # one used least recently is unloaded, and learns its voice again when next needed.
     clones_loaded: int = 2
+    # The hosted service's domain (R61): each site is at name.<main_domain>, as name.localhost is
+    # locally; the domain itself, www and app are the main address's site.
+    main_domain: str = "me0.ai"
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -97,6 +100,8 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f'trusted_proxies in {path} must be a list of addresses, or "*"')
     if type(settings.clones_loaded) is not int or settings.clones_loaded < 1:
         raise ConfigError(f"clones_loaded in {path} must be a number of at least 1")
+    if not isinstance(settings.main_domain, str) or "." not in settings.main_domain.strip("."):
+        raise ConfigError(f"main_domain in {path} must be a domain, such as me0.ai")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})

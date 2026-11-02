@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
 from imageskin.admin_api import Laptop
 from imageskin.admin_laptops import AdminLaptops, LaptopProof
 from imageskin.host_api import COOKIE as HOST_COOKIE
-from imageskin.hosts import HostAccounts
+from imageskin.hosts import DEFAULT_SITE, HostAccounts
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +65,22 @@ class SettingsAccess:
         allowed = self.laptops.allowed()
         return laptop if laptop and allowed is not None and laptop in allowed else None
 
-    def who(self, host_token: str | None, laptop_token: str | None) -> Who:
-        if self.hosts.host(host_token) is not None:
+    def who(
+        self, host_token: str | None, laptop_token: str | None, site: str = DEFAULT_SITE
+    ) -> Who:
+        """A host counts on their own site only (R61); a listed laptop, the administrator's,
+        only at the main address, so a site's settings are its host's alone (Codex's review of
+        PR #274)."""
+        if self.hosts.host(host_token, site) is not None:
             return "host"
-        if self.laptop(laptop_token) is not None:
+        if site == DEFAULT_SITE and self.laptop(laptop_token) is not None:
             return "laptop"
         return None
 
 
-def settings_router(access: SettingsAccess) -> tuple[APIRouter, Callable[..., str]]:
+def settings_router(
+    access: SettingsAccess, site: str = DEFAULT_SITE
+) -> tuple[APIRouter, Callable[..., str]]:
     """The route that says whether Settings is shown, and the dependency that refuses the
     Settings page's calls to anyone else as if they weren't there."""
     router = APIRouter(prefix="/api/settings")
@@ -81,7 +88,7 @@ def settings_router(access: SettingsAccess) -> tuple[APIRouter, Callable[..., st
     def require_settings(
         request: Request, host_token: HostToken = None, laptop_token: LaptopToken = None
     ) -> str:
-        who = access.who(host_token, laptop_token)
+        who = access.who(host_token, laptop_token, site)
         if who is None:
             logger.info(
                 "Settings call refused", extra={"method": request.method, "path": request.url.path}
@@ -99,9 +106,9 @@ def settings_router(access: SettingsAccess) -> tuple[APIRouter, Callable[..., st
     ) -> dict[str, object]:
         """Whether this browser sees Settings: a signed-in host, or a laptop with a pass or a
         proof that it is listed. A listed laptop's proof gets it a pass for the Settings calls."""
-        who = access.who(host_token, laptop_token)
+        who = access.who(host_token, laptop_token, site)
         found = None
-        if who is None:
+        if who is None and site == DEFAULT_SITE:  # a laptop's proof counts at the main address
             proof = LaptopProof(**laptop.model_dump()) if laptop else None
             found = access.listed(proof)
             if found is not None:
@@ -121,6 +128,7 @@ def settings_router(access: SettingsAccess) -> tuple[APIRouter, Callable[..., st
         logger.info(
             "Settings shown" if who else "Settings hidden",
             extra={
+                "site": site,
                 "host": who == "host",
                 "laptop": found or (access.laptop(laptop_token) if who == "laptop" else None),
             },

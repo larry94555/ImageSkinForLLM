@@ -161,6 +161,14 @@ def build_parser() -> argparse.ArgumentParser:
         "host-password-reset", help="set a new password for a host account, signing it out"
     )
     reset.add_argument("email", help="the host's email address")
+    site = commands.add_parser("site", help="add a site or list the sites (R61)")
+    site_commands = site.add_subparsers(dest="site_command", required=True)
+    site_add = site_commands.add_parser(
+        "add", help="add a site at name.localhost (name.me0.ai hosted), with its one host"
+    )
+    site_add.add_argument("name", help="the site's name: its subdomain")
+    site_add.add_argument("--host", required=True, help="the email of the host who runs it")
+    site_commands.add_parser("list", help="list the sites, each with its host")
     check_packs = commands.add_parser(
         "check-packs",
         help="download every default person's pack from the hosted site and check it",
@@ -484,7 +492,7 @@ def serve(settings: Settings) -> None:
     from fastapi import FastAPI
 
     from imageskin.app import create_app, make_engines
-    from imageskin.sites import DEFAULT_SITE, SiteApps, make_service, site_home
+    from imageskin.sites import DEFAULT_SITE, SiteApps, make_service, site_home, site_matcher
     from imageskin.startup import StartupTimes
 
     start = time.perf_counter()
@@ -507,7 +515,7 @@ def serve(settings: Settings) -> None:
     engines = make_engines(default_home(), startup, clones_loaded=settings.clones_loaded)
 
     def site_app(site: str) -> FastAPI:
-        """Each site's own app (R61b). Until R61, the one site is the app's home folder."""
+        """Each site's own app (R61b), kept in its own folder (R61)."""
         return create_app(
             site_home(site),
             llm=llm,
@@ -521,7 +529,8 @@ def serve(settings: Settings) -> None:
             site=site,
         )
 
-    sites = SiteApps(site_app)
+    # Each request goes to its site by its address (R61).
+    sites = SiteApps(site_app, site_matcher(service.sites, settings.main_domain))
     # The one site is made before the server listens, as the app was before R61b.
     app = sites.app(DEFAULT_SITE)
     # This month's network use for the admin dashboard, kept through restarts (R153).
@@ -581,6 +590,29 @@ def reset_host_password(email: str) -> int:
         print(f"No host has signed up with {email}; nothing changed.", file=sys.stderr)
         return 1
     print(f"The password for {email} is changed, and every sign-in it had has ended.")
+    return 0
+
+
+def manage_sites(command: str, name: str, host: str) -> int:
+    """Add a site with its host, or list the sites (R61). A running server sees it at once."""
+    from imageskin.hosts import HostAccounts, HostsUnreadable
+    from imageskin.sites import SiteDirectory, SiteError
+
+    home = default_home()
+    sites = SiteDirectory(home, HostAccounts(home))
+    if command == "list":
+        for site in sites.names():
+            print(f"{site}: {sites.host(site)}")
+        return 0
+    try:
+        folder = sites.add(name, host)
+    except (SiteError, HostsUnreadable) as e:
+        print(f"{e} Nothing changed.", file=sys.stderr)
+        return 1
+    print(
+        f"Added the site {name}, run by {host}, at {name}.localhost locally. Its files are kept"
+        f" in {folder}. {host} now signs in there, and their sign-ins elsewhere have ended."
+    )
     return 0
 
 
@@ -649,6 +681,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return print_admin_password_hash()
     if args.command == "host-password-reset":
         return reset_host_password(args.email)
+    if args.command == "site":
+        return manage_sites(args.site_command, getattr(args, "name", ""), getattr(args, "host", ""))
     if args.command == "check-packs":
         return print_pack_checks(args.url)
     if args.command == "lookup":
