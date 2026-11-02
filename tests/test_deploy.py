@@ -26,7 +26,8 @@ def test_the_hosted_config_loads_and_listens_where_caddy_and_docker_look() -> No
 
 def test_the_password_is_asked_before_anything_is_proxied() -> None:
     caddyfile = text(DEPLOY / "Caddyfile")
-    assert caddyfile.index("basic_auth") < caddyfile.index("reverse_proxy")
+    # The app's own pages: only Stripe's events path is proxied before it (test below).
+    assert caddyfile.index("basic_auth") < caddyfile.index("reverse_proxy app:8000 {")
     assert "{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}" in caddyfile
 
 
@@ -223,7 +224,7 @@ def test_every_subdomain_is_served_with_the_wildcard_certificate() -> None:
     assert "import site" in main and "import site" in wildcard
     assert "dns cloudflare {env.CLOUDFLARE_API_TOKEN}" in wildcard
     snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
-    assert snippet.index("basic_auth") < snippet.index("reverse_proxy app:8000")
+    assert snippet.index("basic_auth") < snippet.index("reverse_proxy app:8000 {")
     # Caddy is built with that module, and given the domain and the token.
     assert "xcaddy build --with github.com/caddy-dns/cloudflare" in text(
         DEPLOY / "caddy/Dockerfile"
@@ -254,3 +255,34 @@ def test_the_subdomain_guide_and_checklist_are_there_and_linked() -> None:
     readme = text(DEPLOY / "README.md")
     assert "(../docs/guides/Subdomain-Setup-Guide.md)" in readme
     assert "(../docs/guides/Subdomain-Setup-Checklist.md)" in readme
+
+
+def test_stripe_reaches_its_events_path_without_the_password() -> None:
+    # Stripe's servers send subscription events with no password (roadmap R67); the app checks
+    # each one's signature. Only that one path skips basic_auth.
+    caddyfile = text(DEPLOY / "Caddyfile")
+    snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
+    stripe = snippet.split("handle /api/payments/stripe/events {")[1].split("}")[0]
+    assert stripe.strip() == "reverse_proxy app:8000"
+    assert snippet.index("handle /api/payments/stripe/events") < snippet.index("basic_auth")
+    assert snippet.count("handle /api/") == 1
+
+
+def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> None:
+    compose = text(DEPLOY / "compose.yaml")
+    app = compose.split("\n  app:")[1].split("\n  llama:")[0]
+    example = set(re.findall(r"^(\w+)=", text(DEPLOY / ".env.example"), re.MULTILINE))
+    for name in ("IMAGESKIN_STRIPE_SECRET_KEY", "IMAGESKIN_STRIPE_WEBHOOK_SECRET"):
+        assert f"{name}: ${{{name}:-}}" in app
+        assert name in example
+    assert load_settings(DEPLOY / "config.toml").stripe_price_id == ""  # commented out until set
+    assert '# stripe_price_id = "' in text(DEPLOY / "config.toml")
+    readme = text(DEPLOY / "README.md")
+    assert "## 9. Turn on subscribing (Stripe)" in readme
+    for event in (
+        "checkout.session.completed",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        assert event in readme
+    assert "/api/payments/stripe/events" in readme
