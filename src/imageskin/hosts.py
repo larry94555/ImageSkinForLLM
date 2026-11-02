@@ -72,6 +72,8 @@ CUSTOM_VOICE = "custom_voice"
 # A host the administrator disabled (R44c): their site is read-only for them, and only the
 # administrator acting as them (R44a) changes it. Kept with the host; hosts from before have none.
 DISABLED = "disabled"
+# Said to a sign-up whose email address has had its one free trial (R66).
+TRIAL_USED = "This email address has already had a free trial. Sign up with another address."
 DISABLED_WORDS = "Changes to this site are turned off by the administrator."
 CHANGES = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # The changing calls a disabled host still makes: signing in and out, a forgotten password,

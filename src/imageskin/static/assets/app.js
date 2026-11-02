@@ -613,6 +613,10 @@ async function reportRecording(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function cancelTrial() {
+	const response = await fetch("/api/site/cancel", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
 async function actAsHost(email) {
 	const response = await fetch("/api/admin/act-as", {
 		method: "POST",
@@ -1185,6 +1189,99 @@ function useConfirm() {
 			onOther: () => asking.answer("other")
 		})
 	};
+}
+//#endregion
+//#region src/cancel-trial.tsx
+function CancelTrial() {
+	const session = useHost().session;
+	const [asking, setAsking] = d(false);
+	const [cancelling, setCancelling] = d(false);
+	const [cancelled, setCancelled] = d(false);
+	const [failed, setFailed] = d(null);
+	if (session?.signed_in !== true || session.trial !== true) return null;
+	const paused = cancelled || session.paused === true;
+	async function cancel() {
+		setAsking(false);
+		setCancelling(true);
+		setFailed(null);
+		try {
+			await cancelTrial();
+			console.info("Free trial cancelled: the site is paused");
+			setCancelled(true);
+		} catch (e) {
+			console.error("Could not cancel the free trial", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The trial could not be cancelled. Try again.");
+		}
+		setCancelling(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-trial",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-trial",
+				children: "Free trial"
+			}),
+			paused ? /* @__PURE__ */ u("p", {
+				role: "status",
+				children: "Your free trial is cancelled, so your site is paused: visitors see that it is paused. You can still sign in."
+			}) : /* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						disabled: cancelling,
+						onClick: () => {
+							console.info("Cancel free trial: asking to confirm");
+							setAsking(true);
+						},
+						children: "Cancel free trial"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Your site is on a free trial. Cancelling it pauses the site: visitors see that it is paused, and you can still sign in. It asks first."
+					}),
+					cancelling && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Cancelling…"
+					})
+				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to cancel your free trial?",
+				keepLabel: "No, keep my trial",
+				confirmLabel: "Yes, cancel it",
+				onCancel: () => {
+					console.info("Cancel free trial: kept");
+					setAsking(false);
+				},
+				onConfirm: cancel,
+				children: [/* @__PURE__ */ u("p", { children: "Your site is paused at once: visitors see that it is paused." }), /* @__PURE__ */ u("p", { children: "You can still sign in to it." })]
+			})
+		]
+	});
+}
+function PausedPage() {
+	return /* @__PURE__ */ u("div", {
+		className: "host-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "This site is paused" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "It isn't taking visitors just now."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/host/sign-in",
+				children: "Host sign in"
+			}) })
+		]
+	});
 }
 //#endregion
 //#region src/custom-use.tsx
@@ -2670,7 +2767,8 @@ function SettingsPage({ back, onDataDeleted }) {
 				/* @__PURE__ */ u(YourFiles, {}),
 				settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
 				/* @__PURE__ */ u(VideoAndChat, {}),
-				settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted })
+				settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+				/* @__PURE__ */ u(CancelTrial, {})
 			] }),
 			/* @__PURE__ */ u(AdminSection, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
@@ -12534,6 +12632,7 @@ var READ_ONLY_PAGES = [
 	"host-account"
 ];
 var ACCOUNT_PAGES = ["host-forgot", "host-reset"];
+var PAUSED_OPEN = ["host-sign-in", ...ACCOUNT_PAGES];
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) });
 }
@@ -12567,7 +12666,8 @@ function Shell() {
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
-	if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {
+	if (hostSession?.paused && visitor && !PAUSED_OPEN.includes(pageFor(hash))) content = /* @__PURE__ */ u(PausedPage, {});
+	else if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {
 		email: hostSession.email ?? "",
 		failed: route?.page === "confirm-failed"
 	});

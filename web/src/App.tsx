@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { AdminEndedNotice, AdminLink, AdminPage, AdminProvider, useAdminActivity } from "./admin";
 import { getConsent, getStartNow, type View } from "./api";
 import { AvatarVoicePage } from "./avatar-voice";
+import { PausedPage } from "./cancel-trial";
 import { ownAfterConsent } from "./change-setup";
 import { ContentPage } from "./content";
 import { ALLOWED, CustomUseProvider, useCustomUseOf } from "./custom-use";
@@ -88,6 +89,8 @@ const READ_ONLY_PAGES: Page[] = [
 
 // The pages a customer who hasn't confirmed their email can still open (R62a).
 const ACCOUNT_PAGES: Page[] = ["host-forgot", "host-reset"];
+// What a visitor of a paused site can still open (R66): the host's sign-in and account pages.
+const PAUSED_OPEN: Page[] = ["host-sign-in", ...ACCOUNT_PAGES];
 
 export function App() {
   return (
@@ -167,7 +170,10 @@ function Shell() {
   let content = <p>Loading…</p>;
   // Forgot password's pages stay open, so a reset link works in a browser still signed in
   // (Codex's review of PR #281).
-  if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) {
+  if (hostSession?.paused && visitor && !PAUSED_OPEN.includes(pageFor(hash))) {
+    // A paused site says so to its visitors (R66); its host can still sign in.
+    content = <PausedPage />;
+  } else if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) {
     content = (
       <ConfirmEmailPage
         email={hostSession.email ?? ""}
