@@ -286,3 +286,6 @@ def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> Non
     ):
         assert event in readme
     assert "/api/payments/stripe/events" in readme
+    # Caddy needs the subdomain setup's two lines first (R71a), so step 9 says so.
+    step9 = readme.split("## 9. Turn on subscribing (Stripe)")[1].split("\n## ")[0]
+    assert "Subdomain-Setup-Guide.md" in step9 and "CLOUDFLARE_API_TOKEN" in step9

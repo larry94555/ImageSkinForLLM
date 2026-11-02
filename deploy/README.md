@@ -232,6 +232,8 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 
 A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R67). They pay on Stripe's own page, so card details never reach the server. Until these steps are done, **Subscribe** says subscribing isn't set up yet. Do them first in Stripe's test mode (a sandbox), where a test card pays nothing, then again with the live keys.
 
+**Before you start:** the server's `.env` must already have `MAIN_DOMAIN` and `CLOUDFLARE_API_TOKEN`, from the [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md) (roadmap R71a). Caddy needs both since R71a, so without them every `docker compose up` stops with `set MAIN_DOMAIN in .env` or `set CLOUDFLARE_API_TOKEN in .env`. On the server, `grep -E "^(MAIN_DOMAIN|CLOUDFLARE_API_TOKEN)=." deploy/.env` prints both lines once they are set; if it doesn't, do that guide first.
+
 1. **Make a Stripe account.** Sign up at [dashboard.stripe.com/register](https://dashboard.stripe.com/register) and confirm your email. To take real money later, finish **Activate payments** (your business details and the bank account payouts go to). Test mode works without it.
 2. **Make the product and its price.** In the Dashboard, open **Product catalog** and click **Add product**. Name it, such as `ImageSkin 5 GB`, pick **Recurring**, enter **1.99 USD**, and set **Billing period** to **Monthly**. Save it, open the product, and copy its price's ID, which starts `price_`.
 3. **Copy the secret key.** Open **Developers**, then **API keys**, click **Reveal** on the **Secret key**, and copy it. It starts `sk_test_` in test mode and `sk_live_` in live mode. Treat it as a password.
