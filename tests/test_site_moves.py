@@ -244,3 +244,86 @@ def test_a_moved_host_is_told_where_their_site_is(tmp_path: Path) -> None:
     a = TestClient(sites, base_url="http://a.localhost:8000")
     assert sign_in(a, ANN) == 200
     assert a.post("/api/content", files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"))})
+
+
+def a_pdf(home: Path, pdf_id: str, data: bytes, owner: str | None) -> None:
+    """A PDF with all made from it: its info, what was read, its wiki pages, edits and
+    history."""
+    content = home / "content"
+    for folder in ("pdfs", "read", "wiki"):
+        (content / folder).mkdir(parents=True, exist_ok=True)
+    (content / "pdfs" / f"{pdf_id}.pdf").write_bytes(data)
+    (content / "pdfs" / f"{pdf_id}.json").write_text(json.dumps({"id": pdf_id}))
+    (content / "read" / f"{pdf_id}.json").write_text('{"pieces": []}')
+    (content / "wiki" / f"{pdf_id}.json").write_text('{"outline": []}')
+    (content / "wiki" / f"{pdf_id}.edits.json").write_text("{}")
+    history = content / "wiki" / f"{pdf_id}.history"
+    history.mkdir()
+    (history / "v1.json").write_text("{}")
+    if owner is not None:
+        Owners(home).record("pdfs", pdf_id, owner)
+
+
+PDF_FILES = 6  # the PDF, its info, what was read, its wiki pages, edits and one version
+
+
+def test_each_hosts_pdfs_move_to_their_site_with_all_made_from_them(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    made = existing(tmp_path)
+    ann_pdf, bob_pdf, old_pdf = "1" * 32, "2" * 32, "3" * 32
+    a_pdf(tmp_path, ann_pdf, b"%PDF-ann", ANN)
+    a_pdf(tmp_path, bob_pdf, b"%PDF-bob's", BOB)
+    a_pdf(tmp_path, old_pdf, b"%PDF-old", None)
+    (tmp_path / "content" / "wiki" / "lessons.json").write_text('{"lessons": {}}')
+    with caplog.at_level(logging.INFO):
+        move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+
+    def pdfs(site: Path) -> list[str]:
+        return sorted(p.stem for p in (site / "content" / "pdfs").glob("*.pdf"))
+
+    ann, bob = tmp_path / "sites" / "ann", tmp_path / "sites" / "bob"
+    # The first host also gets the PDF no host added, as with the photos (R61e).
+    assert pdfs(ann) == [ann_pdf, old_pdf] and pdfs(bob) == [bob_pdf]
+    for site, pdf_id in ((ann, ann_pdf), (bob, bob_pdf)):
+        assert (site / "content" / "read" / f"{pdf_id}.json").is_file()
+        assert (site / "content" / "wiki" / f"{pdf_id}.json").is_file()
+        assert (site / "content" / "wiki" / f"{pdf_id}.edits.json").is_file()
+        assert (site / "content" / "wiki" / f"{pdf_id}.history" / "v1.json").is_file()
+    assert not list((tmp_path / "content").rglob("*.json"))  # nothing left, lessons too
+    # Each host's Resources total counts their own files, PDFs too.
+    assert count(bob, Owners(bob), BOB)["total"] == len(b"bob's facebob speaking%PDF-bob's")
+    assert count(ann, Owners(ann), ANN)["pdfs"] == len(b"%PDF-ann")
+    assert Owners(tmp_path).read().get("pdfs") == {}
+    logged = {
+        r.__dict__["host"]: r.__dict__ for r in caplog.records if r.message == "Site PDFs moved"
+    }
+    assert logged[ANN]["pdfs"] == 2 and logged[ANN]["files"] == 2 * PDF_FILES
+    assert logged[BOB]["pdfs"] == 1 and logged[BOB]["site"] == "bob"
+    assert CY not in logged
+    # A second start moves nothing.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        assert move_hosts_to_sites(tmp_path, made["hosts"], made["sites"]) == []
+    assert "Site PDFs moved" not in caplog.messages
+
+
+def test_a_pdf_left_behind_keeps_its_host(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    made = existing(tmp_path)
+    bob_pdf = "2" * 32
+    a_pdf(tmp_path, bob_pdf, b"%PDF-bob's", BOB)
+    clash = tmp_path / "sites" / "bob" / "content" / "read" / f"{bob_pdf}.json"
+    clash.parent.mkdir(parents=True)
+    clash.write_text('{"pieces": ["another reading"]}')
+    with caplog.at_level(logging.WARNING):
+        move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+        move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+    assert "Host's PDFs left at the main address" in caplog.messages
+    assert (tmp_path / "content" / "read" / clash.name).is_file()
+    assert Owners(tmp_path).read()["pdfs"] == {bob_pdf: BOB}  # never taken for no host's
+    assert not (tmp_path / "sites" / "ann" / "content" / "pdfs").exists()
+    # Once the clash is gone, the next start finishes the move.
+    clash.unlink()
+    move_hosts_to_sites(tmp_path, made["hosts"], made["sites"])
+    assert Owners(tmp_path / "sites" / "bob").read()["pdfs"] == {bob_pdf: BOB}
+    assert Owners(tmp_path).read()["pdfs"] == {}
