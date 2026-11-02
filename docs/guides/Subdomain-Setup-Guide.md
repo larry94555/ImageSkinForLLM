@@ -12,7 +12,7 @@ Each customer's site is at a subdomain of me0.ai, such as `anna.me0.ai`, beside 
 
 It takes about 30 minutes, most of it waiting for the nameservers to change. The sites keep working throughout: Cloudflare copies me0.ai's records before anything moves.
 
-Until R71, every subdomain asks for the same name and password as the main address.
+Since R71, neither the main address nor any subdomain asks for a password: visitors use each site as it is, and the hosts and the administrator sign in to the app.
 
 ## 1. Move me0.ai's DNS to Cloudflare
 
@@ -98,7 +98,7 @@ docker compose logs caddy --since 10m | grep -iE "obtain|error"
 
 Within a minute or two it has `certificate obtained successfully` with `"identifier":"*.me0.ai"`. Then:
 
-1. Open `https://nosuchsite.me0.ai`. It has the padlock, asks for the name and password, and then says **Site not found**: the subdomain reached the app, which knows no site by that name.
+1. Open `https://nosuchsite.me0.ai`. It has the padlock and, with no password asked, says **Site not found**: the subdomain reached the app, which knows no site by that name.
 2. List the sites, and open one at its subdomain:
 
    ```
