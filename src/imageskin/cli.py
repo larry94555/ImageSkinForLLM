@@ -503,7 +503,8 @@ def serve(settings: Settings) -> None:
     )
     # The models, loaded once for every site (R61c), timed with the first site's start (R96c).
     startup = StartupTimes()
-    engines = make_engines(default_home(), startup)
+    # At most clones_loaded sites keep the voice clone loaded (R61d).
+    engines = make_engines(default_home(), startup, clones_loaded=settings.clones_loaded)
 
     def site_app(site: str) -> FastAPI:
         """Each site's own app (R61b). Until R61, the one site is the app's home folder."""
@@ -517,6 +518,7 @@ def serve(settings: Settings) -> None:
             startup=startup if site == DEFAULT_SITE else None,
             service=service,
             engines=engines,
+            site=site,
         )
 
     sites = SiteApps(site_app)

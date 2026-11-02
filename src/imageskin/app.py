@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
 from urllib.parse import quote
@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
+from imageskin.across_sites import CLONES_LOADED, CloneBudget, Turns
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
 from imageskin.admin_guidelines import applied, checked
@@ -474,10 +475,16 @@ class Engines:
     kokoro: KokoroVoices
     # The threads loading them at the start, which wait_until_loaded waits for.
     loading: tuple[threading.Thread, ...]
+    # Prepare and PDF reading, one site at a time, and how many sites keep the clone (R61d).
+    turns: Turns = field(default_factory=Turns)
+    clones: CloneBudget = field(default_factory=CloneBudget)
 
 
 def make_engines(
-    home: Path, startup: StartupTimes | None = None, face_checks: bool = True
+    home: Path,
+    startup: StartupTimes | None = None,
+    face_checks: bool = True,
+    clones_loaded: int = CLONES_LOADED,
 ) -> Engines:
     """The shared models, kept in `home`'s models folder and loaded in the background."""
     start = time.perf_counter()
@@ -489,11 +496,13 @@ def make_engines(
         check_sound=sound_checker(speakers, loading, startup),
         kokoro=KokoroVoices(),
         loading=tuple(loading),
+        clones=CloneBudget(clones_loaded),
     )
     logger.info(
         "Engines made",
         extra={
             "face_checks": engines.check_photo is not None,
+            "clones_loaded": clones_loaded,
             "duration_ms": round((time.perf_counter() - start) * 1000, 1),
         },
     )
@@ -637,12 +646,15 @@ def create_app(
     service: Service | None = None,
     # The models every site's app shares (R61c). Left out, the app loads its own.
     engines: Engines | None = None,
+    # The site's name in the logs (R61d); left out, its home folder's.
+    site: str | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     app.state.startup = startup
     data_home = home or default_home()
+    site_name = site or data_home.name
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -1181,7 +1193,9 @@ def create_app(
     content = ContentStore(data_home)
     content_api = "/api/content"
     # Each PDF is read when it is added or replaced (R36); on start, any not read yet.
-    readings = ReadingJob(content, read_pdf or pdf_reading.read_pdf)
+    readings = ReadingJob(
+        content, read_pdf or pdf_reading.read_pdf, turns=engines.turns, site=site_name
+    )
     # Then the wiki is built from what was read (R37), with the chat's LLM.
     llm = llm or LlmSettings()
     # The LLM picked on the Settings page (R42), with llama-server's address from the config.
@@ -1400,8 +1414,13 @@ def create_app(
 
     # Kokoro's ready-made voices are every site's (R61c), as is the speaker model.
     kokoro_voices = engines.kokoro
+    # The clone counts in the sites' budget of clones kept loaded (R61d).
     voice_step, own_engine, voice, voice_kind = clip_voice(
-        store.voice_sample_file, accent, speakers, kokoro_voices.engine
+        store.voice_sample_file,
+        accent,
+        speakers,
+        kokoro_voices.engine,
+        lambda clone: engines.clones.engine(clone, site_name),
     )
     # While a default person is chosen, replies speak in their ready-made Kokoro voice (R24c).
     # Prepare's clips are always the person's own, except the default person's own lines, which
@@ -1494,6 +1513,8 @@ def create_app(
         accent,
         kept_voice=kept_voice,
         avatar=lambda: start_now.picture() if start_now.own_voice() else None,
+        turns=engines.turns,
+        site=site_name,
     )
     app.state.prepare_job = job
 

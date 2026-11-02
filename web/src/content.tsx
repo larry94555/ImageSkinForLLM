@@ -246,7 +246,8 @@ function ReadingLine({ reading }: { reading?: Reading }) {
 
 // "Read 3 pages: 12 paragraphs, 1 table", or how far reading has got.
 export function readingText(r: Reading): string {
-  if (r.state === "waiting") return "Waiting to be read…";
+  // Or what it waits for, such as another site's preparation (R61d).
+  if (r.state === "waiting") return r.activity ?? "Waiting to be read…";
   if (r.state === "reading") {
     return r.pages ? `Reading page ${r.page} of ${r.pages}…` : "Reading…";
   }

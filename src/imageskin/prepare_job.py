@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from imageskin.accent import OWN, Accent, AccentEngine
+from imageskin.across_sites import WAITING, SiteClone, Turns
 from imageskin.download import sha256_of
 from imageskin.failure import Failure, report
 from imageskin.kokoro_engine import DEFAULT_VOICE, LANG_CODE, KokoroEngine
@@ -312,6 +313,10 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+class _StopWaiting(Exception):
+    """Cancelled while waiting for another site's job (R61d)."""
+
+
 class PrepareJob:
     """One prepare job at a time, run on a background thread."""
 
@@ -330,7 +335,12 @@ class PrepareJob:
         # The ready-made avatar's picture while the avatar is to speak in the user's own voice
         # (R24d), or None: then the picture is prepared with the recordings, not the photo.
         avatar: Callable[[], Path | None] = lambda: None,
+        # Prepare and PDF reading run one site at a time (R61d); left out, the job's own.
+        turns: Turns | None = None,
+        site: str = "",  # the site's name in the logs
     ) -> None:
+        self._turns = turns or Turns()
+        self._site = site or home.name
         self._file = home / "prepare.json"
         self.clips_folder = home / "clips"
         self._store = store
@@ -940,6 +950,21 @@ class PrepareJob:
         finally:
             finished.set()
 
+    def _wait_turn(self) -> None:
+        """While another site's job runs: the first step says so, and a cancel stops the wait.
+        Kept in memory only, as it is said again every Turns poll."""
+        with self._lock:
+            if self._cancel.is_set():
+                self._to_cancelled("waiting")
+                raise _StopWaiting()
+            # The step the page shows as the current one: the first not done, as when resumed.
+            steps = self._status.steps or []
+            step = next((s for s in steps if s.done < s.total), None)
+            if step is not None and step.activity != WAITING:
+                waiting = replace(step, activity=WAITING)
+                steps = [waiting if s is step else s for s in steps]
+                self._status = replace(self._status, steps=steps)
+
     def _run_steps(self) -> None:
         start = time.perf_counter()
         photo_id = self._status.photo_id or ""
@@ -970,6 +995,14 @@ class PrepareJob:
                 self._status = replace(self._status, face_movement=movement)
                 self._save()
             self._interruptible = True
+        try:
+            # Once no other site's Prepare or PDF reading runs (R61d).
+            with self._turns.turn("prepare", self._site, self._wait_turn):
+                self._steps(start, photo_id)
+        except _StopWaiting:
+            pass
+
+    def _steps(self, start: float, photo_id: str) -> None:
         try:
             photo = self._photo(photo_id)
             if photo is None:
@@ -1091,7 +1124,7 @@ def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
 
 
 def cloned_voice(
-    engine: AccentEngine, voice_sample: Path, accent: Callable[[], Accent]
+    engine: "AccentEngine | SiteClone", voice_sample: Path, accent: Callable[[], Accent]
 ) -> PrepareVoice:
     """Load the clone's models (downloaded the first time, about 3 GB) and learn the person's
     voice from the voice sample, with the accent chosen now. The same engine then speaks the clips
@@ -1119,6 +1152,8 @@ def clip_voice(
     speakers: "SpeakerChecker",
     # Kokoro for a language code; the shared voices every site uses (R61c), or its own.
     kokoro: Callable[[str], VoiceEngine] | None = None,
+    # The clone as the site keeps it: counted in the sites' budget of clones loaded (R61d).
+    keep: "Callable[[AccentEngine], SiteClone] | None" = None,
 ) -> tuple[PrepareVoice, VoiceEngine, str, str]:
     """The voice step, the engine, the voice the clips are spoken in and its kind ("pocket",
     "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
@@ -1142,7 +1177,8 @@ def clip_voice(
     else:
         logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
         clone, kind = ChatterboxEngine(), "clone"
-    engine = accent_engine(clone, kind, speakers, kokoro)
+    accented = accent_engine(clone, kind, speakers, kokoro)
+    engine: AccentEngine | SiteClone = accented if keep is None else keep(accented)
     return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), kind
 
 
