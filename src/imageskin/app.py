@@ -767,6 +767,7 @@ def create_app(
         (lambda email: service.sites.add_trial(email, finish=True)[0])
         if sign_up_makes_site
         else None,
+        service.mailer.send,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

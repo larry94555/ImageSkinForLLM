@@ -44,6 +44,14 @@ WRONG = "The email address or password is wrong."
 
 
 UNREADABLE = "Host accounts can't be read right now. Please try again later."
+# A customer who signs up at the main address confirms their email from a link before managing
+# their site (R62b); hosts from before have no "confirmed" and count as confirmed.
+CONFIRMED = "confirmed"
+CONFIRM_KEY = "confirm"  # the hash of the link's token, while unconfirmed
+CONFIRM_AT = "confirm_at"  # when the link was made
+CONFIRM_DAYS = 7  # how long a confirmation link works
+CONFIRM_AGAIN_S = 60  # how long before Send it again sends another
+TOO_SOON = "The email was sent less than a minute ago. Please wait a moment and try again."
 # A host's own Allow or Deny of a custom image and a custom voice (R242), kept with the host.
 CUSTOM_IMAGE = "custom_image"
 CUSTOM_VOICE = "custom_voice"
@@ -95,6 +103,7 @@ class Host:
     email: str
     created_at: float
     site: str = DEFAULT_SITE  # the site the host signs in to and manages (R61)
+    confirmed: bool = True  # whether they confirmed their email (R62b)
 
 
 class HostAccounts:
@@ -174,9 +183,60 @@ class HostAccounts:
             self._save(data)
         return token
 
-    def sign_up(self, email: str, password: str, address: str) -> str:
+    def confirmation(self, email: str, again: bool = False) -> str | None:
+        """A new confirmation link's token for an unconfirmed host (R62b), replacing any made
+        before; None when the host is confirmed. With `again`, HostRefused (TOO_SOON) when the
+        last one was made less than a minute ago."""
+        email = normal_email(email)
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if account is None:
+                raise HostRefused(WRONG, "no such host")
+            if account.get(CONFIRMED, True):
+                return None
+            since = self.clock() - float(account.get(CONFIRM_AT, 0))
+            if again and since < CONFIRM_AGAIN_S:
+                logger.warning(
+                    "Confirmation email not sent again",
+                    extra={"email": email, "why": "too soon", "seconds": round(since)},
+                )
+                raise HostRefused(TOO_SOON, "too soon")
+            account = {**account, CONFIRM_KEY: token_key(token), CONFIRM_AT: self.clock()}
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        return token
+
+    def confirm(self, token: str) -> str | None:
+        """Confirm the host whose link this is (R62b): their email, or None when the link is
+        unknown, used or more than CONFIRM_DAYS old."""
+        key = token_key(token)
+        with self._lock:
+            data = self._load()
+            found = (str(e) for e, a in data["hosts"].items() if a.get(CONFIRM_KEY) == key)
+            email = next(found, None)
+            if email is None:
+                logger.warning("Host email not confirmed", extra={"why": "unknown link"})
+                return None
+            account = {**data["hosts"][email]}
+            age_days = (self.clock() - float(account.get(CONFIRM_AT, 0))) / 86400
+            if age_days > CONFIRM_DAYS:
+                logger.warning(
+                    "Host email not confirmed",
+                    extra={"email": email, "why": "link too old", "days": round(age_days, 1)},
+                )
+                return None
+            account[CONFIRMED] = True
+            account.pop(CONFIRM_KEY, None)
+            account.pop(CONFIRM_AT, None)
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        logger.info("Host email confirmed", extra={"email": email})
+        return email
+
+    def sign_up(self, email: str, password: str, address: str, confirm: bool = False) -> str:
         """Make a host account and sign it in, returning the sign-in's token; HostRefused when
-        the email isn't one, the password is too short or the email is already signed up."""
+        the email isn't one, the password is too short or the email is already signed up. With
+        `confirm`, the host is unconfirmed until they use a confirmation link (R62b)."""
         start = time.perf_counter()
         email = normal_email(email)
         if not EMAIL.fullmatch(email):
@@ -191,6 +251,8 @@ class HostAccounts:
                 self._refuse(EMAIL_TAKEN, "email already signed up", "sign-up", email, address)
             data = {**data, "hosts": {**data["hosts"]}, "sessions": {**data["sessions"]}}
             data["hosts"][email] = {"password_hash": password_hash, "created_at": self.clock()}
+            if confirm:
+                data["hosts"][email][CONFIRMED] = False
             token = self._new_sign_in(data, email)
             self._save(data)
         logger.info(
@@ -264,9 +326,13 @@ class HostAccounts:
             hosts = list(self._load()["hosts"])
         return sorted(e for e in hosts if wanted in e.lower())
 
-    def host(self, token: str | None, site: str | None = None) -> Host | None:
+    def host(
+        self, token: str | None, site: str | None = None, unconfirmed: bool = False
+    ) -> Host | None:
         """The host the token is signed in as, or None; with `site`, only that site's host
-        (R61), so another site's sign-in counts as none."""
+        (R61), so another site's sign-in counts as none. A host who hasn't confirmed their email
+        counts as none too (R62b), but with `unconfirmed`, which only their sign-in's own calls
+        use: its session and sending the email again."""
         if not token:
             return None
         with self._lock:
@@ -282,12 +348,15 @@ class HostAccounts:
             session["email"],
             account["created_at"],
             account.get(SITE, DEFAULT_SITE),
+            bool(account.get(CONFIRMED, True)),
         )
         if site is not None and host.site != site:
             logger.warning(
                 "Host sign-in refused: another site",
                 extra={"email": host.email, "site": site, "host_site": host.site},
             )
+            return None
+        if not (host.confirmed or unconfirmed):
             return None
         return host
 

@@ -1311,6 +1311,8 @@ export interface HostSession {
   email: string | null;
   // After signing up at the main address: the new site's page, at its trial path (R62).
   go_to?: string;
+  // False until a customer who signed up at the main address confirms their email (R62b).
+  confirmed?: boolean;
 }
 
 export async function getHostSession(): Promise<HostSession> {
@@ -1351,6 +1353,13 @@ export function signInAsHost(email: string, password: string): Promise<HostSessi
 
 export async function signOutAsHost(): Promise<void> {
   const response = await fetch("/api/host/sign-out", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+// Send it again: a new confirmation link to the signed-in host's email (R62b). Throws a
+// ServerRefusal with the server's plain message, such as when it was sent a moment ago.
+export async function sendConfirmationAgain(): Promise<void> {
+  const response = await fetch("/api/host/confirm/send", { method: "POST" });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 

@@ -2,7 +2,10 @@
 it, signed in there only (roadmap R62)."""
 
 import logging
+import re
 from collections.abc import Callable
+from email import message_from_bytes
+from email.policy import default
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,16 @@ def quick_hashes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(admin, "SCRYPT_N", 2**4)
     cheap = admin.Secret("hash", admin.hash_password("nobody's password"))
     monkeypatch.setattr(admin, "_dummy", lambda: cheap)
+
+
+def confirmation_link(home: Path, to: str = DAN) -> str:
+    """The link in the last confirmation email to `to`, from the outbox (R62b)."""
+    files = sorted((home / "outbox").glob("*.eml"), key=lambda p: p.stat().st_mtime_ns)
+    emails = [message_from_bytes(f.read_bytes(), policy=default) for f in files]
+    texts = [m.get_body().get_content() for m in emails if m["To"] == to]  # type: ignore[union-attr]
+    found = re.search(r"https?://\S+/api/host/confirm/\S+", texts[-1])
+    assert found is not None
+    return found.group(0)
 
 
 def sign_up(client: TestClient, email: str) -> dict[str, object]:
@@ -51,9 +64,11 @@ def test_signing_up_makes_a_trial_site_and_signs_in_there(
     assert created.__dict__["trial"] == code and "duration_ms" in created.__dict__
     # Signed in at the new site's path, and not at the main address.
     session = browser.get(f"/t/{code}/api/host/session").json()
-    assert session == {"signed_in": True, "email": DAN}
+    assert session == {"signed_in": True, "email": DAN, "confirmed": False}
     assert browser.get("/api/host/session").json()["signed_in"] is False
-    # The host's pages there are theirs.
+    # The host's pages there are theirs, once they confirm their email (R62b).
+    assert browser.get(f"/t/{code}/api/host/me").status_code == 401
+    browser.get(confirmation_link(tmp_path / "home"), follow_redirects=False)
     assert browser.get(f"/t/{code}/api/host/me").status_code == 200
 
 
@@ -179,7 +194,8 @@ def test_signing_up_again_finishes_a_site_that_stopped_partway(
     assert (tmp_path / "home" / "sites" / code).is_dir()
     trials = [n for n, s in service.sites._load().items() if s.get("trial")]
     assert trials == [code]
-    assert browser.get(f"/t/{code}/api/host/session").json() == {"signed_in": True, "email": DAN}
+    session = browser.get(f"/t/{code}/api/host/session").json()
+    assert session == {"signed_in": True, "email": DAN, "confirmed": False}
 
 
 def test_signing_up_again_with_a_site_that_isnt_a_trial_is_refused(tmp_path: Path) -> None:

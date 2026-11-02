@@ -517,7 +517,10 @@ def serve(settings: Settings) -> None:
     laptops = settings.admin_laptops_file
     # The host accounts and the administrator's files, shared by every site's app (R61b).
     service = make_service(
-        default_home(), admin_file, Path(laptops).expanduser() if laptops else None
+        default_home(),
+        admin_file,
+        Path(laptops).expanduser() if laptops else None,
+        mailer(settings),
     )
     # Every host but the first gets a site of their own, with what they added (R61e).
     from imageskin.site_moves import move_hosts_to_sites

@@ -52,6 +52,7 @@ from imageskin.admin_settings import AdminSettingsStore
 from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
+from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
 from imageskin.hosts import HostAccounts, trial_cookie
@@ -350,14 +351,21 @@ class Service:
     admin_history: History
     admin_guidelines: AdminGuidelinesFile
     sites: SiteDirectory
+    # Sends the service's emails, such as a customer's confirmation (R62b), or writes them to the
+    # outbox with no mail service set (R215).
+    mailer: Mailer
     sign_in_returns: SignInReturns = field(default_factory=SignInReturns)
 
 
 def make_service(
-    home: Path, admin_file: Path | None = None, admin_laptops_file: Path | None = None
+    home: Path,
+    admin_file: Path | None = None,
+    admin_laptops_file: Path | None = None,
+    mailer: Mailer | None = None,
 ) -> Service:
     """The shared part, kept in `home`. The administrator's password file is admin.toml there
-    unless `admin_file` says otherwise (R149), and the laptops file is beside it (R163)."""
+    unless `admin_file` says otherwise (R149), and the laptops file is beside it (R163). Without
+    a `mailer`, emails go to the outbox in `home`."""
     admin_settings = AdminSettingsStore(home)
     admin_file = admin_file or home / ADMIN_FILENAME
     admin_sign_ins = AdminSignIns(
@@ -381,6 +389,7 @@ def make_service(
         admin_history=admin_history,
         admin_guidelines=AdminGuidelinesFile(home, admin_history.saved),
         sites=SiteDirectory(home, host_accounts),
+        mailer=mailer or Mailer(home, None),
     )
 
 
