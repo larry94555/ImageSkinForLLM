@@ -175,7 +175,32 @@ class SiteDirectory:
                     )
                     return {}
             self._sites, self._trials_used, self._seen = sites, used, seen
+            self._record_old_trials()
         return self._sites
+
+    def _record_old_trials(self) -> None:
+        """With the lock held, as sites.json is read: the host of each trial site made before
+        trials were recorded is recorded now, in the file, so a later email change or the
+        site's removal can't free the address for another trial (Codex's review of PR #292)."""
+        missing = {
+            email_key(str(s["host"]))
+            for s in self._sites.values()
+            if s.get("trial") and email_key(str(s["host"])) not in self._trials_used
+        }
+        if not missing:
+            return
+        used = [*self._trials_used, *sorted(missing)]
+        try:
+            self._write(self._sites, used)
+        except OSError as e:
+            logger.error("Could not record the trials made before", extra={"error": str(e)})
+        self._trials_used = used  # kept in memory either way, and written at the next change
+        try:
+            stat = self.path.stat()
+            self._seen = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            pass
+        logger.info("Trials made before recorded", extra={"trials": len(missing)})
 
     def _write(self, sites: dict[str, dict[str, Any]], used: list[str] | None = None) -> None:
         """Write sites.json, with the lock held, keeping the emails that had a trial."""
@@ -192,12 +217,9 @@ class SiteDirectory:
             return self._used(email, self._load())
 
     def _used(self, email: str, sites: dict[str, dict[str, Any]]) -> bool:
-        """With the lock held: a trial recorded, or a trial site that has them as its host (one
-        made before trials were recorded)."""
-        host = normal_email(email)
-        return email_key(email) in self._trials_used or any(
-            s.get("trial") and s.get("host") == host for s in sites.values()
-        )
+        """With the lock held, the sites just read: whether the address had a trial. Every trial
+        site's host is recorded as it is read (`_record_old_trials`)."""
+        return email_key(email) in self._trials_used
 
     def paused(self, name: str) -> str | None:
         """Why the site is paused, such as "cancelled" (R66, R69), or None while it runs."""
