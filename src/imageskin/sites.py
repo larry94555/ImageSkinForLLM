@@ -16,6 +16,11 @@ domain, its `www` and `app` subdomains, or the server's IP address) is the main 
 kept in the app's home folder as before; every other site keeps its files in `sites/<name>`
 there. The sites are listed in `sites.json`, each with its one host, added with `imageskin site
 add`; any other address, or none, is answered Site not found.
+
+A trial site (R61a, R62) has no subdomain: it is at a path of the main address, `/t/<code>`,
+with a code of random letters and digits. Its page is served at that path, with every file and
+call it makes under it (`/t/<code>/api/...`), so each reaches the site: the path is matched
+before the address, and is the site's `root_path`, so its app sees the paths it always has.
 """
 
 import ipaddress
@@ -23,6 +28,8 @@ import json
 import logging
 import os
 import re
+import secrets
+import string
 import threading
 import time
 from collections.abc import Awaitable, Callable, MutableMapping
@@ -56,6 +63,9 @@ SITE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 # service's own uses, so no site can have them.
 MAIN_NAMES = frozenset({"www", "app"})
 RESERVED = MAIN_NAMES | {"admin", "api", "trial", "mail", DEFAULT_SITE}
+# A trial site's code, and the path it is at (R61a).
+TRIAL_CODE_LENGTH = 12
+TRIAL_PATH = re.compile(rf"/t/([a-z0-9]{{{TRIAL_CODE_LENGTH}}})(?=/|$)")
 SITES_FILE = "sites.json"
 SITES_FOLDER = "sites"
 NOT_FOUND_PAGE = (
@@ -117,8 +127,16 @@ class SiteDirectory:
             return sorted(self._load())
 
     def exists(self, name: str) -> bool:
+        """Whether a site is at the subdomain `name`."""
         with self._lock:
-            return name in self._load()
+            site = self._load().get(name)
+        return site is not None and not site.get("trial")
+
+    def is_trial(self, code: str) -> bool:
+        """Whether a trial site is at `/t/<code>` (R61a)."""
+        with self._lock:
+            site = self._load().get(code)
+        return site is not None and bool(site.get("trial"))
 
     def host(self, name: str) -> str | None:
         """The site's host's email."""
@@ -126,10 +144,23 @@ class SiteDirectory:
             site = self._load().get(name)
         return None if site is None else str(site["host"])
 
+    def add_trial(self, email: str) -> tuple[str, Path]:
+        """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
+        host: its code and folder. SiteError as for `add`."""
+        letters = string.ascii_lowercase + string.digits
+        with self._lock:
+            taken = set(self._load())
+        code = ""
+        while not code or code in taken:
+            code = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
+        return code, self._add(code, email, trial=True)
+
     def add(self, name: str, email: str) -> Path:
         """Add the site, with the host as its one host, and return its folder. SiteError when
         the name can't be a subdomain or is taken, or the host isn't one or has a site."""
-        name = name.strip().lower()
+        return self._add(name.strip().lower(), email, trial=False)
+
+    def _add(self, name: str, email: str, trial: bool) -> Path:
         if not SITE_NAME.fullmatch(name):
             raise SiteError(
                 "A site's name can have only letters, digits and hyphens, at most 63 of them,"
@@ -147,13 +178,18 @@ class SiteDirectory:
             if host_site != DEFAULT_SITE:
                 raise SiteError(f"{email} is already the host of {host_site}.")
             sites[name] = {"host": email.strip().lower(), "created_at": time.time()}
+            if trial:
+                sites[name]["trial"] = True
             writing = self.path.with_name(f"{SITES_FILE}.writing")
             writing.write_text(json.dumps({"sites": sites}, indent=2), encoding="utf-8")
             os.replace(writing, self.path)
             self._hosts.set_site(email, name)
         folder = site_home(name, self.home)
         folder.mkdir(parents=True, exist_ok=True)
-        logger.info("Site added", extra={"site": name, "host": email, "path": str(folder)})
+        logger.info(
+            "Site added",
+            extra={"site": name, "host": email, "path": str(folder), "trial": trial},
+        )
         return folder
 
 
@@ -167,16 +203,24 @@ def site_matcher(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], st
 
     def site_of(scope: Scope) -> str | None:
         host = address_of(scope).lower()
-        if host in main or is_ip_address(host):  # the server's own address, as health checks use
-            return DEFAULT_SITE
         label = next((host[: -len(s)] for s in suffixes if host.endswith(s)), None)
+        # The server's own address, as health checks use, or www.localhost and app.localhost.
+        if host in main or is_ip_address(host) or label in MAIN_NAMES:
+            code = trial_code(scope)
+            if code is not None:  # a trial site's path (R61a)
+                return code if sites.is_trial(code) else None
+            return DEFAULT_SITE
         if label is None:
             return None
-        if label in MAIN_NAMES:  # www.localhost and app.localhost
-            return DEFAULT_SITE
         return label if sites.exists(label) else None
 
     return site_of
+
+
+def trial_code(scope: Scope) -> str | None:
+    """The trial code the request's path starts with (`/t/<code>`), if any."""
+    found = TRIAL_PATH.match(str(scope.get("path", "")))
+    return found.group(1) if found else None
 
 
 def is_ip_address(host: str) -> bool:
@@ -306,6 +350,15 @@ class SiteApps:
             logger.warning("Site not found", extra={"address": address, "path": scope.get("path")})
             await self._not_found(scope, send)
             return
+        trial = trial_code(scope) == site
+        if trial:
+            prefix = f"/t/{site}"
+            if scope["path"] == prefix and scope["type"] == "http":
+                # The page's files and calls are relative to it, so its path ends with a slash.
+                await self._redirect(scope, send, f"{scope.get('root_path', '')}{prefix}/")
+                return
+            # The site's app sees the paths it always has (Starlette strips its root_path).
+            scope = dict(scope, root_path=f"{scope.get('root_path', '')}{prefix}")
         with self._lock:
             first = site not in self._matched
             self._matched.add(site)
@@ -314,11 +367,24 @@ class SiteApps:
         logger.log(
             logging.INFO if first else logging.DEBUG,
             "Site matched",
-            extra={"site": site, "address": address},
+            extra={"site": site, "address": address, **({"trial": site} if trial else {})},
         )
         if made is None:  # made in a thread, so a slow start never holds up the other sites
             made = await anyio.to_thread.run_sync(self.app, site)
         await made(scope, receive, send)
+
+    @staticmethod
+    async def _redirect(scope: Scope, send: Send, location: str) -> None:
+        query = bytes(scope.get("query_string") or b"").decode("latin-1")
+        target = f"{location}?{query}" if query else location
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 308,
+                "headers": [(b"location", target.encode("latin-1")), (b"content-length", b"0")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
 
     @staticmethod
     async def _not_found(scope: Scope, send: Send) -> None:

@@ -168,6 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     site_add.add_argument("name", help="the site's name: its subdomain")
     site_add.add_argument("--host", required=True, help="the email of the host who runs it")
+    site_trial = site_commands.add_parser(
+        "trial",
+        help="add a trial site at localhost/t/<code> (me0.ai/t/<code> hosted), with its host",
+    )
+    site_trial.add_argument("--host", required=True, help="the email of the host who runs it")
     site_commands.add_parser("list", help="list the sites, each with its host")
     check_packs = commands.add_parser(
         "check-packs",
@@ -606,9 +611,17 @@ def manage_sites(command: str, name: str, host: str) -> int:
     sites = SiteDirectory(home, HostAccounts(home))
     if command == "list":
         for site in sites.names():
-            print(f"{site}: {sites.host(site)}")
+            where = f"/t/{site}" if sites.is_trial(site) else f"{site}.localhost"
+            print(f"{site}: {sites.host(site)} at {where}")
         return 0
     try:
+        if command == "trial":
+            code, folder = sites.add_trial(host)
+            print(
+                f"Added a trial site, run by {host}, at localhost/t/{code}/ locally. Its files are"
+                f" kept in {folder}. {host} now signs in there."
+            )
+            return 0
         folder = sites.add(name, host)
     except (SiteError, HostsUnreadable) as e:
         print(f"{e} Nothing changed.", file=sys.stderr)
