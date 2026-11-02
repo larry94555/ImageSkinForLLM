@@ -9,7 +9,12 @@ up first (the earliest in hosts.json) also gets what no host added: the photos a
 from before host accounts, the conversation and the rest of the person chosen at the main
 address. So no host's site is at the main address, which keeps the administrator and, with R62,
 the sign-up (Larry, 2026-11-02). What every host could see and change before, the settings and
-the Customization, is copied to each new site. The PDFs move in R61f.
+the Customization, is copied to each new site.
+
+Each host's PDFs move the same way (R61f), each with all made from it: what was read from it,
+its wiki pages with its outline, the host's edits and the wiki's history. The lessons written
+ahead cover every PDF at the main address, so they are removed there, and each site writes its
+own again in the background from the PDFs it has.
 
 It runs at every start and moves only what is still to move, so a start cut short carries on.
 """
@@ -49,6 +54,11 @@ PREPARED = ("chosen-photo.json", "prepare.json", "review.json", "clips")
 VOICE_MADE = ("clips", "prepare.json", "prepare.saving.json", "review.json")
 VOICE_SAMPLE = Path("uploads") / "voice-sample.wav"
 PERSON_KINDS = ("photos", "sounds")
+# Where each PDF's files are (R61f): <id>.pdf with its info, what was read from it, and its wiki
+# pages, edits and history (<id>.history/).
+PDF_FOLDERS = ("pdfs", "read", "wiki")
+# The lessons written ahead from every PDF's topics, written again by each site.
+LESSONS = Path("content") / "wiki" / "lessons.json"
 # What the main address's site kept that no host added: the first host's site gets it, as they
 # had it before (the conversation, the visitors' consent, the default person chosen, the accent
 # and ready-made voice chosen, and how far the setup wizard got).
@@ -222,6 +232,53 @@ def _move_person(main: Path, site: Path, email: str, first: bool = False) -> int
     return moved
 
 
+def _pdf_files(main: Path, pdf_id: str) -> list[Path]:
+    return [
+        path
+        for folder in PDF_FOLDERS
+        for path in sorted((main / "content" / folder).glob(f"{pdf_id}.*"))
+    ]
+
+
+def _move_pdfs(main: Path, site: Path, email: str, first: bool = False) -> tuple[int, int]:
+    """Move the host's PDFs, with all made from them, and, for the first host, those no host
+    added. Each PDF's record of who added it moves once all its files have. The PDFs and the
+    files moved."""
+    owners = _read_owners(main)
+    theirs = [item for item, who in owners.get("pdfs", {}).items() if who == email]
+    unowned: list[str] = []
+    if first:
+        folder = main / "content" / "pdfs"
+        stored = sorted(p.stem for p in folder.glob("*.json")) if folder.is_dir() else []
+        unowned = [item for item in stored if item not in owners.get("pdfs", {})]
+    pdfs = files = 0
+    for pdf_id in theirs + unowned:
+        paths = _pdf_files(main, pdf_id)
+        moved = sum(_move(path, site / path.relative_to(main)) for path in paths)
+        pdfs += 1 if moved else 0
+        files += moved
+    if pdfs:
+        # Written from every PDF at the main address; each site writes its own again.
+        (main / LESSONS).unlink(missing_ok=True)
+    gone = [pdf_id for pdf_id in theirs if not _pdf_files(main, pdf_id)]
+    if gone:
+        target = _read_owners(site)
+        target.setdefault("pdfs", {}).update({pdf_id: email for pdf_id in gone})
+        _write_owners(site, target)
+        kept = dict(owners)
+        kept["pdfs"] = {i: w for i, w in owners["pdfs"].items() if i not in gone}
+        _write_owners(main, kept)
+    left = sorted(set(theirs) - set(gone))
+    if left:
+        logger.warning("Host's PDFs left at the main address", extra={"email": email, "pdfs": left})
+    if pdfs:
+        logger.info(
+            "Site PDFs moved",
+            extra={"site": site.name or "default", "host": email, "pdfs": pdfs, "files": files},
+        )
+    return pdfs, files
+
+
 def _chosen_photo(home: Path) -> str | None:
     try:
         chosen = json.loads((home / "uploads" / "chosen-photo.json").read_text(encoding="utf-8"))
@@ -274,6 +331,7 @@ def move_hosts_to_sites(home: Path, hosts: HostAccounts, sites: SiteDirectory) -
         folder = site_home(site, home)
         try:
             files = _move_person(home, folder, email, first=n == 0)
+            files += _move_pdfs(home, folder, email, first=n == 0)[1]
         except (OSError, ValueError) as e:
             logger.error(
                 "Host's files not moved", extra={"email": email, "site": site, "error": str(e)}
