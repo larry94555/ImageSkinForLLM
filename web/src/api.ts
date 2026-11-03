@@ -1360,6 +1360,8 @@ export interface Subscription {
   pick_subdomain?: boolean;
   // True for a site with its own subdomain, which its host can change (R64).
   change_subdomain?: boolean;
+  // True for any site but the main address's, which its host can delete (R69a).
+  deletable?: boolean;
   // When a cancelled subscription ends, in seconds since 1970, or null (R69).
   ends_at?: number | null;
   // True while Stripe retries a renewal that failed (R69).
@@ -1374,6 +1376,17 @@ export async function setSubscriptionCancelled(cancel: boolean): Promise<number 
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { ends_at: number | null }).ends_at;
+}
+
+// Deletes the site (R69a), once its host gives their password: its subscription is cancelled at
+// once, then everything on it goes. Throws a ServerRefusal saying why not.
+export async function deleteSite(password: string): Promise<void> {
+  const response = await fetch("/api/site/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 
 // Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.

@@ -35,6 +35,10 @@ HOST_COOKIE = "imageskin_host"  # the cookie that keeps a host signed in (R188)
 # The site at the main address (R61): every host's until they are given a site of their own.
 DEFAULT_SITE = "default"
 SITE = "site"  # the host's site, kept with the host; none for the main address's
+# The host's site was deleted (R69a): their account is kept, so they can sign in and resume
+# (R69b), but no site is theirs. Never a site's name, which has letters or digits only.
+NO_SITE = "-"
+SITE_DELETED = "Your site was deleted. Your account is kept, so you can start it again."
 # A host who signs in at another site's address goes to their own with a one-time link (R255),
 # good for this long *(default)*; at most this many are kept, the oldest dropped first.
 SIGN_IN_LINK_S = 60.0
@@ -322,6 +326,9 @@ class HostAccounts:
         if not check_password(password, secret):
             reason = "wrong password" if account else "no such host"
             self._refuse(WRONG, reason, "sign-in", email, address)
+        if account and account.get(SITE) == NO_SITE:
+            # Told only once the password is checked, as for another site's host.
+            self._refuse(SITE_DELETED, "site deleted", "sign-in", email, address)
         if account and account.get(SITE, DEFAULT_SITE) != site:
             elsewhere = str(account.get(SITE, DEFAULT_SITE))
             logger.warning(

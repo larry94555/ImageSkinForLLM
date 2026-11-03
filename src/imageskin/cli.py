@@ -502,6 +502,7 @@ def serve(settings: Settings) -> None:
     from fastapi import FastAPI
 
     from imageskin.app import create_app, make_engines
+    from imageskin.site_deletion import keep_deleting_paused
     from imageskin.sites import (
         DEFAULT_SITE,
         SiteApps,
@@ -565,6 +566,9 @@ def serve(settings: Settings) -> None:
         # A trial path goes to the subdomain its host picked (R63).
         trial_mover(service.sites, settings.main_domain),
     )
+    # A deleted site's app is dropped, and a site paused 30 days is deleted (R69a).
+    service.sites.on_deleted.append(sites.forget)
+    keep_deleting_paused(service.sites, service.payments)
     # The one site is made before the server listens, as the app was before R61b.
     app = sites.app(DEFAULT_SITE)
     # This month's network use for the admin dashboard, kept through restarts (R153).

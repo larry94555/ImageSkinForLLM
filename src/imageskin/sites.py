@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import string
 import threading
 import time
@@ -57,7 +58,7 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import TRIAL_USED, HostAccounts, normal_email, trial_cookie
+from imageskin.hosts import NO_SITE, TRIAL_USED, HostAccounts, normal_email, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
@@ -145,6 +146,8 @@ FINAL = ("canceled", "incomplete_expired")
 EVENT_AT = "event_at"
 # Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
 SUBSCRIPTIONS_HAD = "subscriptions_had"
+# A site paused this long is deleted (R69a), unless its host subscribes again first.
+PAUSED_DAYS_KEPT = 30
 
 
 class TrialUsed(SiteError):
@@ -169,6 +172,11 @@ class SiteDirectory:
         # A hash of each email address that has had a free trial, kept when its site or account
         # goes, so each has one (R66).
         self._trials_used: list[str] = []
+        # The codes of trial sites since deleted (R69a): a trial path is never given again, so a
+        # link to a deleted trial can't open another's site (R63).
+        self._codes_kept: list[str] = []
+        # Called with each deleted site's name, so the server forgets its app (R69a).
+        self.on_deleted: list[Callable[[str], None]] = []
 
     def _load(self) -> dict[str, dict[str, Any]]:
         """The sites, read again only when the file has changed. One that can't be read is
@@ -184,14 +192,18 @@ class SiteDirectory:
         if seen != self._seen:
             sites: dict[str, dict[str, Any]] = {}
             used: list[str] = []
+            kept: list[str] = []
             if seen is not None:
                 try:
                     data = json.loads(self.path.read_text(encoding="utf-8"))
                     sites, used = data["sites"], data.get("trials_used", [])
+                    kept = data.get("codes_kept", [])
                     if not isinstance(sites, dict):
                         raise ValueError("sites must be an object")
                     if not isinstance(used, list):
                         raise ValueError("trials_used must be a list")
+                    if not isinstance(kept, list):
+                        raise ValueError("codes_kept must be a list")
                 except (OSError, ValueError, KeyError, TypeError) as e:
                     logger.error(
                         "Could not read the sites file",
@@ -199,6 +211,7 @@ class SiteDirectory:
                     )
                     return {}
             self._sites, self._trials_used, self._seen = sites, used, seen
+            self._codes_kept = kept
             self._record_old_trials()
         return self._sites
 
@@ -226,14 +239,23 @@ class SiteDirectory:
             pass
         logger.info("Trials made before recorded", extra={"trials": len(missing)})
 
-    def _write(self, sites: dict[str, dict[str, Any]], used: list[str] | None = None) -> None:
-        """Write sites.json, with the lock held, keeping the emails that had a trial."""
+    def _write(
+        self,
+        sites: dict[str, dict[str, Any]],
+        used: list[str] | None = None,
+        kept: list[str] | None = None,
+    ) -> None:
+        """Write sites.json, with the lock held, keeping the emails that had a trial and the
+        codes of deleted trials."""
         used = self._trials_used if used is None else used
+        kept = self._codes_kept if kept is None else kept
         writing = self.path.with_name(f"{SITES_FILE}.writing")
         writing.write_text(
-            json.dumps({"sites": sites, "trials_used": used}, indent=2), encoding="utf-8"
+            json.dumps({"sites": sites, "trials_used": used, "codes_kept": kept}, indent=2),
+            encoding="utf-8",
         )
         os.replace(writing, self.path)
+        self._codes_kept = kept
 
     def trial_used(self, email: str) -> bool:
         """Whether the email address has had a free trial (R66), even one since gone."""
@@ -294,7 +316,7 @@ class SiteDirectory:
     def name_problem(self, name: str) -> str | None:
         """Why `name` can't be a site's subdomain, said plainly, or None when it can (R63)."""
         with self._lock:
-            return _name_problem(self._load(), name)
+            return _name_problem(self._load(), name, self._codes_kept)
 
     def pick_subdomain(self, site: str, name: str) -> str:
         """Give the subscribed trial site its subdomain, picked by its host at their first
@@ -528,6 +550,56 @@ class SiteDirectory:
         logger.info("Site host changed", extra={"site": name, "host": new_email})
         return True
 
+    def delete(self, name: str, why: str) -> bool:
+        """Delete the site (R69a): its record, so its subdomain is free at once, and its folder,
+        with everything in it. A trial's code is kept, never given again. Its host's account is
+        kept, with no site, so they can still sign in and resume (R69b); their sign-ins end.
+        Its subscription must be cancelled with Stripe first (`site_deletion`). False when there
+        is no such site."""
+        start = time.perf_counter()
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.pop(name, None)
+            if site is None:
+                logger.warning("Site not deleted", extra={"site": name, "why": "no such site"})
+                return False
+            kept = self._codes_kept
+            if site.get("trial") and name not in kept:
+                kept = [*kept, name]
+            self._write(sites, kept=kept)
+            host = str(site.get("host", ""))
+            if host and self._hosts.site_of(host) == name:
+                self._hosts.set_site(host, NO_SITE)
+        for forget in self.on_deleted:
+            forget(name)
+        folder = site_home(name, self.home)
+        shutil.rmtree(folder, ignore_errors=True)
+        if folder.exists():
+            logger.error("Site folder not removed", extra={"site": name, "path": str(folder)})
+        logger.info(
+            "Site deleted",
+            extra={
+                "site": name,
+                "host": host,
+                "why": why,
+                "subdomain": _subdomain(name, site),
+                "trial": bool(site.get("trial")),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return True
+
+    def paused_since(self, before: float) -> list[str]:
+        """The sites paused before the time `before` (R69a), oldest first."""
+        with self._lock:
+            sites = self._load()
+            paused = [
+                (float(s["paused_at"]), n)
+                for n, s in sites.items()
+                if s.get("paused") and isinstance(s.get("paused_at"), int | float)
+            ]
+        return [n for at, n in sorted(paused) if at < before]
+
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
         host: its code and folder. SiteError as for `add`.
@@ -540,6 +612,7 @@ class SiteDirectory:
             sites = self._load()
             # A subdomain picked may look like a code, so a new trial's code is neither (R63).
             taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
+            taken |= set(self._codes_kept)  # and never a deleted trial's (R69a)
             own = next(
                 (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
             )
@@ -570,12 +643,13 @@ class SiteDirectory:
             raise SiteError(f"{name} is kept for the service. Choose another name.")
         with self._lock:
             sites = dict(self._load())
-            if name in sites or _site_at(sites, name) is not None:
+            if name in sites or _site_at(sites, name) is not None or name in self._codes_kept:
                 raise SiteError(f"There is already a site called {name}.")
             host_site = self._hosts.site_of(email)
             if host_site is None:
                 raise SiteError(f"No host has signed up as {email}.")
-            if host_site != DEFAULT_SITE:
+            # A host whose site was deleted (R69a) may have another.
+            if host_site not in (DEFAULT_SITE, NO_SITE):
                 raise SiteError(f"{email} is already the host of {host_site}.")
             used = self._trials_used
             if trial:
@@ -617,15 +691,22 @@ def _site_at(sites: dict[str, dict[str, Any]], name: str) -> str | None:
     return None
 
 
-def _name_problem(sites: dict[str, dict[str, Any]], name: str) -> str | None:
+def _name_problem(
+    sites: dict[str, dict[str, Any]], name: str, kept: list[str] | None = None
+) -> str | None:
     """Why `name` can't be a subdomain, in the sites just read (R63): its letters, a name kept
-    for the service, or one in use, which counts every trial's code, even one moved since. A
-    name a site changed away from is free at once (R64)."""
+    for the service, or one in use, which counts every trial's code, even one moved or deleted
+    since (`kept`, R69a). A name a site changed away from, or a deleted site's, is free at once
+    (R64, R69a)."""
     if not SITE_NAME.fullmatch(name):
         return NAME_LETTERS
     if name in RESERVED:
         return f"{name} is kept for the service. Choose another name."
-    if _site_at(sites, name) is not None or sites.get(name, {}).get("trial"):
+    if (
+        _site_at(sites, name) is not None
+        or sites.get(name, {}).get("trial")
+        or name in (kept or [])
+    ):
         return f"{name} is taken. Choose another name."
     return None
 
@@ -862,6 +943,15 @@ class SiteApps:
             extra={"site": site, "duration_ms": round((time.perf_counter() - start) * 1000, 1)},
         )
         return made
+
+    def forget(self, site: str) -> None:
+        """Drop the deleted site's app (R69a), so a new site given its name later starts
+        afresh."""
+        with self._lock:
+            dropped = self._apps.pop(site, None)
+            self._matched.discard(site)
+        if dropped is not None:
+            logger.info("Site state dropped", extra={"site": site})
 
     def sites(self) -> list[str]:
         """The sites whose app is made, in the order they were."""

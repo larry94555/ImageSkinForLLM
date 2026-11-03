@@ -15,6 +15,7 @@ import {
   type Subscription,
 } from "./api";
 import { ConfirmDialog } from "./confirm-dialog";
+import { DeleteSite } from "./delete-site";
 import { useHost } from "./host";
 
 // Where the browser goes to pay; a function so tests can see it.
@@ -46,7 +47,16 @@ export function SubscriptionSection() {
       <SubdomainPicker current={subscription.subdomain} />
     </section>
   );
-  if (!subscription.subscribed && !subscription.available) return address || null;
+  // Any site but the main address's can be deleted by its host (R69a).
+  const deletion = subscription.deletable && <DeleteSite />;
+  if (!subscription.subscribed && !subscription.available) {
+    return address || deletion ? (
+      <>
+        {address}
+        {deletion}
+      </>
+    ) : null;
+  }
 
   async function subscribe() {
     setStarting(true);
@@ -93,6 +103,7 @@ export function SubscriptionSection() {
       {failed && <p className="error">{failed}</p>}
     </section>
     {address}
+    {deletion}
     </>
   );
 }

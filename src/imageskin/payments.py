@@ -42,6 +42,8 @@ UNAVAILABLE = "Stripe couldn't be reached just now. Please try again in a minute
 
 # Posts a form to Stripe's API with the secret key: its JSON answer.
 Post = Callable[[str, dict[str, str], str], dict[str, Any]]
+# Sends a DELETE to Stripe's API with the secret key: its JSON answer.
+Delete = Callable[[str, str], dict[str, Any]]
 
 
 class PaymentError(Exception):
@@ -64,6 +66,15 @@ def post_form(url: str, form: dict[str, str], secret_key: str) -> dict[str, Any]
     return answer
 
 
+def delete_request(url: str, secret_key: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {secret_key}"}, method="DELETE"
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 (Stripe's https)
+        answer: dict[str, Any] = json.loads(response.read())
+    return answer
+
+
 @dataclass(frozen=True)
 class Stripe:
     secret_key: str
@@ -71,6 +82,7 @@ class Stripe:
     price_id: str
     post: Post = post_form
     clock: Callable[[], float] = time.time
+    delete: Delete = delete_request
 
     def checkout(self, site: str, email: str, success_url: str, cancel_url: str) -> str:
         """Start subscribing the site on Stripe's page: the page's address. The site is the
@@ -145,6 +157,43 @@ class Stripe:
             },
         )
         return ends
+
+    def cancel_now(self, site: str, subscription_id: str) -> None:
+        """Cancel the subscription at once, as its site is deleted (R69a): nothing more is
+        charged. One Stripe has no more (404) is cancelled already. PaymentError otherwise, and
+        the site isn't deleted, so it is never left charging for a site that's gone."""
+        start = time.perf_counter()
+        try:
+            answer = self.delete(f"{API}/subscriptions/{subscription_id}", self.secret_key)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                logger.warning(
+                    "Subscription already gone at Stripe",
+                    extra={"site": site, "subscription": subscription_id},
+                )
+                return
+            logger.error(
+                "Stripe refused to cancel at once",
+                extra={
+                    "site": site,
+                    "subscription": subscription_id,
+                    "status": e.code,
+                    "error": e.read()[:500].decode(errors="replace"),
+                },
+            )
+            raise PaymentError(UNAVAILABLE) from e
+        except (OSError, ValueError) as e:
+            logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
+            raise PaymentError(UNAVAILABLE) from e
+        logger.info(
+            "Subscription cancelled at once",
+            extra={
+                "site": site,
+                "subscription": subscription_id,
+                "status": answer.get("status"),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
 
     def event(self, body: bytes, signature: str | None) -> dict[str, Any]:
         """The event Stripe sent, once its Stripe-Signature header is checked: signed with the

@@ -106,7 +106,7 @@ from imageskin.customization_history import (
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
-from imageskin.email_change import email_router
+from imageskin.email_change import WRONG_PASSWORD, email_router
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of, site_address
@@ -168,6 +168,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
+from imageskin.site_deletion import delete_site
 from imageskin.sites import Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
@@ -897,6 +898,8 @@ def create_app(
             "pick_subdomain": subscribed and service.sites.is_trial(host_site),
             # A site with its subdomain can change it (R64).
             "change_subdomain": service.sites.subdomain(host_site) is not None,
+            # Any site but the main address's can be deleted by its host (R69a).
+            "deletable": host_site != DEFAULT_SITE,
         }
 
     @app.get("/api/site/subdomain/check")
@@ -966,6 +969,36 @@ def create_app(
     def keep_subscription(host: SignedInHost) -> dict[str, object]:
         """Keep a cancelled subscription after all, before it ends (R69)."""
         return cancelling(host, cancel=False)
+
+    @app.post("/api/site/delete")
+    def delete_this_site(
+        host: SignedInHost, password: Annotated[str, Body(embed=True, max_length=1000)]
+    ) -> dict[str, bool]:
+        """Delete the site from Settings (R69a), once its host gives their password: its
+        subscription is cancelled at once, then its folder and everything in it go. Its host's
+        account is kept, so they can sign in and resume (R69b), and their sign-ins end."""
+        if host_site == DEFAULT_SITE:
+            raise HTTPException(status_code=409, detail="The main address can't be deleted.")
+        # The administrator acting as the host gives their own password (R44b).
+        right = (
+            check_password(password, admin_sign_ins.secret())
+            if host.acting
+            else host_accounts.password_is(host.email, password)
+        )
+        if not right:
+            logger.warning(
+                "Site not deleted",
+                extra={"site": host_site, "email": host.email, "why": "wrong password"},
+            )
+            raise HTTPException(status_code=401, detail=WRONG_PASSWORD)
+        why = "the administrator, acting as its host" if host.acting else "its host"
+        try:
+            deleted = delete_site(service.sites, service.payments, host_site, why)
+        except PaymentError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        if not deleted:
+            raise HTTPException(status_code=404, detail="This site was deleted already.")
+        return {"deleted": True}
 
     @app.post("/api/site/subscribe")
     def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:

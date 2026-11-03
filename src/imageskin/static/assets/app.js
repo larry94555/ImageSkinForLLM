@@ -629,6 +629,14 @@ async function setSubscriptionCancelled(cancel) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return (await response.json()).ends_at;
 }
+async function deleteSite(password) {
+	const response = await fetch("/api/site/delete", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ password })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
 async function checkSubdomain(name) {
 	const query = new URLSearchParams({ name });
 	return json(await fetch(`/api/site/subdomain/check?${query}`));
@@ -2204,6 +2212,95 @@ function modelsNote(models, model, provider) {
 	return `${listed} ${blank}`;
 }
 //#endregion
+//#region src/delete-site.tsx
+function DeleteSite() {
+	const [asking, setAsking] = d(false);
+	const [password, setPassword] = d("");
+	const [deleting, setDeleting] = d(false);
+	const [deleted, setDeleted] = d(false);
+	const [failed, setFailed] = d(null);
+	async function remove() {
+		setAsking(false);
+		setDeleting(true);
+		setFailed(null);
+		try {
+			await deleteSite(password);
+			console.info("Site deleted");
+			setDeleted(true);
+		} catch (e) {
+			console.error("Could not delete the site", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
+		}
+		setPassword("");
+		setDeleting(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-delete-site",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-delete-site",
+				children: "Delete site"
+			}),
+			deleted ? /* @__PURE__ */ u("p", {
+				role: "status",
+				children: "Your site is deleted, with everything on it, and its address is free. Your account is kept, so you can sign in and start again."
+			}) : /* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						disabled: deleting,
+						onClick: () => {
+							console.info("Delete site: asking to confirm");
+							setAsking(true);
+						},
+						children: "Delete site"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Deletes your site for good: its person, files and address, and cancels any subscription at once. Your account is kept. It asks first."
+					}),
+					deleting && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Deleting…"
+					})
+				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to delete your site?",
+				keepLabel: "No, keep my site",
+				confirmLabel: "Yes, delete it",
+				onCancel: () => {
+					console.info("Delete site: kept");
+					setAsking(false);
+					setPassword("");
+				},
+				onConfirm: remove,
+				children: [
+					/* @__PURE__ */ u("p", { children: "Everything on it goes and can't be brought back. Any subscription is cancelled at once, with no more payments." }),
+					/* @__PURE__ */ u("label", {
+						htmlFor: "delete-site-password",
+						children: "Your password, to confirm"
+					}),
+					/* @__PURE__ */ u("input", {
+						id: "delete-site-password",
+						type: "password",
+						autoComplete: "current-password",
+						value: password,
+						onInput: (e) => setPassword(e.target.value)
+					})
+				]
+			})
+		]
+	});
+}
+//#endregion
 //#region src/subscription.tsx
 var go = { to: (url) => window.location.assign(url) };
 function SubscriptionSection() {
@@ -2236,7 +2333,8 @@ function SubscriptionSection() {
 			/* @__PURE__ */ u(SubdomainPicker, { current: subscription.subdomain })
 		]
 	});
-	if (!subscription.subscribed && !subscription.available) return address || null;
+	const deletion = subscription.deletable && /* @__PURE__ */ u(DeleteSite, {});
+	if (!subscription.subscribed && !subscription.available) return address || deletion ? /* @__PURE__ */ u(S, { children: [address, deletion] }) : null;
 	async function subscribe() {
 		setStarting(true);
 		setFailed(null);
@@ -2250,59 +2348,63 @@ function SubscriptionSection() {
 			setStarting(false);
 		}
 	}
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "settings-subscription",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "settings-subscription",
-				children: "Subscription"
-			}),
-			subscription.subscribed ? /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u("p", {
-					role: "status",
-					children: [
-						"Subscribed: ",
-						subscription.price,
-						"."
-					]
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("section", {
+			className: "panel",
+			"aria-labelledby": "settings-subscription",
+			children: [
+				/* @__PURE__ */ u("h2", {
+					id: "settings-subscription",
+					children: "Subscription"
 				}),
-				subscription.payment_failed && /* @__PURE__ */ u("p", {
-					className: "error",
-					role: "alert",
-					children: "Your last payment didn't go through. Stripe will try your card again over the next few days, and your site keeps working meanwhile."
-				}),
-				subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
-				/* @__PURE__ */ u(CancelSubscription, { endsAt: subscription.ends_at ?? null })
-			] }) : /* @__PURE__ */ u("div", {
-				className: "switch",
-				children: [
-					/* @__PURE__ */ u("button", {
-						type: "button",
-						disabled: starting,
-						onClick: subscribe,
-						children: "Subscribe"
-					}),
+				subscription.subscribed ? /* @__PURE__ */ u(S, { children: [
 					/* @__PURE__ */ u("p", {
-						className: "muted",
+						role: "status",
 						children: [
+							"Subscribed: ",
 							subscription.price,
-							", paid on Stripe's secure page; your card details never reach this site.",
-							session?.paused ? " Subscribing brings your paused site back." : ""
+							"."
 						]
 					}),
-					starting && /* @__PURE__ */ u("p", {
-						className: "muted busy",
-						children: "Opening Stripe…"
-					})
-				]
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			})
-		]
-	}), address] });
+					subscription.payment_failed && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: "Your last payment didn't go through. Stripe will try your card again over the next few days, and your site keeps working meanwhile."
+					}),
+					subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
+					/* @__PURE__ */ u(CancelSubscription, { endsAt: subscription.ends_at ?? null })
+				] }) : /* @__PURE__ */ u("div", {
+					className: "switch",
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: starting,
+							onClick: subscribe,
+							children: "Subscribe"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								subscription.price,
+								", paid on Stripe's secure page; your card details never reach this site.",
+								session?.paused ? " Subscribing brings your paused site back." : ""
+							]
+						}),
+						starting && /* @__PURE__ */ u("p", {
+							className: "muted busy",
+							children: "Opening Stripe…"
+						})
+					]
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				})
+			]
+		}),
+		address,
+		deletion
+	] });
 }
 function endDay(seconds) {
 	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleDateString(void 0, { dateStyle: "long" });
