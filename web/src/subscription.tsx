@@ -33,7 +33,18 @@ export function SubscriptionSection() {
   }, [host]);
 
   if (!host || subscription === null) return null;
-  if (!subscription.subscribed && !subscription.available) return null;
+  // A site with its own subdomain can change it (R64), subscribed or not, as one added from
+  // the command line is.
+  const address = subscription.change_subdomain && subscription.subdomain && (
+    <section className="panel" aria-labelledby="settings-address">
+      <h2 id="settings-address">Site address</h2>
+      <p role="status">
+        Your site's subdomain is <strong>{subscription.subdomain}</strong>.
+      </p>
+      <SubdomainPicker current={subscription.subdomain} />
+    </section>
+  );
+  if (!subscription.subscribed && !subscription.available) return address || null;
 
   async function subscribe() {
     setStarting(true);
@@ -50,6 +61,7 @@ export function SubscriptionSection() {
   }
 
   return (
+    <>
     <section className="panel" aria-labelledby="settings-subscription">
       <h2 id="settings-subscription">Subscription</h2>
       {subscription.subscribed ? (
@@ -71,15 +83,18 @@ export function SubscriptionSection() {
       )}
       {failed && <p className="error">{failed}</p>}
     </section>
+    {address}
+    </>
   );
 }
 
 // How long typing pauses before the name is checked, in milliseconds.
 export const CHECK_AFTER_MS = 300;
 
-// Picking the site's subdomain once its trial is paid for (roadmap R63): the name is checked as
-// it is typed, and the browser then goes to the site at its new address, signed in there.
-function SubdomainPicker() {
+// Picking the site's subdomain once its trial is paid for (roadmap R63), or changing the one it
+// has (R64, with `current`): the name is checked as it is typed, and the browser then goes to
+// the site at its new address, signed in there.
+function SubdomainPicker({ current }: { current?: string }) {
   const [name, setName] = useState("");
   const [check, setCheck] = useState<SubdomainCheck | null>(null);
   const [picking, setPicking] = useState(false);
@@ -88,15 +103,15 @@ function SubdomainPicker() {
   useEffect(() => {
     setCheck(null);
     if (!name.trim()) return;
-    let current = true;
+    let live = true;
     const timer = setTimeout(() => {
       checkSubdomain(name).then(
-        (found) => current && setCheck(found),
+        (found) => live && setCheck(found),
         (e: unknown) => console.error("Could not check the subdomain", e),
       );
     }, CHECK_AFTER_MS);
     return () => {
-      current = false;
+      live = false;
       clearTimeout(timer);
     };
   }, [name]);
@@ -107,7 +122,10 @@ function SubdomainPicker() {
     setFailed(null);
     try {
       const picked = await pickSubdomain(name);
-      console.info("Subdomain picked: going to the site's new address", picked.address);
+      console.info(
+        `Subdomain ${current ? "changed" : "picked"}: going to the site's new address`,
+        picked.address,
+      );
       go.to(picked.sign_in_at ?? `${picked.address}/`);
     } catch (e) {
       console.error("Could not pick the subdomain", e);
@@ -119,10 +137,13 @@ function SubdomainPicker() {
   const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
   return (
     <form className="switch" onSubmit={pick} aria-label="Your site's address">
-      <label htmlFor="settings-subdomain">Pick your site's address</label>
+      <label htmlFor="settings-subdomain">
+        {current ? "Change your site's address" : "Pick your site's address"}
+      </label>
       <p className="muted">
-        Your site moves from its trial path to a subdomain of its own, with everything on it. The
-        trial path then goes there.
+        {current
+          ? `Your site moves to the new subdomain, with everything on it. ${current} then finds no site, and anyone can take it.`
+          : "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."}
       </p>
       <input
         id="settings-subdomain"
@@ -138,7 +159,7 @@ function SubdomainPicker() {
         </p>
       )}
       <button type="submit" disabled={!free || picking}>
-        Use this address
+        {current ? "Change address" : "Use this address"}
       </button>
       {picking && <p className="muted busy">Moving your site…</p>}
       {failed && <p className="error">{failed}</p>}

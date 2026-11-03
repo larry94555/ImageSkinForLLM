@@ -14,13 +14,15 @@ const TAKEN = "a is taken. Choose another name.";
 
 function server({
   pick = true,
+  change = false,
+  subscribed = true,
   picked = () =>
     Response.json({
       subdomain: "cy",
       address: "http://cy.localhost:8000",
       sign_in_at: "http://cy.localhost:8000/api/host/sign-in/abc",
     }),
-}: { pick?: boolean; picked?: () => Response } = {}) {
+}: { pick?: boolean; change?: boolean; subscribed?: boolean; picked?: () => Response } = {}) {
   const asked: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -34,12 +36,13 @@ function server({
       }
       if (url === "/api/site/subscription") {
         return Response.json({
-          available: true,
+          available: subscribed,
           price: "5 GB for $1.99 a month",
-          status: "active",
-          subscribed: true,
+          status: subscribed ? "active" : null,
+          subscribed,
           subdomain: pick ? null : "cy",
           pick_subdomain: pick,
+          change_subdomain: change,
         });
       }
       if (url.startsWith("/api/site/subdomain/check?")) {
@@ -118,4 +121,38 @@ test("acting as the host, the browser goes to the address with no sign-in link",
   await form.findByText("cy is free.");
   fireEvent.click(form.getByRole("button", { name: "Use this address" }));
   await vi.waitFor(() => expect(went).toHaveBeenCalledWith("http://cy.localhost:8000/"));
+});
+
+test("a site with its subdomain changes it, from Site address (R64)", async () => {
+  const asked = server({
+    pick: false,
+    change: true,
+    subscribed: false,
+    picked: () =>
+      Response.json({
+        subdomain: "cy-two",
+        address: "http://cy-two.localhost:8000",
+        sign_in_at: "http://cy-two.localhost:8000/api/host/sign-in/xyz",
+      }),
+  });
+  const went = vi.spyOn(go, "to").mockImplementation(() => {});
+  window.location.hash = "#/settings";
+  render(<App />);
+  // A site added from the command line has no subscription, but has its address.
+  const section = within(await screen.findByRole("region", { name: "Site address" }));
+  expect(screen.queryByRole("region", { name: "Subscription" })).toBeNull();
+  expect(section.getByText("cy").tagName).toBe("STRONG");
+  expect(section.getByText(/cy then finds no site, and anyone can take it/)).toBeTruthy();
+  const input = section.getByLabelText("Change your site's address");
+  fireEvent.input(input, { target: { value: "cy-two" } });
+  await section.findByText("cy-two is free.");
+  fireEvent.click(section.getByRole("button", { name: "Change address" }));
+  await vi.waitFor(() =>
+    expect(went).toHaveBeenCalledWith("http://cy-two.localhost:8000/api/host/sign-in/xyz"),
+  );
+  expect(asked).toContain('POST /api/site/subdomain {"name":"cy-two"}');
+  expect(console.info).toHaveBeenCalledWith(
+    "Subdomain changed: going to the site's new address",
+    "http://cy-two.localhost:8000",
+  );
 });

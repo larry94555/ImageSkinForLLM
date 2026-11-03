@@ -2212,7 +2212,26 @@ function SubscriptionSection() {
 		getSubscription().then(setSubscription, (e) => console.error("Could not read the subscription", e));
 	}, [host]);
 	if (!host || subscription === null) return null;
-	if (!subscription.subscribed && !subscription.available) return null;
+	const address = subscription.change_subdomain && subscription.subdomain && /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-address",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-address",
+				children: "Site address"
+			}),
+			/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Your site's subdomain is ",
+					/* @__PURE__ */ u("strong", { children: subscription.subdomain }),
+					"."
+				]
+			}),
+			/* @__PURE__ */ u(SubdomainPicker, { current: subscription.subdomain })
+		]
+	});
+	if (!subscription.subscribed && !subscription.available) return address || null;
 	async function subscribe() {
 		setStarting(true);
 		setFailed(null);
@@ -2226,7 +2245,7 @@ function SubscriptionSection() {
 			setStarting(false);
 		}
 	}
-	return /* @__PURE__ */ u("section", {
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-subscription",
 		children: [
@@ -2269,9 +2288,9 @@ function SubscriptionSection() {
 				children: failed
 			})
 		]
-	});
+	}), address] });
 }
-function SubdomainPicker() {
+function SubdomainPicker({ current }) {
 	const [name, setName] = d("");
 	const [check, setCheck] = d(null);
 	const [picking, setPicking] = d(false);
@@ -2279,12 +2298,12 @@ function SubdomainPicker() {
 	h(() => {
 		setCheck(null);
 		if (!name.trim()) return;
-		let current = true;
+		let live = true;
 		const timer = setTimeout(() => {
-			checkSubdomain(name).then((found) => current && setCheck(found), (e) => console.error("Could not check the subdomain", e));
+			checkSubdomain(name).then((found) => live && setCheck(found), (e) => console.error("Could not check the subdomain", e));
 		}, 300);
 		return () => {
-			current = false;
+			live = false;
 			clearTimeout(timer);
 		};
 	}, [name]);
@@ -2294,7 +2313,7 @@ function SubdomainPicker() {
 		setFailed(null);
 		try {
 			const picked = await pickSubdomain(name);
-			console.info("Subdomain picked: going to the site's new address", picked.address);
+			console.info(`Subdomain ${current ? "changed" : "picked"}: going to the site's new address`, picked.address);
 			go.to(picked.sign_in_at ?? `${picked.address}/`);
 		} catch (e) {
 			console.error("Could not pick the subdomain", e);
@@ -2310,11 +2329,11 @@ function SubdomainPicker() {
 		children: [
 			/* @__PURE__ */ u("label", {
 				htmlFor: "settings-subdomain",
-				children: "Pick your site's address"
+				children: current ? "Change your site's address" : "Pick your site's address"
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."
+				children: current ? `Your site moves to the new subdomain, with everything on it. ${current} then finds no site, and anyone can take it.` : "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."
 			}),
 			/* @__PURE__ */ u("input", {
 				id: "settings-subdomain",
@@ -2332,7 +2351,7 @@ function SubdomainPicker() {
 			/* @__PURE__ */ u("button", {
 				type: "submit",
 				disabled: !free || picking,
-				children: "Use this address"
+				children: current ? "Change address" : "Use this address"
 			}),
 			picking && /* @__PURE__ */ u("p", {
 				className: "muted busy",

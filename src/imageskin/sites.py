@@ -80,6 +80,7 @@ NAME_LETTERS = (
     " start or end with a hyphen."
 )
 NOT_A_TRIAL = "This site has its address already."
+NO_SUBDOMAIN_YET = "This site has no address of its own yet: subscribe to pick one."
 SUBSCRIBE_FIRST = "Subscribe first: the address is picked once the first payment is made."
 SITES_FILE = "sites.json"
 SITES_FOLDER = "sites"
@@ -274,11 +275,7 @@ class SiteDirectory:
         """The site's subdomain, or None for a trial site at its path still (R63)."""
         with self._lock:
             found = self._load().get(site)
-        if found is None:
-            return None
-        if found.get(PICKED):
-            return str(found[PICKED])
-        return None if found.get("trial") else site
+        return None if found is None else _subdomain(site, found)
 
     def moved_to(self, code: str) -> str | None:
         """The subdomain a trial path now goes to, once its host picked one (R63)."""
@@ -319,6 +316,37 @@ class SiteDirectory:
             self._write(sites)
         logger.info("Subdomain picked", extra={"site": site, "subdomain": name})
         return name
+
+    def change_subdomain(self, site: str, name: str) -> tuple[str, str]:
+        """Change the site's subdomain to another free one, from its Settings (R64): the old
+        name and the new. The old name is released at once, so any site can pick it, and its
+        address finds no site; a trial path that moved (R63) goes to the new one. The site keeps
+        its name inside, so its folder and its host's account stay as they are. SiteError, said
+        plainly, when the name can't be had or the site has no subdomain yet."""
+        name = name.strip().lower()
+        with self._lock:
+            sites = dict(self._load())
+            found = sites.get(site)
+            old = None if found is None else _subdomain(site, found)
+            why = None
+            if found is None or old is None:
+                why = "no subdomain yet", NO_SUBDOMAIN_YET
+            elif name == old:
+                why = "same name", f"{name} is your site's address already."
+            else:
+                problem = _name_problem(sites, name)
+                if problem is not None:
+                    why = "name refused", problem
+            if why is not None:
+                logger.warning(
+                    "Subdomain not changed", extra={"site": site, "subdomain": name, "why": why[0]}
+                )
+                raise SiteError(why[1])
+            assert found is not None and old is not None
+            sites[site] = {**found, PICKED: name, "changed_at": time.time()}
+            self._write(sites)
+        logger.info("Subdomain changed", extra={"site": site, "old": old, "subdomain": name})
+        return old, name
 
     def is_trial(self, code: str) -> bool:
         """Whether a trial site is at `/t/<code>` (R61a), and not yet at the subdomain its host
@@ -499,22 +527,35 @@ class SiteDirectory:
         return folder
 
 
+def _subdomain(site: str, found: dict[str, Any]) -> str | None:
+    """The subdomain of the site `site`, whose record is `found`: the one picked (R63) or
+    changed to (R64), its own name, or None for a trial at its path still."""
+    if found.get(PICKED):
+        return str(found[PICKED])
+    return None if found.get("trial") else site
+
+
 def _site_at(sites: dict[str, dict[str, Any]], name: str) -> str | None:
-    """The site at the subdomain `name`, in the sites just read (R61, R63)."""
+    """The site at the subdomain `name`, in the sites just read (R61, R63, R64): the one whose
+    host picked it, or the site of that name that hasn't changed its subdomain since."""
+    picked = next((n for n, s in sites.items() if s.get(PICKED) == name), None)
+    if picked is not None:
+        return picked
     found = sites.get(name)
-    if found is not None and not found.get("trial"):
+    if found is not None and not found.get("trial") and not found.get(PICKED):
         return name
-    return next((n for n, s in sites.items() if s.get(PICKED) == name), None)
+    return None
 
 
 def _name_problem(sites: dict[str, dict[str, Any]], name: str) -> str | None:
     """Why `name` can't be a subdomain, in the sites just read (R63): its letters, a name kept
-    for the service, or one in use, which counts every trial's code, even one moved since."""
+    for the service, or one in use, which counts every trial's code, even one moved since. A
+    name a site changed away from is free at once (R64)."""
     if not SITE_NAME.fullmatch(name):
         return NAME_LETTERS
     if name in RESERVED:
         return f"{name} is kept for the service. Choose another name."
-    if name in sites or _site_at(sites, name) is not None:
+    if _site_at(sites, name) is not None or sites.get(name, {}).get("trial"):
         return f"{name} is taken. Choose another name."
     return None
 

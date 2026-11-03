@@ -96,6 +96,7 @@ def test_a_paid_trial_moves_to_its_subdomain(
     assert sub.get("/api/site/subscription").json() == {
         **session,
         "pick_subdomain": False,
+        "change_subdomain": True,
         "subdomain": "cy-site",
         "subscribed": True,
     }
@@ -104,9 +105,11 @@ def test_a_paid_trial_moves_to_its_subdomain(
     sent = main.post("/api/host/sign-in", json={"email": CY, "password": PASSWORD}).json()
     assert sent["sign_in_at"].startswith("http://cy-site.localhost:8000/api/host/sign-in/")
 
-    # Picked once: a second name is refused.
+    # Picked once: picking it again is a trial's no more, but a change (R64).
+    with pytest.raises(SiteError, match=NOT_A_TRIAL):
+        service.sites.pick_subdomain(code, "cy-two")
     again = sub.post("/api/site/subdomain", json={"name": "cy-two"})
-    assert again.status_code == 409 and again.json()["detail"] == NOT_A_TRIAL
+    assert again.status_code == 200 and again.json()["subdomain"] == "cy-two"
 
 
 def test_the_trial_path_goes_to_the_subdomain(tmp_path: Path) -> None:
