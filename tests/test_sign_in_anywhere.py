@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from test_site_addresses import PASSWORD, quick_hashes, served  # noqa: F401 (the fixture)
 
 from imageskin import hosts
+from imageskin.host_api import MAIN_ADDRESS_VARIABLE
 from imageskin.hosts import DEFAULT_SITE, SIGN_IN_LINK_S, WRONG, trial_cookie
 
 ANN = "ann@example.com"  # site a's host, at a.localhost
@@ -148,3 +149,46 @@ def test_the_links_kept_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # A host deleted since the link was made isn't signed in.
     link = accounts.sign_in_link(CY)
     assert accounts.open_sign_in_link(link, DEFAULT_SITE, "test") is None
+
+
+def test_a_main_site_host_on_the_hosted_service_is_sent_to_the_main_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """From anna.me0.ai, a host of the main address's site goes to app.me0.ai, where Caddy
+    serves the app, not to the bare me0.ai (Codex's review of PR #295)."""
+    monkeypatch.setenv(MAIN_ADDRESS_VARIABLE, "app.me0.ai")
+    sites, _, service = served(tmp_path)
+    service.host_accounts.sign_up(CY, PASSWORD, "test")
+    code, _ = service.sites.add_trial(CY)
+    a = TestClient(sites, base_url="https://a.me0.ai")
+    assert sent_to(a, BOB).startswith("https://app.me0.ai/api/host/sign-in/")
+    assert sent_to(a, CY).startswith(f"https://app.me0.ai/t/{code}/api/host/sign-in/")
+    # From the main address, another site is still its subdomain of me0.ai.
+    main = TestClient(sites, base_url="https://app.me0.ai")
+    assert sent_to(main, ANN).startswith("https://a.me0.ai/api/host/sign-in/")
+    link = sent_to(a, BOB).removeprefix("https://app.me0.ai")
+    assert main.get(link, follow_redirects=False).headers["location"] == "/#/"
+    assert main.get("/api/host/session").json()["email"] == BOB
+
+
+@pytest.mark.parametrize("reset", ["forgot password", "from the server"])
+def test_a_password_reset_ends_a_link_not_yet_opened(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, reset: str
+) -> None:
+    """A link made with the old password signs nobody in once the password is reset, by
+    Forgot password or by the server (Codex's review of PR #295)."""
+    sites, _, service = served(tmp_path)
+    accounts = service.host_accounts
+    main = TestClient(sites, base_url="http://localhost")
+    link = sent_to(main, ANN).removeprefix("http://a.localhost")
+    if reset == "forgot password":
+        token = accounts.reset_link(ANN)
+        assert token is not None and accounts.reset_with(token, "n" * 12) == ANN
+    else:
+        assert accounts.reset_password(ANN, "n" * 12)
+    a = TestClient(sites, base_url="http://a.localhost")
+    with caplog.at_level(logging.WARNING):
+        assert a.get(link, follow_redirects=False).headers["location"] == "/#/host/sign-in"
+    assert a.get("/api/host/session").json()["signed_in"] is False
+    why = [r.__dict__["why"] for r in caplog.records if r.message == "Host sign-in link refused"]
+    assert why == ["password changed"]

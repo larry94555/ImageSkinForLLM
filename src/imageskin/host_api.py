@@ -2,6 +2,7 @@
 host-only route (R190 on)."""
 
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
@@ -49,6 +50,11 @@ Password = Annotated[str, Body(embed=True)]
 HostPage = Literal["sign-up", "sign-in"]
 
 
+# The main address, such as app.me0.ai, that a site's own address sends a main-site host to (R255):
+# compose.yaml passes the deploy's SITE_ADDRESS as it.
+MAIN_ADDRESS_VARIABLE = "IMAGESKIN_MAIN_ADDRESS"
+
+
 def origin_of(request: Request) -> str:
     """The scheme and address the browser used, for a link in an email (R62b)."""
     https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
@@ -60,17 +66,23 @@ def site_address(
 ) -> str:
     """Where a site is, with the scheme the browser used, from the address this request came
     to, which is the site `here`'s: the main address, the site's name in front of it, or its
-    trial path after it (R61a). A host who signs in elsewhere is sent there (R255)."""
+    trial path after it (R61a). A host who signs in elsewhere is sent there (R255). From a
+    site's own address, the main address is the configured one (MAIN_ADDRESS_VARIABLE, the
+    deploy's SITE_ADDRESS, such as app.me0.ai), not the bare domain, which needn't reach the
+    app (Codex's review of PR #295); with none set, as on a laptop, it is the domain."""
     https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     host = request.headers.get("host", "localhost")
-    at_main = here == DEFAULT_SITE or is_trial(here)
-    main = re.sub(r"^(www|app)\.", "", host) if at_main else host.split(".", 1)[-1]
+    if here == DEFAULT_SITE or is_trial(here):
+        main, domain = host, re.sub(r"^(www|app)\.", "", host)
+    else:
+        domain = host.split(".", 1)[-1]
+        main = os.environ.get(MAIN_ADDRESS_VARIABLE, "").strip().strip("/").lower() or domain
     if site == DEFAULT_SITE:
         where = main
     elif is_trial(site):
         where = f"{main}/t/{site}"
     else:
-        where = f"{site}.{main}"
+        where = f"{site}.{domain}"
     return f"{'https' if https else 'http'}://{where}"
 
 

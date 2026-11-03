@@ -103,7 +103,10 @@ def test_a_host_of_a_trial_site_is_sent_to_its_path(tmp_path: Path) -> None:
     code, _ = service.sites.add_trial(CY)
     main = TestClient(sites, base_url="http://www.localhost:8000")
     sent = main.post("/api/host/sign-in", json={"email": CY, "password": PASSWORD})
-    assert sent.json()["sign_in_at"].startswith(f"http://localhost:8000/t/{code}/api/host/sign-in/")
+    # The browser stays at the main address it came to, where the trial site is.
+    assert sent.json()["sign_in_at"].startswith(
+        f"http://www.localhost:8000/t/{code}/api/host/sign-in/"
+    )
     trial = TestClient(sites, base_url="http://localhost:8000")
     sent = trial.post(f"/t/{code}/api/host/sign-in", json={"email": ANN, "password": PASSWORD})
     assert sent.json()["sign_in_at"].startswith("http://a.localhost:8000/api/host/sign-in/")

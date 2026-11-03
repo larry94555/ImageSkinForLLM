@@ -158,7 +158,7 @@ class HostAccounts:
         # The host an acting token acts as, while its administrator is signed in (R44a).
         self.acting: Callable[[str], str | None] | None = None
         # One-time sign-in links to a host's own site, by their hash: the email and when (R255).
-        self._links: dict[str, tuple[str, float]] = {}
+        self._links: dict[str, tuple[str, float, str]] = {}
 
     def _load(self) -> dict[str, Any]:
         """The file's accounts and sign-ins, read again only when the file has changed;
@@ -356,20 +356,24 @@ class HostAccounts:
 
     def sign_in_link(self, email: str) -> str:
         """A one-time link token that signs the host in at their own site (R255), made once their
-        password is checked at another site's address, whose cookie their site can't read."""
+        password is checked at another site's address, whose cookie their site can't read. It
+        holds the password's hash, so a password reset before it is opened ends it too."""
         link = secrets.token_urlsafe(32)
         now = self.clock()
+        email = normal_email(email)
         with self._lock:
+            password_hash = str(self._load()["hosts"].get(email, {}).get("password_hash", ""))
             kept = {k: v for k, v in self._links.items() if now - v[1] <= SIGN_IN_LINK_S}
             while len(kept) >= SIGN_IN_LINKS_KEPT:
                 del kept[min(kept, key=lambda k: kept[k][1])]
-            kept[token_key(link)] = (normal_email(email), now)
+            kept[token_key(link)] = (email, now, password_hash)
             self._links = kept
         return link
 
     def open_sign_in_link(self, link: str, site: str, address: str) -> str | None:
         """A new sign-in's token for the link's host, opened at their own `site`; the link then
-        works no more. None when it is unknown, used, too old, or not this site's host's."""
+        works no more. None when it is unknown, used, too old, not this site's host's, or the
+        password was changed since it was made (Codex's review of PR #295)."""
         with self._lock:
             found = self._links.pop(token_key(link), None)
             why = None
@@ -382,6 +386,8 @@ class HostAccounts:
                 account = data["hosts"].get(found[0])
                 if account is None:
                     why = "no such host"
+                elif account.get("password_hash") != found[2]:
+                    why = "password changed"
                 elif account.get(SITE, DEFAULT_SITE) != site:
                     why = "another site's host"
                 else:
