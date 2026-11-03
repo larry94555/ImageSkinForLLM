@@ -284,8 +284,9 @@ def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> Non
         assert name in example
     # The price is in .env too, so the server never edits its tracked config.toml (Larry's
     # checkout of PR #295 was stopped by such an edit).
-    assert load_settings(DEPLOY / "config.toml").stripe_price_id == ""
+    load_settings(DEPLOY / "config.toml")
     assert "stripe_price_id =" not in text(DEPLOY / "config.toml")
+    assert "deploy/.env" in text(ROOT / ".gitignore").splitlines()  # never checked in
     readme = text(DEPLOY / "README.md")
     assert "## 9. Turn on subscribing (Stripe)" in readme
     for event in (

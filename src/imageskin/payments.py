@@ -6,9 +6,9 @@ the events Stripe sends to its webhook, each checked by its signature.
 
 Set up with the monthly price of Milestone 30's subscription, the secret key and the webhook's
 signing secret in the IMAGESKIN_STRIPE_PRICE_ID, IMAGESKIN_STRIPE_SECRET_KEY and
-IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables (`deploy/.env` on the hosted site, never a
-tracked file). `stripe_price_id` in config.toml still works for the price, for a laptop; the
-variable wins when both are set. Without all three, subscribing says it isn't set up yet.
+IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables only: `deploy/.env` on the hosted site,
+which isn't checked in, so no tracked file holds them and `git pull` never meets a local edit
+(Larry, 2026-11-03). Without all three, subscribing says it isn't set up yet.
 """
 
 import hashlib
@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 
 SECRET_KEY_VARIABLE = "IMAGESKIN_STRIPE_SECRET_KEY"
 WEBHOOK_SECRET_VARIABLE = "IMAGESKIN_STRIPE_WEBHOOK_SECRET"
-# The price, in .env beside the secrets, so the server's tracked config.toml stays as pulled.
+# The price, in .env beside the secrets, never in a tracked file.
 PRICE_VARIABLE = "IMAGESKIN_STRIPE_PRICE_ID"
 API = "https://api.stripe.com/v1"
-# What is sold (Milestone 30, R201): the price itself is the one set up in Stripe as
-# `stripe_price_id`, which should match these words.
+# What is sold (Milestone 30, R201): the price itself is the one set up in Stripe, whose ID is
+# IMAGESKIN_STRIPE_PRICE_ID, which should match these words.
 SUBSCRIPTION = "5 GB for $1.99 a month"
 # How old an event's signature may be, as Stripe's own libraries allow, so a recorded one can't
 # be sent again later.
@@ -138,10 +138,9 @@ class Stripe:
         return event
 
 
-def stripe_from_environment(price_id: str) -> Stripe | None:
-    """Stripe as the environment, or config.toml for the price, set it up, or None when any
-    part is missing."""
-    price_id = os.environ.get(PRICE_VARIABLE, "").strip() or price_id
+def stripe_from_environment() -> Stripe | None:
+    """Stripe as the environment sets it up, or None when any part is missing."""
+    price_id = os.environ.get(PRICE_VARIABLE, "").strip()
     secret_key = os.environ.get(SECRET_KEY_VARIABLE, "")
     webhook_secret = os.environ.get(WEBHOOK_SECRET_VARIABLE, "")
     if not (price_id and secret_key and webhook_secret):

@@ -250,7 +250,7 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
    IMAGESKIN_STRIPE_PRICE_ID=price_1Q...
    ```
 
-   All three stay in `.env`, so `config.toml`, which `git pull` updates, is never edited here. If you put `stripe_price_id` in `config.toml` before, move its value to `IMAGESKIN_STRIPE_PRICE_ID` and run `git checkout config.toml` to put the file back as it was.
+   All three stay in `.env`, so `config.toml`, which `git pull` updates, is never edited here. If you put `stripe_price_id` in `config.toml` before, move its value to `IMAGESKIN_STRIPE_PRICE_ID` and run `git checkout config.toml` to put the file back as it was: the app no longer starts with it there, and says so.
 6. **Restart with them.** A changed `.env` needs the app made again, not only restarted, and Caddy reads the new Caddyfile, which since R71 asks for no password, so Stripe's events reach the app:
 
    ```
