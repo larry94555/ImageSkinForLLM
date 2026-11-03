@@ -275,11 +275,17 @@ def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> Non
     compose = text(DEPLOY / "compose.yaml")
     app = compose.split("\n  app:")[1].split("\n  llama:")[0]
     example = set(re.findall(r"^(\w+)=", text(DEPLOY / ".env.example"), re.MULTILINE))
-    for name in ("IMAGESKIN_STRIPE_SECRET_KEY", "IMAGESKIN_STRIPE_WEBHOOK_SECRET"):
+    for name in (
+        "IMAGESKIN_STRIPE_SECRET_KEY",
+        "IMAGESKIN_STRIPE_WEBHOOK_SECRET",
+        "IMAGESKIN_STRIPE_PRICE_ID",
+    ):
         assert f"{name}: ${{{name}:-}}" in app
         assert name in example
-    assert load_settings(DEPLOY / "config.toml").stripe_price_id == ""  # commented out until set
-    assert '# stripe_price_id = "' in text(DEPLOY / "config.toml")
+    # The price is in .env too, so the server never edits its tracked config.toml (Larry's
+    # checkout of PR #295 was stopped by such an edit).
+    assert load_settings(DEPLOY / "config.toml").stripe_price_id == ""
+    assert "stripe_price_id =" not in text(DEPLOY / "config.toml")
     readme = text(DEPLOY / "README.md")
     assert "## 9. Turn on subscribing (Stripe)" in readme
     for event in (

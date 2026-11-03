@@ -4,10 +4,11 @@ A site's host subscribes on Stripe's own page, so card details and invoices stay
 never reach this server. The server makes the Checkout Session and records the subscription from
 the events Stripe sends to its webhook, each checked by its signature.
 
-Set up with `stripe_price_id` in config.toml, the monthly price of Milestone 30's subscription,
-and the secret key and the webhook's signing secret in the IMAGESKIN_STRIPE_SECRET_KEY and
-IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables, never in the file. Without them,
-subscribing says it isn't set up yet.
+Set up with the monthly price of Milestone 30's subscription, the secret key and the webhook's
+signing secret in the IMAGESKIN_STRIPE_PRICE_ID, IMAGESKIN_STRIPE_SECRET_KEY and
+IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables (`deploy/.env` on the hosted site, never a
+tracked file). `stripe_price_id` in config.toml still works for the price, for a laptop; the
+variable wins when both are set. Without all three, subscribing says it isn't set up yet.
 """
 
 import hashlib
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 SECRET_KEY_VARIABLE = "IMAGESKIN_STRIPE_SECRET_KEY"
 WEBHOOK_SECRET_VARIABLE = "IMAGESKIN_STRIPE_WEBHOOK_SECRET"
+# The price, in .env beside the secrets, so the server's tracked config.toml stays as pulled.
+PRICE_VARIABLE = "IMAGESKIN_STRIPE_PRICE_ID"
 API = "https://api.stripe.com/v1"
 # What is sold (Milestone 30, R201): the price itself is the one set up in Stripe as
 # `stripe_price_id`, which should match these words.
@@ -136,7 +139,9 @@ class Stripe:
 
 
 def stripe_from_environment(price_id: str) -> Stripe | None:
-    """Stripe as config.toml and the environment set it up, or None when any part is missing."""
+    """Stripe as the environment, or config.toml for the price, set it up, or None when any
+    part is missing."""
+    price_id = os.environ.get(PRICE_VARIABLE, "").strip() or price_id
     secret_key = os.environ.get(SECRET_KEY_VARIABLE, "")
     webhook_secret = os.environ.get(WEBHOOK_SECRET_VARIABLE, "")
     if not (price_id and secret_key and webhook_secret):

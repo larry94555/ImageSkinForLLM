@@ -242,14 +242,15 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
    nano .env
    ```
 
-   Paste the key and the signing secret after the `=` on their lines, then save and close as in 6d:
+   Paste the key, the signing secret and the price's ID after the `=` on their lines (take them from `.env.example` if `.env` doesn't have them yet), then save and close as in 6c:
 
    ```
    IMAGESKIN_STRIPE_SECRET_KEY=sk_test_...
    IMAGESKIN_STRIPE_WEBHOOK_SECRET=whsec_...
+   IMAGESKIN_STRIPE_PRICE_ID=price_1Q...
    ```
 
-   Then `nano config.toml`, take the `# ` off the `stripe_price_id` line at the end, and put your price's ID between the quotes, such as `stripe_price_id = "price_1Q..."`.
+   All three stay in `.env`, so `config.toml`, which `git pull` updates, is never edited here. If you put `stripe_price_id` in `config.toml` before, move its value to `IMAGESKIN_STRIPE_PRICE_ID` and run `git checkout config.toml` to put the file back as it was.
 6. **Restart with them.** A changed `.env` needs the app made again, not only restarted, and Caddy reads the new Caddyfile, which since R71 asks for no password, so Stripe's events reach the app:
 
    ```

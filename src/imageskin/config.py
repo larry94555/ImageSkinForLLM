@@ -60,7 +60,8 @@ class Settings:
     mail_from: str = ""
     # Subscribing through Stripe Checkout (roadmap R67): the monthly price's id in Stripe, such
     # as "price_1Q...". The secret key and the webhook's signing secret are in the
-    # IMAGESKIN_STRIPE_SECRET_KEY and IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables.
+    # IMAGESKIN_STRIPE_SECRET_KEY and IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables, and
+    # IMAGESKIN_STRIPE_PRICE_ID, when set, is used in place of this (the hosted site's .env).
     stripe_price_id: str = ""
 
 

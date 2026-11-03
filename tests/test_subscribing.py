@@ -277,6 +277,7 @@ def test_stripe_is_set_up_from_the_config_and_environment(
 ) -> None:
     monkeypatch.delenv(payments.SECRET_KEY_VARIABLE, raising=False)
     monkeypatch.delenv(payments.WEBHOOK_SECRET_VARIABLE, raising=False)
+    monkeypatch.delenv(payments.PRICE_VARIABLE, raising=False)
     assert stripe_from_environment("") is None
     with caplog.at_level(logging.WARNING):
         assert stripe_from_environment("price_5gb") is None
@@ -287,6 +288,11 @@ def test_stripe_is_set_up_from_the_config_and_environment(
     assert (
         stripe is not None and stripe.price_id == "price_5gb" and stripe.secret_key == "sk_live_x"
     )
+    # The price from .env, as on the hosted site, wins over config.toml's.
+    monkeypatch.setenv(payments.PRICE_VARIABLE, "price_from_env")
+    for config in ("", "price_5gb"):
+        stripe = stripe_from_environment(config)
+        assert stripe is not None and stripe.price_id == "price_from_env"
 
 
 def test_the_api_is_called_with_the_secret_key_and_the_form(
