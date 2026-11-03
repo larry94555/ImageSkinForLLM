@@ -58,10 +58,6 @@ class Settings:
     smtp_port: int = 587
     smtp_user: str = ""
     mail_from: str = ""
-    # Subscribing through Stripe Checkout (roadmap R67): the monthly price's id in Stripe, such
-    # as "price_1Q...". The secret key and the webhook's signing secret are in the
-    # IMAGESKIN_STRIPE_SECRET_KEY and IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables.
-    stripe_price_id: str = ""
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -81,6 +77,13 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(
             f"{' and '.join(moved)} in {path} {'are' if len(moved) > 1 else 'is'} no longer"
             " used: remove it and pick the LLM, with its API key, on the Settings page"
+        )
+    if "stripe_price_id" in data:
+        # Only in a file that isn't checked in, so the server's config.toml never differs from
+        # what `git pull` brings (Larry, 2026-11-03).
+        raise ConfigError(
+            f"stripe_price_id in {path} is no longer used: put it in deploy/.env as"
+            " IMAGESKIN_STRIPE_PRICE_ID (deploy/README.md, step 9), then remove it here"
         )
     known = {f.name for f in fields(Settings)}
     unknown = sorted(set(data) - known)
@@ -113,7 +116,7 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"clones_loaded in {path} must be a number of at least 1")
     if not isinstance(settings.main_domain, str) or "." not in settings.main_domain.strip("."):
         raise ConfigError(f"main_domain in {path} must be a domain, such as me0.ai")
-    for key in ("smtp_host", "smtp_user", "mail_from", "stripe_price_id"):
+    for key in ("smtp_host", "smtp_user", "mail_from"):
         if not isinstance(getattr(settings, key), str):
             raise ConfigError(f"{key} in {path} must be a string")
     if type(settings.smtp_port) is not int or not 1 <= settings.smtp_port <= 65535:

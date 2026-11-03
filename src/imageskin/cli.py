@@ -524,7 +524,7 @@ def serve(settings: Settings) -> None:
         Path(laptops).expanduser() if laptops else None,
         mailer(settings),
         # Subscribing through Stripe (R67), when config.toml and the environment set it up.
-        stripe_from_environment(settings.stripe_price_id),
+        stripe_from_environment(),
     )
     # Every host but the first gets a site of their own, with what they added (R61e).
     from imageskin.site_moves import move_hosts_to_sites

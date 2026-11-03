@@ -22,6 +22,7 @@ from test_site_addresses import lesson, with_hosts
 
 from imageskin import admin, payments
 from imageskin.app import create_app
+from imageskin.config import ConfigError, load_settings
 from imageskin.payments import (
     NOT_SET_UP,
     SUBSCRIPTION,
@@ -272,21 +273,32 @@ def test_stripe_unreachable_or_refusing_says_try_again(
         Stripe("sk", SECRET, "price", FakeStripe(fail)).checkout("a", DAN, "u", "u")
 
 
-def test_stripe_is_set_up_from_the_config_and_environment(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_stripe_is_set_up_from_the_environment_only(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv(payments.SECRET_KEY_VARIABLE, raising=False)
-    monkeypatch.delenv(payments.WEBHOOK_SECRET_VARIABLE, raising=False)
-    assert stripe_from_environment("") is None
+    for name in (
+        payments.SECRET_KEY_VARIABLE,
+        payments.WEBHOOK_SECRET_VARIABLE,
+        payments.PRICE_VARIABLE,
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert stripe_from_environment() is None
+    monkeypatch.setenv(payments.PRICE_VARIABLE, "price_5gb")
     with caplog.at_level(logging.WARNING):
-        assert stripe_from_environment("price_5gb") is None
+        assert stripe_from_environment() is None
     assert "Subscribing not set up: a Stripe setting is missing" in caplog.messages
     monkeypatch.setenv(payments.SECRET_KEY_VARIABLE, "sk_live_x")
     monkeypatch.setenv(payments.WEBHOOK_SECRET_VARIABLE, "whsec_x")
-    stripe = stripe_from_environment("price_5gb")
+    stripe = stripe_from_environment()
     assert (
         stripe is not None and stripe.price_id == "price_5gb" and stripe.secret_key == "sk_live_x"
     )
+    # Never in a tracked file (Larry, 2026-11-03): config.toml with the price is refused, saying
+    # where it goes.
+    config = tmp_path / "config.toml"
+    config.write_text('stripe_price_id = "price_5gb"\n')
+    with pytest.raises(ConfigError, match="IMAGESKIN_STRIPE_PRICE_ID"):
+        load_settings(config)
 
 
 def test_the_api_is_called_with_the_secret_key_and_the_form(
