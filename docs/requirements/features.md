@@ -20,7 +20,7 @@ Items are numbered in the order Larry added them, not the order they are built. 
 | 187 to 196 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop; whether hosts can use a custom photo or voice | 2026-10-31 | 13f |
 | 199 to 203 | Optimize LLM latencies: every local LLM task found, timed, given a target and made faster where clear | 2026-10-31 | 13g |
 | 30 to 33, 169 to 174 | Sign-on and accounts; email confirmation and the activity report | 2026-10-08; 169 to 174 on 2026-10-30 | 12 |
-| 61 to 66 | Many customers on me0.ai | 2026-10-17 | 20 |
+| 61 to 66, 205 to 212 | Many customers on me0.ai; acting as and disabling a host; a host with many sites, signing in from any address, and participants who belong to the host | 2026-10-17; 205 and 206 on 2026-11-02; 207 to 212 on 2026-11-03 | 20 |
 | 160 to 168 | Resource enforcement | 2026-10-30 | 30 |
 | 67 to 72 | Support at support.me0.ai | 2026-10-17 | 21 |
 | 120, 126, 127, 144 to 147 | Thinking and quality of response | 2026-10-29 | 28 |
@@ -398,6 +398,15 @@ Added by Larry on 2026-10-17, to build after every item above; on 2026-10-18 Lar
    - **Visitors and participants** use the site as before: the chat, Teach me and the rest are not changes to the host's settings *(default)*.
    - **Enable** puts everything back at once. Disabling or enabling applies at once, with no restart, and is logged as `Host disabled` or `Host enabled` with the host's email; each change refused is logged as `Host change refused` with `why: "disabled"`.
 
+Added by Larry on 2026-11-03, after signing in at app.me0.ai was refused with "Your site is at larry-freeman.me0.ai. Sign in there.": a host signs in from any address and can have many sites, and participants belong to the host rather than to one site. To build before Milestone 20 is complete. A site (a subdomain) is where resources are kept, and is the chat a participant sees; people reach it by typing its address or by signing in as a participant.
+
+207. **Signing in from any address.** A host signs in at the main address, at any of their sites' subdomains or trial paths, or at any other site's address, and is taken to their own site, signed in there. "Your site is at ... Sign in there." no longer refuses them. With several sites (item 208), they go to the one they used last *(default)*.
+208. **Several sites for one host.** A host can have as many sites as they want, each with its own subdomain and its own subscription of 5 GB for $1.99 a month (Milestone 30). Each site keeps its own person, content, settings, visitors and history as before (item 66); one sign-in manages them all. The host's account page lists their sites, with a way to switch between them and **Add a site**, which picks the new site's subdomain and subscribes it (item 65). The free trial stays one per email address, so a second site starts paid *(default)*.
+209. **PDFs shared across a host's sites.** A PDF a host uploads, with its wiki, can be used on any of that host's sites without uploading it again. The host picks the sites for each PDF in Manage Content. It is kept once and counted once in the host's storage *(default)*; a change to it or its wiki shows on every site that uses it. Another host's sites never see it.
+210. **The host's display name.** Each host has a display name, such as "Dr. Smith", which participants and visitors see wherever the host is named. It is asked for at sign-up and can be changed on the account page *(default)*. The email address is used only to sign in and is never shown to participants or visitors.
+211. **Participants belong to the host.** A participant signs up to a host, not to one site: one account and one sign-in work on that host's sites. The host sets a policy for which of their sites a participant may open directly, and which site a participant is sent to after signing in, as a default for every participant and for each participant on their own *(default)*. Until the host changes it, every site is open to every participant, and they are sent to the host's first site *(default)*.
+212. **A site a participant may not use.** A signed-in participant who opens one of the host's sites that the host's policy (item 211) doesn't let them use sees a page like the one an anonymous visitor sees before signing in, saying only "This subdomain is not yet active -- check with the host on its status." It names neither the host nor the site's details, since anyone could have arrived there. The host sets who sees it, with item 211's policy.
+
 ### How this changes earlier items
 
 Noted here and applied when the PRs for these items are built.
@@ -406,6 +415,9 @@ Noted here and applied when the PRs for these items are built.
 - **Item 23 (Delete my data) and item 30 (Administrator sign-on):** they apply to one site, for that site's customer. Item 30 is built with the customers' sites, since each site's administrator is its customer, who signs in with the account from item 61 *(default)*.
 - **Items 31 to 33 (anonymous questions, participant accounts, require sign-up):** built after the customers' sites, on each site for its own visitors and participants.
 - **Item 29 (LLM choice):** chosen per site.
+- **Item 61 (one site per customer account), changed by item 208:** a host's account can have any number of sites; only the free trial stays one per email address.
+- **Item 66 (each site is separate), changed by items 209 and 211:** a host's PDFs, and their participants, can be shared among that host's own sites. Nothing crosses to another host's sites.
+- **Item 32 (participant accounts), changed by item 211:** a participant account belongs to a host and works on the host's sites that the host allows, instead of belonging to one site.
 
 ## Resource enforcement
 

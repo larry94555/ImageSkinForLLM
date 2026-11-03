@@ -1340,6 +1340,29 @@ export interface HostSession {
   trial?: boolean;
   // True while the site is paused, as its trial was cancelled: visitors see a notice (R66).
   paused?: boolean;
+  // True once the site's subscription is paid for (R67).
+  subscribed?: boolean;
+}
+
+// Subscribing (R67): whether it is set up on this server, what is sold, and the site's
+// subscription's status as Stripe's events recorded it.
+export interface Subscription {
+  available: boolean;
+  price: string;
+  status: string | null;
+  subscribed: boolean;
+}
+
+export async function getSubscription(): Promise<Subscription> {
+  return json<Subscription>(await fetch("/api/site/subscription"));
+}
+
+// Starts subscribing: the address of Stripe's page, where the card is given. Throws a
+// ServerRefusal saying why not.
+export async function startSubscribing(): Promise<string> {
+  const response = await fetch("/api/site/subscribe", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { url: string }).url;
 }
 
 // Cancels the free trial (R66), which pauses the site. Throws a ServerRefusal saying why not.

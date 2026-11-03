@@ -13,6 +13,12 @@
 		}
 		respond 404
 	}
+	# Stripe's events about subscriptions (roadmap R67), sent to the main address by Stripe's
+	# servers, which have no password: the app checks each one's signature instead. Only the
+	# main address has this path; at a subdomain the app answers Not found.
+	handle /api/payments/stripe/events {
+		reverse_proxy app:8000
+	}
 	handle {
 		# One name and password for the rest of the site, asked for once by the browser, until
 		# R71 removes it for the customers' sites.

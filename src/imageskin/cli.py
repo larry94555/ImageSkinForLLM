@@ -516,11 +516,15 @@ def serve(settings: Settings) -> None:
     admin_file = Path(settings.admin_file).expanduser() if settings.admin_file else None
     laptops = settings.admin_laptops_file
     # The host accounts and the administrator's files, shared by every site's app (R61b).
+    from imageskin.payments import stripe_from_environment
+
     service = make_service(
         default_home(),
         admin_file,
         Path(laptops).expanduser() if laptops else None,
         mailer(settings),
+        # Subscribing through Stripe (R67), when config.toml and the environment set it up.
+        stripe_from_environment(settings.stripe_price_id),
     )
     # Every host but the first gets a site of their own, with what they added (R61e).
     from imageskin.site_moves import move_hosts_to_sites

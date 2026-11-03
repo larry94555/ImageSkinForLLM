@@ -228,6 +228,47 @@ The file holds the sign-in's tokens, so it only goes over SSH and is deleted on 
 
 Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare is slower on the free machine's cores than on a fast laptop.
 
+## 9. Turn on subscribing (Stripe)
+
+A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R67). They pay on Stripe's own page, so card details never reach the server. Until these steps are done, **Subscribe** says subscribing isn't set up yet. Do them first in Stripe's test mode (a sandbox), where a test card pays nothing, then again with the live keys.
+
+**Before you start:** the server's `.env` must already have `MAIN_DOMAIN` and `CLOUDFLARE_API_TOKEN`, from the [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md) (roadmap R71a). Caddy needs both since R71a, so without them every `docker compose up` stops with `set MAIN_DOMAIN in .env` or `set CLOUDFLARE_API_TOKEN in .env`. On the server, `grep -E "^(MAIN_DOMAIN|CLOUDFLARE_API_TOKEN)=." deploy/.env` prints both lines once they are set; if it doesn't, do that guide first.
+
+1. **Make a Stripe account.** Sign up at [dashboard.stripe.com/register](https://dashboard.stripe.com/register) and confirm your email. To take real money later, finish **Activate payments** (your business details and the bank account payouts go to). Test mode works without it.
+2. **Make the product and its price.** In the Dashboard, open **Product catalog** and click **Add product**. Name it, such as `ImageSkin 5 GB`, pick **Recurring**, enter **1.99 USD**, and set **Billing period** to **Monthly**. Save it, open the product, and copy its price's ID, which starts `price_`.
+3. **Copy the secret key.** Open **Developers**, then **API keys**, click **Reveal** on the **Secret key**, and copy it. It starts `sk_test_` in test mode and `sk_live_` in live mode. Treat it as a password.
+4. **Add the webhook.** Open **Developers**, then **Webhooks**, and add an endpoint (in newer dashboards, **Add destination**, then **Webhook endpoint**):
+   - **Endpoint URL**: `https://<SITE_ADDRESS>/api/payments/stripe/events`, such as `https://app.me0.ai/api/payments/stripe/events`. It must be the main address, not a site's subdomain.
+   - **Events**: `checkout.session.completed`, `customer.subscription.updated` and `customer.subscription.deleted`.
+
+   Save it, then click **Reveal** under **Signing secret** on its page and copy it. It starts `whsec_`.
+5. **Put them on the server.** Connect with SSH (step 4), then:
+
+   ```
+   cd ImageSkinForLLM/deploy
+   git pull
+   nano .env
+   ```
+
+   Paste the key and the signing secret after the `=` on their lines, then save and close as in 6d:
+
+   ```
+   IMAGESKIN_STRIPE_SECRET_KEY=sk_test_...
+   IMAGESKIN_STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+
+   Then `nano config.toml`, take the `# ` off the `stripe_price_id` line at the end, and put your price's ID between the quotes, such as `stripe_price_id = "price_1Q..."`.
+6. **Restart with them.** A changed `.env` needs the app made again, not only restarted, and Caddy reads the new Caddyfile that lets Stripe reach the webhook without the site's password:
+
+   ```
+   docker compose up -d --build
+   docker compose restart caddy
+   ```
+
+   If `docker compose logs app | grep "Stripe setting is missing"` prints a line, one of the three is empty or misspelled.
+7. **Try it.** Sign in to a trial site, open **Settings**, and click **Subscribe**. In test mode, pay with the card `4242 4242 4242 4242`, any future date and any three digits. Back on Settings it says the site is subscribed. On the webhook's page in Stripe, the events show **200 OK**, and `docker compose logs app | grep "Site subscribed"` shows the site.
+8. **Go live.** Switch the Dashboard out of test mode and repeat steps 2 to 6 with the live price, key and webhook, which are separate from the test ones.
+
 ## If it doesn't work
 
 - **The browser says `ERR_SSL_PROTOCOL_ERROR` or "can't provide a secure connection":** Caddy has no certificate yet. `docker compose logs caddy --tail 40` says why. `NXDOMAIN` or a timeout on your address means the A record (step 6b) isn't working yet, or ports 80 and 443 aren't open (steps 3 and 5). A lookup on `127.0.0.53` that is refused, or `network is unreachable`, means the Caddy container has no network, which happens when it was first started while port 80 was taken (next point): `docker inspect imageskin-caddy-1 --format '{{json .NetworkSettings.Networks}}'` prints `{}`. Make it again with `docker compose up -d --force-recreate caddy`. Caddy tries again every minute by itself; once the log says `certificate obtained successfully`, reload the page.
@@ -246,6 +287,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 | Find out why an admin sign-in failed ("Admin login failed with error code A-…") | `docker compose logs app --since 24h \| grep A-…` with the page's code; the reasons are in the [FAQ](../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why) |
 | Serve each site at its own subdomain, such as `anna.me0.ai` | [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md), then the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
+| Turn on subscribing, or change Stripe's keys | step 9 above; a changed `.env` needs `docker compose up -d` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |
 | Host the default people for Start now | copy the packs to `default-people` here, as [tools/default_people/README.md](../tools/default_people/README.md#uploading-the-packs-to-the-hosted-site-r32a) says |

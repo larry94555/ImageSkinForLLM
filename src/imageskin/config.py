@@ -58,6 +58,10 @@ class Settings:
     smtp_port: int = 587
     smtp_user: str = ""
     mail_from: str = ""
+    # Subscribing through Stripe Checkout (roadmap R67): the monthly price's id in Stripe, such
+    # as "price_1Q...". The secret key and the webhook's signing secret are in the
+    # IMAGESKIN_STRIPE_SECRET_KEY and IMAGESKIN_STRIPE_WEBHOOK_SECRET environment variables.
+    stripe_price_id: str = ""
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -109,7 +113,7 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"clones_loaded in {path} must be a number of at least 1")
     if not isinstance(settings.main_domain, str) or "." not in settings.main_domain.strip("."):
         raise ConfigError(f"main_domain in {path} must be a domain, such as me0.ai")
-    for key in ("smtp_host", "smtp_user", "mail_from"):
+    for key in ("smtp_host", "smtp_user", "mail_from", "stripe_price_id"):
         if not isinstance(getattr(settings, key), str):
             raise ConfigError(f"{key} in {path} must be a string")
     if type(settings.smtp_port) is not int or not 1 <= settings.smtp_port <= 65535:
