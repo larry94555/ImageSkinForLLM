@@ -552,7 +552,7 @@ def site_matcher(
 
 def trial_mover(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str | None]:
     """Where a request to a trial path goes once its host picked a subdomain (R63): the same
-    page and call at the subdomain, with the scheme, port and query kept, or None."""
+    path at the subdomain, with the scheme, port and query kept, or None."""
     domain = main_domain.strip(".").lower()
 
     def moved(scope: Scope) -> str | None:
@@ -763,11 +763,7 @@ class SiteApps:
             return
         moved = self._moved(scope)
         if moved is not None:
-            logger.info("Trial path moved", extra={"path": scope.get("path"), "to": moved})
-            if scope["type"] == "websocket":
-                await send({"type": "websocket.close", "code": 4404})
-            else:
-                await self._redirect(scope, send, moved, query=False)
+            await self._moved_away(scope, send, moved)
             return
         site = self._site_of(scope)
         address = address_of(scope)
@@ -813,6 +809,41 @@ class SiteApps:
             }
         )
         await send({"type": "http.response.body", "body": b""})
+
+    @staticmethod
+    async def _moved_away(scope: Scope, send: Send, moved: str) -> None:
+        """A trial path whose site moved to its subdomain (R63). A page is redirected there. A
+        call isn't: a tab opened before the move makes it from the trial path's origin, and a
+        redirect to another origin would be blocked without the trial path's cookie anyway, so
+        it is answered here with the site's new address (`X-Site-Moved`), which the page goes
+        to (`site-path.ts`) (Codex's review of PR #297)."""
+        rest = str(scope.get("path", ""))[len("/t/") + TRIAL_CODE_LENGTH :]
+        call = rest.startswith("/api/")
+        logger.info(
+            "Trial path moved",
+            extra={"path": scope.get("path"), "to": moved, "call": call or None},
+        )
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4404})
+            return
+        if not call:
+            await SiteApps._redirect(scope, send, moved, query=False)
+            return
+        # The site's home page there: the address without the call's path and query.
+        home = moved.split("?", 1)[0].removesuffix(rest) + "/"
+        body = json.dumps({"detail": f"This site has moved to {home}", "moved_to": home}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 409,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"x-site-moved", home.encode("latin-1")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
     @staticmethod
     async def _not_found(scope: Scope, send: Send) -> None:

@@ -118,9 +118,9 @@ def test_the_trial_path_goes_to_the_subdomain(tmp_path: Path) -> None:
         ("http://203.0.113.5", "http://cy.me0.ai"),
     ):
         browser = TestClient(apps, base_url=base)
-        moved = browser.get(f"/t/{code}/api/settings?x=1", follow_redirects=False)
-        assert moved.status_code == 308, base
-        assert moved.headers["location"] == f"{to}/api/settings?x=1"
+        page = browser.get(f"/t/{code}/assets/app.js?v=1", follow_redirects=False)
+        assert page.status_code == 308, base
+        assert page.headers["location"] == f"{to}/assets/app.js?v=1"
         home = browser.get(f"/t/{code}", follow_redirects=False)
         assert home.headers["location"] == f"{to}/"
     # Behind Caddy, the scheme the browser used is kept.
@@ -133,6 +133,30 @@ def test_the_trial_path_goes_to_the_subdomain(tmp_path: Path) -> None:
         site_matcher(service.sites, "me0.ai")({"headers": [(b"host", b"cy.me0.ai")], "path": "/"})
         == code
     )
+
+
+def test_a_tab_opened_before_the_move_is_told_where_the_site_went(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A page opened at the trial path before the move keeps calling there. A redirect to the
+    subdomain's origin would be blocked, so each call is answered at the trial path with the new
+    address, which the page goes to (Codex's review of PR #297)."""
+    apps, service, code, tab = trial(tmp_path)
+    service.sites.pick_subdomain(code, "cy")
+    with caplog.at_level(logging.INFO):
+        for method, path in (("GET", "/api/settings?x=1"), ("POST", "/api/chat/prompt")):
+            answer = tab.request(method, f"/t/{code}{path}", follow_redirects=False)
+            assert answer.status_code == 409, path
+            assert answer.headers["x-site-moved"] == "http://cy.localhost:8000/"
+            assert answer.json() == {
+                "detail": "This site has moved to http://cy.localhost:8000/",
+                "moved_to": "http://cy.localhost:8000/",
+            }
+    logged = [r for r in caplog.records if r.message == "Trial path moved"]
+    assert [r.__dict__["call"] for r in logged] == [True, True]
+    proxied = TestClient(apps, base_url="http://app.me0.ai")
+    answer = proxied.get(f"/t/{code}/api/settings", headers={"x-forwarded-proto": "https"})
+    assert answer.headers["x-site-moved"] == "https://cy.me0.ai/"
 
 
 def test_a_new_trial_never_gets_a_moved_trials_path(

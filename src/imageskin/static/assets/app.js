@@ -10,11 +10,22 @@ function under(url, path = sitePath()) {
 	if (url === path || url.startsWith(`${path}/`)) return url;
 	return `${path}${url}`;
 }
+var moving = { to: (url) => window.location.assign(url) };
 function sendFetchesUnderSitePath(target = window) {
 	const path = sitePath();
 	if (!path) return;
 	const original = target.fetch.bind(target);
-	target.fetch = (input, init) => original(typeof input === "string" ? under(input, path) : input, init);
+	let moved = false;
+	target.fetch = async (input, init) => {
+		const response = await original(typeof input === "string" ? under(input, path) : input, init);
+		const to = response.headers.get("x-site-moved");
+		if (to && !moved) {
+			moved = true;
+			console.info(`Trial site moved to ${to}: going there`);
+			moving.to(`${to}${window.location.hash}`);
+		}
+		return response;
+	};
 	console.info(`Trial site: calls are made under ${path}`);
 }
 //#endregion

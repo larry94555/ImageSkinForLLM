@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sendFetchesUnderSitePath, sitePath, under } from "./site-path";
+import { moving, sendFetchesUnderSitePath, sitePath, under } from "./site-path";
 
 const CODE = "k7q2x9mf3a8w";
 
@@ -41,6 +41,24 @@ describe("a trial site's path (R61a)", () => {
       `/t/${CODE}/api/chat/clips/1/0`,
       url,
     ]);
+  });
+
+  it("goes to the site's subdomain once its host picked one (R63)", async () => {
+    window.history.replaceState(null, "", `/t/${CODE}/#/chat`);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const went = vi.spyOn(moving, "to").mockImplementation(() => {});
+    const moved = () =>
+      Response.json(
+        { detail: "This site has moved to https://cy.me0.ai/" },
+        { status: 409, headers: { "x-site-moved": "https://cy.me0.ai/" } },
+      );
+    const target = { fetch: vi.fn(async () => moved()) as unknown as typeof fetch };
+    sendFetchesUnderSitePath(target);
+    const answer = await target.fetch("/api/chat/idle");
+    expect(answer.status).toBe(409);
+    await target.fetch("/api/host/session");
+    expect(went.mock.calls).toEqual([["https://cy.me0.ai/#/chat"]]); // once
+    vi.restoreAllMocks();
   });
 
   it("leaves fetch as it is anywhere else", () => {
