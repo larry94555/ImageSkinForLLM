@@ -659,6 +659,11 @@ async function startSubscribing() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return (await response.json()).url;
 }
+async function resumeSubscription() {
+	const response = await fetch("/api/site/subscription/resume", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function cancelTrial() {
 	const response = await fetch("/api/site/cancel", { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
@@ -1193,7 +1198,7 @@ function ConfirmDialog(props) {
 						}),
 						/* @__PURE__ */ u("button", {
 							type: "button",
-							className: "danger",
+							className: props.safe ? void 0 : "danger",
 							onClick: props.onConfirm,
 							children: props.confirmLabel
 						})
@@ -2363,12 +2368,16 @@ function DeleteSite({ days, subscribed, endsAt, deletesAt, onChanged }) {
 }
 //#endregion
 //#region src/subscription.tsx
-var go = { to: (url) => window.location.assign(url) };
+var go = {
+	to: (url) => window.location.assign(url),
+	reload: () => window.location.reload()
+};
 function SubscriptionSection() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
 	const [subscription, setSubscription] = d(null);
 	const [starting, setStarting] = d(false);
+	const [asking, setAsking] = d(false);
 	const [failed, setFailed] = d(null);
 	const [version, setVersion] = d(0);
 	function read() {
@@ -2422,6 +2431,25 @@ function SubscriptionSection() {
 			setStarting(false);
 		}
 	}
+	async function resume() {
+		setAsking(false);
+		setStarting(true);
+		setFailed(null);
+		try {
+			const answer = await resumeSubscription();
+			if (answer.resumed) {
+				console.info("Subscription resumed: the site is back");
+				go.reload();
+				return;
+			}
+			console.info("Resume subscription: Stripe needs a card, going to its page");
+			go.to(answer.url ?? "");
+		} catch (e) {
+			console.error("Could not resume the subscription", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "Resuming didn't work. Try again.");
+			setStarting(false);
+		}
+	}
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("section", {
 			className: "panel",
@@ -2451,7 +2479,48 @@ function SubscriptionSection() {
 						endsAt: subscription.ends_at ?? null,
 						days
 					}, `cancel-${version}`)
-				] }) : /* @__PURE__ */ u("div", {
+				] }) : subscription.resumable ? /* @__PURE__ */ u("div", {
+					className: "switch",
+					children: [
+						/* @__PURE__ */ u("p", {
+							role: "status",
+							children: "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: starting,
+							onClick: () => {
+								console.info("Resume subscription: asking to confirm");
+								setAsking(true);
+							},
+							children: "Resume subscription"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [subscription.price, ", with the card Stripe keeps for you, so you type no card details."]
+						}),
+						starting && /* @__PURE__ */ u("p", {
+							className: "muted busy",
+							children: "Asking Stripe…"
+						}),
+						asking && /* @__PURE__ */ u(ConfirmDialog, {
+							title: "Resume your subscription?",
+							keepLabel: "Not now",
+							confirmLabel: "Yes, resume it",
+							safe: true,
+							onCancel: () => {
+								console.info("Resume subscription: not now");
+								setAsking(false);
+							},
+							onConfirm: resume,
+							children: [/* @__PURE__ */ u("p", { children: [
+								"Your subscription, ",
+								subscription.price,
+								", starts again now and is charged to the card Stripe keeps for you. Your site comes back at once, with everything on it."
+							] }), /* @__PURE__ */ u("p", { children: "If Stripe needs a card, its secure page opens for you to give one." })]
+						})
+					]
+				}) : /* @__PURE__ */ u("div", {
 					className: "switch",
 					children: [
 						/* @__PURE__ */ u("button", {
@@ -3460,6 +3529,26 @@ function ReadOnlyBar() {
 		className: "read-only-bar",
 		role: "status",
 		children: READ_ONLY_WORDS
+	});
+}
+function PausedBar({ settings }) {
+	const { session } = useHost();
+	const shown = session?.signed_in === true && session.confirmed !== false && session.paused === true;
+	h(() => {
+		if (shown) console.info("Site paused: the host is shown Resume subscription");
+	}, [shown]);
+	if (!shown || settings) return null;
+	return /* @__PURE__ */ u("div", {
+		className: "paused-bar",
+		role: "status",
+		children: [
+			"Your site is paused: visitors see that it is paused.",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: "#/settings",
+				children: "Resume subscription"
+			})
+		]
 	});
 }
 function ReadOnly({ children }) {
@@ -13249,6 +13338,7 @@ function Shell() {
 		/* @__PURE__ */ u("main", { children: [
 			/* @__PURE__ */ u(ActingBar, {}),
 			/* @__PURE__ */ u(ReadOnlyBar, {}),
+			/* @__PURE__ */ u(PausedBar, { settings: route?.page === "settings" }),
 			/* @__PURE__ */ u(AdminEndedNotice, {}),
 			/* @__PURE__ */ u(CustomUseProvider, {
 				value: customUse ?? ALLOWED,

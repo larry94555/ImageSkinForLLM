@@ -135,6 +135,8 @@ def host_router(
         body["confirmed"] = host is None or host.confirmed
         if host is not None and host.disabled:
             body["disabled"] = True  # so the pages are read-only at once (R44d)
+        if code is None and paused(site):
+            body["paused"] = True  # so the bar with Resume subscription shows at once (R69b)
         name, path = COOKIE, "/"
         if code is not None:
             path = f"{request.scope.get('root_path', '')}/t/{code}/"

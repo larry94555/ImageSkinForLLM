@@ -8,6 +8,7 @@ import {
   checkSubdomain,
   getSubscription,
   pickSubdomain,
+  resumeSubscription,
   ServerRefusal,
   setSubscriptionCancelled,
   startSubscribing,
@@ -18,14 +19,19 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { DeleteSite } from "./delete-site";
 import { useHost } from "./host";
 
-// Where the browser goes to pay; a function so tests can see it.
-export const go = { to: (url: string) => window.location.assign(url) };
+// Where the browser goes to pay, and the page read again once the site is back; functions so
+// tests can see them.
+export const go = {
+  to: (url: string) => window.location.assign(url),
+  reload: () => window.location.reload(),
+};
 
 export function SubscriptionSection() {
   const session = useHost().session;
   const host = session?.signed_in === true;
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [starting, setStarting] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   // Bumped each time the subscription is read again, so the panels start from what it says.
   const [version, setVersion] = useState(0);
@@ -91,6 +97,28 @@ export function SubscriptionSection() {
     }
   }
 
+  // Resume subscription (R69b): one click, with the card Stripe keeps, after a confirmation that
+  // says the price. Stripe's page is opened instead when it needs a card.
+  async function resume() {
+    setAsking(false);
+    setStarting(true);
+    setFailed(null);
+    try {
+      const answer = await resumeSubscription();
+      if (answer.resumed) {
+        console.info("Subscription resumed: the site is back");
+        go.reload();
+        return;
+      }
+      console.info("Resume subscription: Stripe needs a card, going to its page");
+      go.to(answer.url ?? "");
+    } catch (e) {
+      console.error("Could not resume the subscription", e);
+      setFailed(e instanceof ServerRefusal ? e.message : "Resuming didn't work. Try again.");
+      setStarting(false);
+    }
+  }
+
   return (
     <>
     <section className="panel" aria-labelledby="settings-subscription">
@@ -112,6 +140,46 @@ export function SubscriptionSection() {
             days={days}
           />
         </>
+      ) : subscription.resumable ? (
+        <div className="switch">
+          <p role="status">
+            Your site is paused: visitors see that it is paused. Resume your subscription to bring
+            it back as it was.
+          </p>
+          <button
+            type="button"
+            disabled={starting}
+            onClick={() => {
+              console.info("Resume subscription: asking to confirm");
+              setAsking(true);
+            }}
+          >
+            Resume subscription
+          </button>
+          <p className="muted">
+            {subscription.price}, with the card Stripe keeps for you, so you type no card details.
+          </p>
+          {starting && <p className="muted busy">Asking Stripe…</p>}
+          {asking && (
+            <ConfirmDialog
+              title="Resume your subscription?"
+              keepLabel="Not now"
+              confirmLabel="Yes, resume it"
+              safe
+              onCancel={() => {
+                console.info("Resume subscription: not now");
+                setAsking(false);
+              }}
+              onConfirm={resume}
+            >
+              <p>
+                Your subscription, {subscription.price}, starts again now and is charged to the
+                card Stripe keeps for you. Your site comes back at once, with everything on it.
+              </p>
+              <p>If Stripe needs a card, its secure page opens for you to give one.</p>
+            </ConfirmDialog>
+          )}
+        </div>
       ) : (
         <div className="switch">
           <button type="button" disabled={starting} onClick={subscribe}>

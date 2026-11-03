@@ -136,7 +136,7 @@ from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.password_reset import reset_router
 from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
-from imageskin.payments import SUBSCRIPTION, BadEvent, PaymentError, ends_at
+from imageskin.payments import SUBSCRIPTION, BadEvent, CardNeeded, PaymentError, ends_at
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -168,7 +168,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import Service, SiteError, make_service, site_home
+from imageskin.sites import ACTIVE, FINAL, Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -902,7 +902,21 @@ def create_app(
             # The days a paused site is kept, and when this one's content is deleted (R69a).
             "days_before_deleting": admin_settings.current.days_before_deleting,
             "deletes_at": deletes_at(),
+            # A paused site that was paid for before resumes with the card Stripe keeps (R69b).
+            "resumable": resumable(),
         }
+
+    def resumable() -> bool:
+        """Whether the site is paused and was paid for before, by a Stripe customer, so
+        Resume subscription subscribes it again with the card Stripe keeps (R69b)."""
+        found = service.sites.subscription(host_site) or {}
+        return (
+            host_site != DEFAULT_SITE
+            and service.payments is not None
+            and service.sites.paused(host_site) is not None
+            and not service.sites.subscribed(host_site)
+            and bool(found.get("customer"))
+        )
 
     @app.get("/api/site/subdomain/check")
     def check_subdomain(name: str, host: SignedInHost) -> dict[str, object]:
@@ -1042,6 +1056,70 @@ def create_app(
         except PaymentError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
         return {"url": url}
+
+    # One resume at a time on this site, so a second click never makes a second subscription.
+    resuming = threading.Lock()
+
+    @app.post("/api/site/subscription/resume")
+    def resume_subscription(request: Request, host: SignedInHost) -> dict[str, object]:
+        """Resume subscription, for a paused site (R69b): one click, never a new sign-up. A new
+        subscription is made for the Stripe customer the site had, with the card Stripe keeps,
+        and the site is back at once, with everything on it (`{"resumed": true}`). When Stripe
+        has no card it can charge, or the site never had a customer, the answer is the address
+        of Stripe's page, with the customer filled in, which the browser goes to."""
+        start = time.perf_counter()
+        if host_site == DEFAULT_SITE:
+            raise HTTPException(status_code=409, detail="The main address has no subscription.")
+        if service.payments is None:
+            logger.warning("Resume refused", extra={"site": host_site, "why": "not set up"})
+            raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+        payments = service.payments
+        back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/settings"
+        with resuming:
+            if service.sites.subscribed(host_site):
+                raise HTTPException(status_code=409, detail="This site is subscribed already.")
+            if service.sites.paused(host_site) is None:
+                raise HTTPException(status_code=409, detail="This site isn't paused.")
+            found = service.sites.subscription(host_site) or {}
+            customer = str(found.get("customer") or "")
+            old = str(found["id"]) if found.get("id") else None
+            try:
+                if not customer:
+                    url = payments.checkout(host_site, host.email, back, back)
+                    logger.info("Resume goes to Stripe", extra={"site": host_site, "why": "new"})
+                    return {"resumed": False, "url": url}
+                card = payments.card_of(host_site, old)
+                if old and found.get("status") not in FINAL:
+                    # One Stripe still keeps, `unpaid` after failed renewals, is ended first, so
+                    # the host never pays for two.
+                    payments.cancel_now(host_site, old)
+                try:
+                    made = payments.resume(host_site, customer, card)
+                except CardNeeded:
+                    url = payments.checkout(host_site, host.email, back, back, customer)
+                    logger.info(
+                        "Resume goes to Stripe", extra={"site": host_site, "why": "card needed"}
+                    )
+                    return {"resumed": False, "url": url}
+            except PaymentError as e:
+                raise HTTPException(status_code=502, detail=str(e)) from e
+            if made.get("status") not in ACTIVE or not made.get("id"):
+                logger.error(
+                    "Resumed subscription not paid",
+                    extra={"site": host_site, "status": made.get("status")},
+                )
+                raise HTTPException(status_code=502, detail="Stripe didn't take the payment.")
+            service.sites.subscribe(host_site, str(made["id"]), customer)
+        logger.info(
+            "Subscription resumed",
+            extra={
+                "site": host_site,
+                "acting": host.acting,
+                "subscription": made["id"],
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return {"resumed": True}
 
     if host_site == DEFAULT_SITE:
 

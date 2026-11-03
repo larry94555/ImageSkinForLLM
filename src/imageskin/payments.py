@@ -44,10 +44,17 @@ UNAVAILABLE = "Stripe couldn't be reached just now. Please try again in a minute
 Post = Callable[[str, dict[str, str], str], dict[str, Any]]
 # Sends a DELETE to Stripe's API with the secret key: its JSON answer.
 Delete = Callable[[str, str], dict[str, Any]]
+# Sends a GET to Stripe's API with the secret key: its JSON answer.
+Get = Callable[[str, str], dict[str, Any]]
 
 
 class PaymentError(Exception):
     """Stripe refused or couldn't be reached; the message is safe to show."""
+
+
+class CardNeeded(PaymentError):
+    """Stripe has no card it can charge for the customer, or declined the one it has (R69b):
+    the host gives one on Stripe's page instead."""
 
 
 class BadEvent(Exception):
@@ -66,13 +73,26 @@ def post_form(url: str, form: dict[str, str], secret_key: str) -> dict[str, Any]
     return answer
 
 
-def delete_request(url: str, secret_key: str) -> dict[str, Any]:
+def delete_request(url: str, secret_key: str, method: str = "DELETE") -> dict[str, Any]:
     request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {secret_key}"}, method="DELETE"
+        url, headers={"Authorization": f"Bearer {secret_key}"}, method=method
     )
     with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 (Stripe's https)
         answer: dict[str, Any] = json.loads(response.read())
     return answer
+
+
+def get_request(url: str, secret_key: str) -> dict[str, Any]:
+    return delete_request(url, secret_key, "GET")
+
+
+def _stripe_error(e: urllib.error.HTTPError) -> dict[str, Any]:
+    """The `error` of Stripe's answer to a refused call, or {} when it has none."""
+    try:
+        found = json.loads(e.read()[:2000]).get("error")
+    except (ValueError, AttributeError, OSError):
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 @dataclass(frozen=True)
@@ -83,17 +103,26 @@ class Stripe:
     post: Post = post_form
     clock: Callable[[], float] = time.time
     delete: Delete = delete_request
+    get: Get = get_request
 
-    def checkout(self, site: str, email: str, success_url: str, cancel_url: str) -> str:
+    def checkout(
+        self,
+        site: str,
+        email: str,
+        success_url: str,
+        cancel_url: str,
+        customer: str | None = None,
+    ) -> str:
         """Start subscribing the site on Stripe's page: the page's address. The site is the
-        session's reference, so its completion names the site it paid for."""
+        session's reference, so its completion names the site it paid for. With the `customer`
+        the site had (R69b), Stripe's page is for them, filled in, and no new customer is made."""
         start = time.perf_counter()
         form = {
             "mode": "subscription",
             "line_items[0][price]": self.price_id,
             "line_items[0][quantity]": "1",
             "client_reference_id": site,
-            "customer_email": email,
+            **({"customer": customer} if customer else {"customer_email": email}),
             "metadata[site]": site,
             "subscription_data[metadata][site]": site,
             "success_url": success_url,
@@ -194,6 +223,81 @@ class Stripe:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
+
+    def card_of(self, site: str, subscription_id: str | None) -> str | None:
+        """The card the site's last subscription was paid with (R69b): its payment method's id,
+        or None when Stripe has none for it, so the customer's own default is used."""
+        if not subscription_id:
+            return None
+        try:
+            found = self.get(f"{API}/subscriptions/{subscription_id}", self.secret_key)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            logger.error(
+                "Stripe refused to read the subscription",
+                extra={"site": site, "subscription": subscription_id, "status": e.code},
+            )
+            raise PaymentError(UNAVAILABLE) from e
+        except (OSError, ValueError) as e:
+            logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
+            raise PaymentError(UNAVAILABLE) from e
+        card = found.get("default_payment_method")
+        if isinstance(card, dict):
+            card = card.get("id")
+        return str(card) if card else None
+
+    def resume(self, site: str, customer: str, card: str | None) -> dict[str, Any]:
+        """Subscribe the site again for the Stripe customer it had, charging the card Stripe
+        keeps for them, so the host types no card details (R69b): the new subscription, paid.
+        CardNeeded when Stripe has no card it can charge or declines it; nothing is left
+        unpaid, as an incomplete subscription is refused rather than made."""
+        start = time.perf_counter()
+        form = {
+            "customer": customer,
+            "items[0][price]": self.price_id,
+            "items[0][quantity]": "1",
+            "metadata[site]": site,
+            "payment_behavior": "error_if_incomplete",
+            "off_session": "true",
+            **({"default_payment_method": card} if card else {}),
+        }
+        try:
+            made = self.post(f"{API}/subscriptions", form, self.secret_key)
+        except urllib.error.HTTPError as e:
+            error = _stripe_error(e)
+            card_problem = e.code == 402 or error.get("type") == "card_error"
+            no_card = e.code == 400 and (
+                error.get("param") in ("default_payment_method", "customer")
+                or "payment" in str(error.get("message", "")).lower()
+            )
+            (logger.warning if card_problem or no_card else logger.error)(
+                "Stripe refused to resume",
+                extra={
+                    "site": site,
+                    "customer": customer,
+                    "status": e.code,
+                    "code": error.get("code") or error.get("decline_code"),
+                    "error": str(error.get("message", ""))[:500],
+                },
+            )
+            if card_problem or no_card:
+                raise CardNeeded(UNAVAILABLE) from e
+            raise PaymentError(UNAVAILABLE) from e
+        except (OSError, ValueError) as e:
+            logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
+            raise PaymentError(UNAVAILABLE) from e
+        logger.info(
+            "Subscription made with the card on file",
+            extra={
+                "site": site,
+                "customer": customer,
+                "subscription": made.get("id"),
+                "status": made.get("status"),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return made
 
     def event(self, body: bytes, signature: str | None) -> dict[str, Any]:
         """The event Stripe sent, once its Stripe-Signature header is checked: signed with the

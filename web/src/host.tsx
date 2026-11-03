@@ -266,6 +266,23 @@ export function ReadOnlyBar() {
   );
 }
 
+// The bar on every page but Settings while the host's site is paused (R69b): visitors see that
+// it is paused, and Resume subscription, in Settings, brings it back.
+export function PausedBar({ settings }: { settings: boolean }) {
+  const { session } = useHost();
+  const shown = session?.signed_in === true && session.confirmed !== false && session.paused === true;
+  useEffect(() => {
+    if (shown) console.info("Site paused: the host is shown Resume subscription");
+  }, [shown]);
+  if (!shown || settings) return null;
+  return (
+    <div className="paused-bar" role="status">
+      Your site is paused: visitors see that it is paused.{" "}
+      <a href="#/settings">Resume subscription</a>
+    </div>
+  );
+}
+
 // What changes the site, turned off while it is read-only for its host (R44d): a fieldset turns
 // off every button, box and field inside it, so nothing is offered that the server would refuse.
 // Links still work, so every page still reads as before.

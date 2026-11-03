@@ -1376,6 +1376,8 @@ export interface Subscription {
   ends_at?: number | null;
   // True while Stripe retries a renewal that failed (R69).
   payment_failed?: boolean;
+  // True for a paused site paid for before: Resume subscription uses the card Stripe keeps (R69b).
+  resumable?: boolean;
 }
 
 // Cancels the subscription at the end of the period paid for, or keeps it after all (R69):
@@ -1446,6 +1448,14 @@ export async function startSubscribing(): Promise<string> {
   const response = await fetch("/api/site/subscribe", { method: "POST" });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { url: string }).url;
+}
+
+// Resume subscription, for a paused site (R69b): resumed, with the card Stripe keeps, or the
+// address of Stripe's page when a card is needed. Throws a ServerRefusal saying why not.
+export async function resumeSubscription(): Promise<{ resumed: boolean; url?: string }> {
+  const response = await fetch("/api/site/subscription/resume", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as { resumed: boolean; url?: string };
 }
 
 // Cancels the free trial (R66), which pauses the site. Throws a ServerRefusal saying why not.
