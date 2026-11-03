@@ -168,7 +168,6 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.site_deletion import pause_to_delete
 from imageskin.sites import Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
@@ -974,20 +973,26 @@ def create_app(
         return cancelling(host, cancel=False)
 
     def deletes_at() -> float | None:
-        """When the paused site's content is deleted (R69a): the admin settings' days after it
-        paused, or None while it runs."""
+        """When the site's content is deleted (R69a): the admin settings' days after it loses
+        access, which is when it paused, or, for a cancelled subscription still running, when
+        the period paid for ends. None while it runs with no end set."""
         at = service.sites.paused_at(host_site)
+        if at is None and service.sites.subscribed(host_site):
+            at = (service.sites.subscription(host_site) or {}).get("ends_at")
         days = admin_settings.current.days_before_deleting
-        return None if at is None else at + days * 24 * 60 * 60
+        return None if at is None else float(at) + days * 24 * 60 * 60
 
     @app.post("/api/site/delete")
     def delete_this_site(
         host: SignedInHost, password: Annotated[str, Body(embed=True, max_length=1000)]
     ) -> dict[str, object]:
-        """Delete site, from Settings (R69a), once its host gives their password: never at once
-        (Larry, 2026-11-03). Its subscription is cancelled now, so nothing more is charged, and
-        the site is paused; its content is deleted after the admin settings' days. Until then
-        its host signs in, and subscribing again brings it back: when it is deleted."""
+        """Delete site, from Settings (R69a), once its host gives their password: never at once,
+        and nothing paid for is taken away (Larry, 2026-11-03). A subscription is cancelled as
+        Cancel subscription does, at the end of the period paid for: the site keeps working
+        until then, and pauses when Stripe ends it. A site with no paid time left, such as a free
+        trial, pauses now. Its content is deleted the admin settings' days after it pauses;
+        until then its host signs in, and subscribing again brings it back. Answers when the
+        service ends (None when it already has) and when the content is deleted."""
         if host_site == DEFAULT_SITE:
             raise HTTPException(status_code=409, detail="The main address can't be deleted.")
         # The administrator acting as the host gives their own password (R44b).
@@ -1002,17 +1007,23 @@ def create_app(
                 extra={"site": host_site, "email": host.email, "why": "wrong password"},
             )
             raise HTTPException(status_code=401, detail=WRONG_PASSWORD)
-        try:
-            paused = pause_to_delete(service.sites, service.payments, host_site)
-        except PaymentError as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
-        if paused is None:
+        ends: float | None = None
+        if service.sites.subscribed(host_site):
+            # Cancelled at the end of the period paid for, never now (Larry, 2026-11-03).
+            ending = cancelling(host, cancel=True)["ends_at"]
+            ends = float(ending) if isinstance(ending, int | float) else None
+        elif service.sites.pause_to_delete(host_site) is None:
             raise HTTPException(status_code=404, detail="This site was deleted already.")
         logger.info(
             "Site deletion asked",
-            extra={"site": host_site, "acting": host.acting, "deletes_at": deletes_at()},
+            extra={
+                "site": host_site,
+                "acting": host.acting,
+                "service_ends_at": ends,
+                "deletes_at": deletes_at(),
+            },
         )
-        return {"paused": True, "deletes_at": deletes_at()}
+        return {"ends_at": ends, "deletes_at": deletes_at()}
 
     @app.post("/api/site/subscribe")
     def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:

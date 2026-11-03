@@ -1,13 +1,15 @@
-"""Deleting a site (roadmap R69a, feature 64): never at once, so a host who missed a payment or
-changed their mind can come back (Larry, 2026-11-03). A site is deleted once it has been paused
-for the admin settings' days, 30 to begin with: paused as its subscription ended or its trial
-was cancelled (R69, R66), or as its host asked to delete it from Settings, which pauses it now.
+"""Deleting a site (roadmap R69a, feature 64): never at once, and nothing a host paid for is
+taken away (Larry, 2026-11-03). Cancelling, or Delete site in Settings, only means no more
+payment is expected: a subscribed site keeps working until the end of the period paid for, then
+pauses (R69); a site with no paid time left, such as a free trial, pauses now. A site is deleted
+once it has been paused for the admin settings' days, 30 to begin with, counted from when it
+paused, not from when it was cancelled.
 
-Its subscription is cancelled with Stripe first, at once, so it is never charged for again; when
-Stripe can't be reached nothing is deleted or paused. Then the site goes: its record, its folder
-and everything in it. Its subdomain is free again, a trial's code is never given again, and its
-host's account is kept so they can sign in and resume (R69b, feature 213). Only Stripe keeps the
-billing records.
+When a paused site is deleted, a subscription Stripe still keeps for it (one `unpaid` after
+failed renewals) is cancelled first, so it is never charged for again; when Stripe can't be
+reached nothing is deleted. Then the site goes: its record, its folder and everything in it.
+Its subdomain is free again, a trial's code is never given again, and its host's account is
+kept so they can sign in and resume (R69b, feature 213). Only Stripe keeps the billing records.
 """
 
 import logging
@@ -27,8 +29,9 @@ PAUSED_TOO_LONG = "paused too long"
 
 
 def cancel_now(sites: SiteDirectory, payments: Stripe | None, name: str) -> None:
-    """Cancel the site's subscription with Stripe at once, if it has one still running there.
-    PaymentError when Stripe can't."""
+    """Cancel the deleted site's subscription with Stripe, if Stripe still keeps one for it.
+    PaymentError when Stripe can't. Only for a site paused for the admin settings' days, which
+    has no paid time left."""
     found = sites.subscription(name)
     if found and found.get("id") and found.get("status") not in FINAL:
         if payments is None:
@@ -40,18 +43,10 @@ def cancel_now(sites: SiteDirectory, payments: Stripe | None, name: str) -> None
         payments.cancel_now(name, str(found["id"]))
 
 
-def pause_to_delete(sites: SiteDirectory, payments: Stripe | None, name: str) -> float | None:
-    """The host's Delete site (R69a): its subscription cancelled at once, so nothing more is
-    charged, and the site paused, to be deleted after the admin settings' days: when it paused,
-    or None for no such site. PaymentError, with nothing changed, when Stripe can't cancel."""
-    cancel_now(sites, payments, name)
-    return sites.pause_to_delete(name)
-
-
 def delete_site(sites: SiteDirectory, payments: Stripe | None, name: str, why: str) -> bool:
-    """Cancel the site's subscription with Stripe at once, if it has one still running there,
-    then delete the site: whether it was there. PaymentError, with nothing deleted, when Stripe
-    can't cancel it."""
+    """Cancel the site's subscription with Stripe, if Stripe still keeps one for it, then delete
+    the site: whether it was there. PaymentError, with nothing deleted, when Stripe can't
+    cancel it."""
     cancel_now(sites, payments, name)
     return sites.delete(name, why)
 

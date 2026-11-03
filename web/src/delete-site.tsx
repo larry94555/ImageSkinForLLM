@@ -1,7 +1,9 @@
-// Delete site, on the Settings page (roadmap R69a): never at once (Larry, 2026-11-03). After a
-// confirmation with the host's password, any subscription is cancelled now and the site paused;
-// its content is deleted after the admin settings' days, so a host who changes their mind can
-// still come back by subscribing again. Their account is kept either way (R69b).
+// Delete site, on the Settings page (roadmap R69a): never at once, and nothing paid for is taken
+// away (Larry, 2026-11-03). After a confirmation with the host's password, a subscription is
+// cancelled at the end of the month paid for, as Cancel subscription does: the site keeps
+// working until then, and pauses. A site with no paid time left, such as a free trial, pauses
+// now. Its content is deleted the admin settings' days after it pauses, so a host who changes
+// their mind can still come back by subscribing again. Their account is kept either way (R69b).
 
 import { useState } from "preact/hooks";
 
@@ -11,7 +13,10 @@ import { endDay } from "./subscription";
 
 interface Props {
   days: number; // how long a paused site is kept, from the admin settings
-  deletesAt: number | null; // when this site's content is deleted, once it is paused
+  subscribed: boolean; // a subscription in force, cancelled at the end of the month paid for
+  endsAt: number | null; // when a cancelled subscription's service ends
+  deletesAt: number | null; // when this site's content is deleted, once cancelled or paused
+  onChanged?: () => void; // reads the subscription again, as a cancellation shows above too
 }
 
 // The whole days left before a paused site is deleted (R69a): the admin settings' days just
@@ -20,11 +25,12 @@ export function daysLeft(deletesAt: number, days: number, now: number = Date.now
   return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / (24 * 60 * 60))));
 }
 
-export function DeleteSite({ days, deletesAt }: Props) {
+export function DeleteSite({ days, subscribed, endsAt, deletesAt, onChanged }: Props) {
   const [asking, setAsking] = useState(false);
   const [password, setPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [when, setWhen] = useState<number | null>(deletesAt);
+  const [ends, setEnds] = useState<number | null>(subscribed ? endsAt : null);
   const [failed, setFailed] = useState<string | null>(null);
   const kept = `${days} day${days === 1 ? "" : "s"}`;
 
@@ -33,9 +39,11 @@ export function DeleteSite({ days, deletesAt }: Props) {
     setDeleting(true);
     setFailed(null);
     try {
-      const at = await deleteSite(password);
-      console.info("Site deletion asked: it is deleted at", at);
-      setWhen(at);
+      const asked = await deleteSite(password);
+      console.info("Site deletion asked: service ends at", asked.ends_at, "deleted at", asked.deletes_at);
+      setEnds(asked.ends_at);
+      setWhen(asked.deletes_at);
+      onChanged?.();
     } catch (e) {
       console.error("Could not delete the site", e);
       setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
@@ -47,7 +55,16 @@ export function DeleteSite({ days, deletesAt }: Props) {
   return (
     <section className="panel" aria-labelledby="settings-delete-site">
       <h2 id="settings-delete-site">Delete site</h2>
-      {when !== null ? (
+      {when !== null && ends !== null ? (
+        <>
+          <p role="status">
+            Your subscription is cancelled. You will have service until {endDay(ends)}. After
+            that, your service will be paused. You will then have {kept} to renew your
+            subscription before the content is deleted.
+          </p>
+          <p className="muted">Until then, Keep my subscription, above, undoes it.</p>
+        </>
+      ) : when !== null ? (
         <>
           <p role="status">
             Your site has been paused. You will have {daysLeft(when, days)} days to start it again
@@ -72,9 +89,10 @@ export function DeleteSite({ days, deletesAt }: Props) {
             Delete site
           </button>
           <p className="muted">
-            Cancels any subscription and pauses your site now. Its person, files and address are
-            deleted {kept} later, unless you subscribe again first. Your account is kept. It asks
-            first.
+            {subscribed
+              ? `Cancels your subscription: you keep your site until the end of the month paid for, then it pauses. Its person, files and address are deleted ${kept} after that, unless you renew first.`
+              : `Pauses your site now. Its person, files and address are deleted ${kept} later, unless you subscribe first.`}{" "}
+            Your account is kept. It asks first.
           </p>
           {deleting && <p className="muted busy">Deleting…</p>}
         </div>
@@ -92,11 +110,18 @@ export function DeleteSite({ days, deletesAt }: Props) {
           }}
           onConfirm={remove}
         >
-          <p>
-            Any subscription is cancelled now, with no more payments, and your site is paused.
-            You have {kept} to change your mind by subscribing again; then everything on it is
-            deleted and can't be brought back.
-          </p>
+          {subscribed ? (
+            <p>
+              Your subscription is now cancelled. You will have service until the end of the month.
+              After that, your service will be paused. You will then have {kept} to renew your
+              subscription before the content is deleted.
+            </p>
+          ) : (
+            <p>
+              Your site will be paused now. You will then have {kept} to subscribe before the
+              content is deleted.
+            </p>
+          )}
           <label htmlFor="delete-site-password">Your password, to confirm</label>
           <input
             id="delete-site-password"

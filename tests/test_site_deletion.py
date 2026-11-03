@@ -1,7 +1,9 @@
-"""Deleting a site (roadmap R69a): never at once (Larry, 2026-11-03). Delete site in Settings,
-with the host's password, cancels the subscription now and pauses the site; a paused site's
-content is deleted after the admin settings' days, 30 to begin with. Then its folder goes, its
-subdomain is free and a trial's code is never given again. The host's account is kept (R69b)."""
+"""Deleting a site (roadmap R69a): never at once, and nothing paid for is taken away (Larry,
+2026-11-03). Delete site in Settings, with the host's password, cancels a subscription at the
+end of the period paid for, as Cancel subscription does; the site keeps working until then,
+pauses when Stripe ends it, and is deleted the admin settings' days (30) after it paused. A site
+with no paid time left pauses now. Then its folder goes, its subdomain is free and a trial's
+code is never given again. The host's account is kept (R69b)."""
 
 import io
 import json
@@ -40,14 +42,24 @@ pytestmark = pytest.mark.real_hosts
 DAY = 24 * 60 * 60
 
 
+ENDS = 1_796_000_000  # the end of the period paid for
+
+
 class FakeStripe:
-    """Stripe's API: a checkout, and a subscription cancelled at once by DELETE."""
+    """Stripe's API: a checkout, a subscription set to cancel at the period's end, and one
+    cancelled by DELETE, which only deleting a site paused too long does."""
 
     def __init__(self) -> None:
+        self.posted: list[tuple[str, dict[str, str]]] = []
         self.deleted: list[str] = []
         self.fail: Exception | None = None
 
     def post(self, url: str, form: dict[str, str], key: str) -> dict[str, Any]:
+        self.posted.append((url, form))
+        if "/subscriptions/" in url:
+            if self.fail is not None:
+                raise self.fail
+            return {"id": url.rsplit("/", 1)[1], "status": "active", "cancel_at": ENDS}
         return {"id": "cs_1", "url": "https://checkout.stripe.com/c/pay/cs_1"}
 
     def delete(self, url: str, key: str) -> dict[str, Any]:
@@ -86,22 +98,36 @@ def test_the_host_deletes_their_site_with_their_password(
 
     with caplog.at_level(logging.INFO):
         asked = browser.post("/api/site/delete", json={"password": PASSWORD})
-    # Nothing is deleted yet: the subscription is cancelled now, and the site paused for 30
-    # days, while its host still signs in and can come back.
+    # Nothing is taken away now: the subscription is cancelled at the end of the period paid
+    # for, never at once, and the content is deleted 30 days after that.
+    assert asked.status_code == 200
+    assert asked.json() == {"ends_at": ENDS, "deletes_at": ENDS + 30 * DAY}
+    assert fake.posted[-1] == (
+        "https://api.stripe.com/v1/subscriptions/sub_1",
+        {"cancel_at_period_end": "true"},
+    )
+    assert fake.deleted == []
+    assert any(r.message == "Site deletion asked" for r in caplog.records)
+    assert folder.exists() and service.sites.paused(code) is None
+    shown = browser.get("/api/site/subscription").json()
+    assert shown["ends_at"] == ENDS and shown["deletes_at"] == ENDS + 30 * DAY
+    assert shown["days_before_deleting"] == 30
+    visitor = TestClient(sites, base_url="http://dans.localhost:8000")
+    assert visitor.post("/api/chat/prompt", json={}).status_code != 403
+
+    # At the end of the period, Stripe ends it and the site pauses: the 30 days start then.
+    send(
+        TestClient(sites, base_url=MAIN),
+        {
+            "id": "evt_end",
+            "type": "customer.subscription.deleted",
+            "data": {"object": {"id": "sub_1", "status": "canceled"}},
+        },
+    )
     paused_at = service.sites.paused_at(code)
     assert paused_at is not None
-    assert asked.status_code == 200
-    assert asked.json() == {"paused": True, "deletes_at": paused_at + 30 * DAY}
-    assert fake.deleted == ["https://api.stripe.com/v1/subscriptions/sub_1"]
-    assert any(r.message == "Site deletion asked" for r in caplog.records)
-    assert folder.exists() and service.sites.paused(code) == DELETING
-    shown = browser.get("/api/site/subscription").json()
-    assert shown["deletes_at"] == paused_at + 30 * DAY and shown["days_before_deleting"] == 30
-    visitor = TestClient(sites, base_url="http://dans.localhost:8000")
     assert visitor.post("/api/chat/prompt", json={}).status_code == 403
-    # Asking again doesn't put the deletion off.
-    browser.post("/api/site/delete", json={"password": PASSWORD})
-    assert service.sites.paused_at(code) == paused_at
+    assert browser.get("/api/site/subscription").json()["deletes_at"] == paused_at + 30 * DAY
 
     assert delete_paused(service.sites, service.payments, lambda: paused_at + 29 * DAY) == []
     with caplog.at_level(logging.INFO):
@@ -110,7 +136,7 @@ def test_the_host_deletes_their_site_with_their_password(
     logged = next(r for r in caplog.records if r.message == "Site deleted")
     assert logged.__dict__["site"] == code and logged.__dict__["why"] == PAUSED_TOO_LONG
     assert logged.__dict__["subdomain"] == "dans"
-    assert any(r.message == "Subscription cancelled at once" for r in caplog.records)
+    assert fake.deleted == []  # Stripe ended it already
 
     # Everything it owns is gone, and the address with it.
     assert not folder.exists()
@@ -133,17 +159,26 @@ def test_the_host_deletes_their_site_with_their_password(
     assert service.sites.trial_used(DAN)
 
 
-def test_a_trial_never_subscribed_is_deleted_without_stripe(tmp_path: Path) -> None:
+def test_a_trial_never_subscribed_pauses_now_and_is_deleted_without_stripe(
+    tmp_path: Path,
+) -> None:
     fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
     asked = dan.post(f"{site}/api/site/delete", json={"password": PASSWORD})
-    assert asked.status_code == 200 and site_home(code, service.home).exists()
+    # No paid time is left, so it pauses now, and 30 days later its content goes.
+    paused_at = service.sites.paused_at(code)
+    assert paused_at is not None and service.sites.paused(code) == DELETING
+    assert asked.json() == {"ends_at": None, "deletes_at": paused_at + 30 * DAY}
+    assert site_home(code, service.home).exists()
+    # Asking again doesn't put the deletion off.
+    dan.post(f"{site}/api/site/delete", json={"password": PASSWORD})
+    assert service.sites.paused_at(code) == paused_at
     assert delete_paused(service.sites, None, lambda: time.time() + 31 * DAY) == [code]
     assert fake.deleted == [] and not site_home(code, service.home).exists()
     # The trial path is Site not found, and its sign-in is over.
     assert dan.get(f"{site}/").status_code == 404
 
 
-def test_nothing_is_deleted_when_stripe_cant_cancel(
+def test_nothing_changes_when_stripe_cant_cancel(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     fake, sites, service, dan, site, code = subscribed(tmp_path)
@@ -153,15 +188,20 @@ def test_nothing_is_deleted_when_stripe_cant_cancel(
     with caplog.at_level(logging.ERROR):
         refused = dan.post(f"{site}/api/site/delete", json={"password": PASSWORD})
     assert refused.status_code == 502 and refused.json()["detail"] == UNAVAILABLE
-    assert any(r.message == "Stripe refused to cancel at once" for r in caplog.records)
+    assert any(r.message == "Stripe refused the cancellation" for r in caplog.records)
     assert service.sites.names() == [code] and site_home(code, service.home).exists()
-    assert service.sites.paused(code) is None and service.host_accounts.site_of(DAN) == code
-    # A subscription Stripe has no more is cancelled already: the site is paused to delete.
+    assert service.sites.paused(code) is None
+    assert (service.sites.subscription(code) or {}).get("ends_at") is None
+
+
+def test_a_deleted_site_whose_subscription_stripe_lost_is_deleted(tmp_path: Path) -> None:
+    fake, sites, service, dan, site, code = subscribed(tmp_path)
+    service.sites.subscription_changed("sub_1", "unpaid")  # paused, still kept at Stripe
     fake.fail = urllib.error.HTTPError(
         "https://api.stripe.com", 404, "missing", Message(), io.BytesIO(b"{}")
     )
-    assert dan.post(f"{site}/api/site/delete", json={"password": PASSWORD}).status_code == 200
-    assert service.sites.paused(code) == DELETING
+    later = time.time() + 31 * DAY
+    assert delete_paused(service.sites, service.payments, lambda: later) == [code]
 
 
 def test_stripe_unreachable_or_not_set_up_keeps_the_site(tmp_path: Path) -> None:
@@ -250,8 +290,12 @@ def test_a_cancelled_subscription_isnt_cancelled_again(tmp_path: Path) -> None:
             "data": {"object": {"id": "sub_1", "status": "canceled"}},
         },
     )
-    assert dan.post(f"{site}/api/site/delete", json={"password": PASSWORD}).status_code == 200
-    assert fake.deleted == []
+    asked = dan.post(f"{site}/api/site/delete", json={"password": PASSWORD})
+    # Ended already, so it is paused already: the days count from then, and Stripe isn't asked.
+    paused_at = service.sites.paused_at(code)
+    assert paused_at is not None
+    assert asked.json() == {"ends_at": None, "deletes_at": paused_at + 30 * DAY}
+    assert fake.deleted == [] and fake.posted == []
 
 
 def test_the_sweep_runs_in_its_own_thread(tmp_path: Path) -> None:

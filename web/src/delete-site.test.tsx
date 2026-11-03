@@ -1,6 +1,7 @@
-// Deleting a site (roadmap R69a): Settings asks first, with the host's password, then says the
-// site is paused and when its content is deleted, after the admin settings' days; a wrong
-// password or Stripe's refusal is said, and the main address has no Delete site.
+// Deleting a site (roadmap R69a): Settings asks first, with the host's password. Nothing paid for
+// is taken away: a subscription is cancelled at the end of the month and the site pauses then; a
+// site with nothing paid pauses now. Either way the content goes the admin settings' days after
+// it pauses. A wrong password or Stripe's refusal is said, and the main address has no Delete site.
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -9,17 +10,28 @@ import { App } from "./App";
 import { daysLeft } from "./delete-site";
 import { endDay } from "./subscription";
 
-// Seven days from now, as the server answers just after Delete site.
-const DELETES = Math.round(Date.now() / 1000) + 7 * 24 * 60 * 60;
+const DAY = 24 * 60 * 60;
+// Seven days from now, as the server answers just after Delete site pauses a trial.
+const DELETES = Math.round(Date.now() / 1000) + 7 * DAY;
+// The end of the month paid for, for a subscribed site.
+const ENDS = Math.round(Date.now() / 1000) + 20 * DAY;
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
 
 function server({
   deletable = true,
+  subscribed = false,
   refusal = null,
-}: { deletable?: boolean; refusal?: { status: number; detail: string } | null } = {}) {
+}: {
+  deletable?: boolean;
+  subscribed?: boolean;
+  refusal?: { status: number; detail: string } | null;
+} = {}) {
   const asked: string[] = [];
+  let deleted = false;
+  const answer = () =>
+    subscribed ? { ends_at: ENDS, deletes_at: ENDS + 7 * DAY } : { ends_at: null, deletes_at: DELETES };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -32,18 +44,19 @@ function server({
       }
       if (url === "/api/site/subscription") {
         return Response.json({
-          available: false,
+          available: subscribed,
           price: "5 GB for $1.99 a month",
-          status: null,
-          subscribed: false,
+          status: subscribed ? "active" : null,
+          subscribed,
           deletable,
           days_before_deleting: 7,
-          deletes_at: null,
+          ...(deleted ? answer() : { ends_at: null, deletes_at: null }),
         });
       }
       if (url === "/api/site/delete") {
         if (refusal) return Response.json({ detail: refusal.detail }, { status: refusal.status });
-        return Response.json({ paused: true, deletes_at: DELETES });
+        deleted = true;
+        return Response.json(answer());
       }
       return new Response("", { status: 404 });
     }),
@@ -78,7 +91,7 @@ test("Delete site asks first, with the password, then says when the content goes
   fireEvent.click(section.getByRole("button", { name: "Delete site" }));
   const dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Are you sure you want to delete your site?")).toBeTruthy();
-  expect(dialog.getByText(/You have 7 days to change your mind/)).toBeTruthy();
+  expect(dialog.getByText(/Your site will be paused now. You will then have 7 days to subscribe/)).toBeTruthy();
   // Backing out deletes nothing.
   fireEvent.click(dialog.getByRole("button", { name: "No, keep my site" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -97,6 +110,31 @@ test("Delete site asks first, with the password, then says when the content goes
   expect(section.getByText(new RegExp(`deleted on ${endDay(DELETES)}`))).toBeTruthy();
   expect(asked).toContain('POST /api/site/delete {"password":"a long secret"}');
   expect(section.queryByRole("button", { name: "Delete site" })).toBeNull();
+});
+
+test("A subscribed site keeps its service to the end of the month, then 7 days", async () => {
+  server({ subscribed: true });
+  const section = await panel();
+  expect(section.getByText(/you keep your site until the end of the month paid for/)).toBeTruthy();
+  fireEvent.click(section.getByRole("button", { name: "Delete site" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(
+    dialog.getByText(
+      "Your subscription is now cancelled. You will have service until the end of the month. " +
+        "After that, your service will be paused. You will then have 7 days to renew your " +
+        "subscription before the content is deleted.",
+    ),
+  ).toBeTruthy();
+  fireEvent.input(dialog.getByLabelText("Your password, to confirm"), {
+    target: { value: "a long secret" },
+  });
+  fireEvent.click(dialog.getByRole("button", { name: "Yes, delete it" }));
+  const status = await section.findByText(/Your subscription is cancelled/);
+  expect(status.textContent).toContain(`service until ${endDay(ENDS)}`);
+  expect(status.textContent).toContain("7 days to renew your subscription");
+  // The Subscription panel says it too, read again, with Keep my subscription.
+  const subscription = within(await screen.findByRole("region", { name: "Subscription" }));
+  expect(await subscription.findByRole("button", { name: "Keep my subscription" })).toBeTruthy();
 });
 
 test("A wrong password is said, and the site is kept", async () => {

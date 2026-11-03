@@ -1388,17 +1388,23 @@ export async function setSubscriptionCancelled(cancel: boolean): Promise<number 
   return ((await response.json()) as { ends_at: number | null }).ends_at;
 }
 
-// Delete site (R69a), once its host gives their password: its subscription is cancelled now and
-// the site paused; its content is deleted later, at the time answered, in seconds since 1970.
-// Throws a ServerRefusal saying why not.
-export async function deleteSite(password: string): Promise<number | null> {
+// Delete site (R69a), once its host gives their password: a subscription is cancelled at the end
+// of the month paid for, when its service ends (ends_at), and a site with no paid time left is
+// paused now (ends_at null); its content is deleted later, at deletes_at. Both in seconds since
+// 1970. Throws a ServerRefusal saying why not.
+export interface SiteDeletion {
+  ends_at: number | null;
+  deletes_at: number | null;
+}
+
+export async function deleteSite(password: string): Promise<SiteDeletion> {
   const response = await fetch("/api/site/delete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-  return ((await response.json()) as { deletes_at: number | null }).deletes_at;
+  return (await response.json()) as SiteDeletion;
 }
 
 // Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.

@@ -636,7 +636,7 @@ async function deleteSite(password) {
 		body: JSON.stringify({ password })
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-	return (await response.json()).deletes_at;
+	return await response.json();
 }
 async function checkSubdomain(name) {
 	const query = new URLSearchParams({ name });
@@ -1244,7 +1244,13 @@ function CancelTrial() {
 	const [cancelling, setCancelling] = d(false);
 	const [cancelled, setCancelled] = d(false);
 	const [failed, setFailed] = d(null);
-	if (session?.signed_in !== true || session.trial !== true) return null;
+	const [days, setDays] = d(30);
+	const shown = session?.signed_in === true && session.trial === true;
+	h(() => {
+		if (!shown) return;
+		getSubscription().then((found) => found.days_before_deleting && setDays(found.days_before_deleting), (e) => console.error("Could not read the days before deleting", e));
+	}, [shown]);
+	if (!shown) return null;
 	const paused = cancelled || session.paused === true;
 	async function cancel() {
 		setAsking(false);
@@ -1270,7 +1276,11 @@ function CancelTrial() {
 			}),
 			paused ? /* @__PURE__ */ u("p", {
 				role: "status",
-				children: "Your free trial is cancelled, so your site is paused: visitors see that it is paused. You can still sign in."
+				children: [
+					"Your free trial is cancelled, so your site is paused: visitors see that it is paused. You can still sign in. You will have ",
+					days,
+					" days to subscribe before the content is deleted."
+				]
 			}) : /* @__PURE__ */ u("div", {
 				className: "switch",
 				children: [
@@ -1286,7 +1296,11 @@ function CancelTrial() {
 					}),
 					/* @__PURE__ */ u("p", {
 						className: "muted",
-						children: "Your site is on a free trial. Cancelling it pauses the site: visitors see that it is paused, and you can still sign in. It asks first."
+						children: [
+							"Your site is on a free trial. Cancelling it pauses the site: visitors see that it is paused, and you can still sign in. You then have ",
+							days,
+							" days to subscribe before the content is deleted. It asks first."
+						]
 					}),
 					cancelling && /* @__PURE__ */ u("p", {
 						className: "muted busy",
@@ -1307,7 +1321,11 @@ function CancelTrial() {
 					setAsking(false);
 				},
 				onConfirm: cancel,
-				children: [/* @__PURE__ */ u("p", { children: "Your site is paused at once: visitors see that it is paused." }), /* @__PURE__ */ u("p", { children: "You can still sign in to it." })]
+				children: [/* @__PURE__ */ u("p", { children: "Your site is paused at once: visitors see that it is paused." }), /* @__PURE__ */ u("p", { children: [
+					"You can still sign in to it. You will then have ",
+					days,
+					" days to subscribe before the content is deleted."
+				] })]
 			})
 		]
 	});
@@ -2217,11 +2235,12 @@ function modelsNote(models, model, provider) {
 function daysLeft(deletesAt, days, now = Date.now() / 1e3) {
 	return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / 86400)));
 }
-function DeleteSite({ days, deletesAt }) {
+function DeleteSite({ days, subscribed, endsAt, deletesAt, onChanged }) {
 	const [asking, setAsking] = d(false);
 	const [password, setPassword] = d("");
 	const [deleting, setDeleting] = d(false);
 	const [when, setWhen] = d(deletesAt);
+	const [ends, setEnds] = d(subscribed ? endsAt : null);
 	const [failed, setFailed] = d(null);
 	const kept = `${days} day${days === 1 ? "" : "s"}`;
 	async function remove() {
@@ -2229,9 +2248,11 @@ function DeleteSite({ days, deletesAt }) {
 		setDeleting(true);
 		setFailed(null);
 		try {
-			const at = await deleteSite(password);
-			console.info("Site deletion asked: it is deleted at", at);
-			setWhen(at);
+			const asked = await deleteSite(password);
+			console.info("Site deletion asked: service ends at", asked.ends_at, "deleted at", asked.deletes_at);
+			setEnds(asked.ends_at);
+			setWhen(asked.deletes_at);
+			onChanged?.();
 		} catch (e) {
 			console.error("Could not delete the site", e);
 			setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
@@ -2247,7 +2268,19 @@ function DeleteSite({ days, deletesAt }) {
 				id: "settings-delete-site",
 				children: "Delete site"
 			}),
-			when !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+			when !== null && ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Your subscription is cancelled. You will have service until ",
+					endDay(ends),
+					". After that, your service will be paused. You will then have ",
+					kept,
+					" to renew your subscription before the content is deleted."
+				]
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Until then, Keep my subscription, above, undoes it."
+			})] }) : when !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				role: "status",
 				children: [
 					"Your site has been paused. You will have ",
@@ -2277,9 +2310,9 @@ function DeleteSite({ days, deletesAt }) {
 					/* @__PURE__ */ u("p", {
 						className: "muted",
 						children: [
-							"Cancels any subscription and pauses your site now. Its person, files and address are deleted ",
-							kept,
-							" later, unless you subscribe again first. Your account is kept. It asks first."
+							subscribed ? `Cancels your subscription: you keep your site until the end of the month paid for, then it pauses. Its person, files and address are deleted ${kept} after that, unless you renew first.` : `Pauses your site now. Its person, files and address are deleted ${kept} later, unless you subscribe first.`,
+							" ",
+							"Your account is kept. It asks first."
 						]
 					}),
 					deleting && /* @__PURE__ */ u("p", {
@@ -2303,10 +2336,14 @@ function DeleteSite({ days, deletesAt }) {
 				},
 				onConfirm: remove,
 				children: [
-					/* @__PURE__ */ u("p", { children: [
-						"Any subscription is cancelled now, with no more payments, and your site is paused. You have ",
+					subscribed ? /* @__PURE__ */ u("p", { children: [
+						"Your subscription is now cancelled. You will have service until the end of the month. After that, your service will be paused. You will then have ",
 						kept,
-						" to change your mind by subscribing again; then everything on it is deleted and can't be brought back."
+						" to renew your subscription before the content is deleted."
+					] }) : /* @__PURE__ */ u("p", { children: [
+						"Your site will be paused now. You will then have ",
+						kept,
+						" to subscribe before the content is deleted."
 					] }),
 					/* @__PURE__ */ u("label", {
 						htmlFor: "delete-site-password",
@@ -2333,9 +2370,15 @@ function SubscriptionSection() {
 	const [subscription, setSubscription] = d(null);
 	const [starting, setStarting] = d(false);
 	const [failed, setFailed] = d(null);
+	const [version, setVersion] = d(0);
+	function read() {
+		getSubscription().then((found) => {
+			setSubscription(found);
+			setVersion((v) => v + 1);
+		}, (e) => console.error("Could not read the subscription", e));
+	}
 	h(() => {
-		if (!host) return;
-		getSubscription().then(setSubscription, (e) => console.error("Could not read the subscription", e));
+		if (host) read();
 	}, [host]);
 	if (!host || subscription === null) return null;
 	const address = subscription.change_subdomain && subscription.subdomain && /* @__PURE__ */ u("section", {
@@ -2359,9 +2402,12 @@ function SubscriptionSection() {
 	});
 	const days = subscription.days_before_deleting ?? 30;
 	const deletion = subscription.deletable && /* @__PURE__ */ u(DeleteSite, {
+		onChanged: read,
 		days,
+		subscribed: subscription.subscribed,
+		endsAt: subscription.ends_at ?? null,
 		deletesAt: subscription.deletes_at ?? null
-	});
+	}, `delete-${version}`);
 	if (!subscription.subscribed && !subscription.available) return address || deletion ? /* @__PURE__ */ u(S, { children: [address, deletion] }) : null;
 	async function subscribe() {
 		setStarting(true);
@@ -2401,9 +2447,10 @@ function SubscriptionSection() {
 					}),
 					subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
 					/* @__PURE__ */ u(CancelSubscription, {
+						onChanged: read,
 						endsAt: subscription.ends_at ?? null,
 						days
-					})
+					}, `cancel-${version}`)
 				] }) : /* @__PURE__ */ u("div", {
 					className: "switch",
 					children: [
@@ -2440,7 +2487,7 @@ function SubscriptionSection() {
 function endDay(seconds) {
 	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleDateString(void 0, { dateStyle: "long" });
 }
-function CancelSubscription({ endsAt, days }) {
+function CancelSubscription({ endsAt, days, onChanged }) {
 	const [ends, setEnds] = d(endsAt);
 	const [asking, setAsking] = d(false);
 	const [busy, setBusy] = d(false);
@@ -2453,6 +2500,7 @@ function CancelSubscription({ endsAt, days }) {
 			const when = await setSubscriptionCancelled(cancel);
 			console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
 			setEnds(when);
+			onChanged?.();
 		} catch (e) {
 			console.error("Could not change the subscription", e);
 			setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
