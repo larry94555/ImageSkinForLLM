@@ -15,6 +15,7 @@ import {
   type Subscription,
 } from "./api";
 import { ConfirmDialog } from "./confirm-dialog";
+import { DeleteSite } from "./delete-site";
 import { useHost } from "./host";
 
 // Where the browser goes to pay; a function so tests can see it.
@@ -26,12 +27,21 @@ export function SubscriptionSection() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [starting, setStarting] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  // Bumped each time the subscription is read again, so the panels start from what it says.
+  const [version, setVersion] = useState(0);
+
+  function read() {
+    getSubscription().then(
+      (found) => {
+        setSubscription(found);
+        setVersion((v) => v + 1);
+      },
+      (e: unknown) => console.error("Could not read the subscription", e),
+    );
+  }
 
   useEffect(() => {
-    if (!host) return;
-    getSubscription().then(setSubscription, (e: unknown) =>
-      console.error("Could not read the subscription", e),
-    );
+    if (host) read();
   }, [host]);
 
   if (!host || subscription === null) return null;
@@ -46,7 +56,26 @@ export function SubscriptionSection() {
       <SubdomainPicker current={subscription.subdomain} />
     </section>
   );
-  if (!subscription.subscribed && !subscription.available) return address || null;
+  // Any site but the main address's can be deleted by its host (R69a).
+  const days = subscription.days_before_deleting ?? 30;
+  const deletion = subscription.deletable && (
+    <DeleteSite
+      key={`delete-${version}`}
+      onChanged={read}
+      days={days}
+      subscribed={subscription.subscribed}
+      endsAt={subscription.ends_at ?? null}
+      deletesAt={subscription.deletes_at ?? null}
+    />
+  );
+  if (!subscription.subscribed && !subscription.available) {
+    return address || deletion ? (
+      <>
+        {address}
+        {deletion}
+      </>
+    ) : null;
+  }
 
   async function subscribe() {
     setStarting(true);
@@ -76,7 +105,12 @@ export function SubscriptionSection() {
             </p>
           )}
           {subscription.pick_subdomain && <SubdomainPicker />}
-          <CancelSubscription endsAt={subscription.ends_at ?? null} />
+          <CancelSubscription
+            key={`cancel-${version}`}
+            onChanged={read}
+            endsAt={subscription.ends_at ?? null}
+            days={days}
+          />
         </>
       ) : (
         <div className="switch">
@@ -93,6 +127,7 @@ export function SubscriptionSection() {
       {failed && <p className="error">{failed}</p>}
     </section>
     {address}
+    {deletion}
     </>
   );
 }
@@ -104,7 +139,16 @@ export function endDay(seconds: number): string {
 
 // Cancel, for a subscribed site (roadmap R69): the site keeps working until the end of the
 // period paid for, then pauses; until then, Keep my subscription undoes it.
-function CancelSubscription({ endsAt }: { endsAt: number | null }) {
+// Cancelling or keeping it changes what Delete site says, so `onChanged` reads it again.
+function CancelSubscription({
+  endsAt,
+  days,
+  onChanged,
+}: {
+  endsAt: number | null;
+  days: number;
+  onChanged?: () => void;
+}) {
   const [ends, setEnds] = useState<number | null>(endsAt);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -118,6 +162,7 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
       const when = await setSubscriptionCancelled(cancel);
       console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
       setEnds(when);
+      onChanged?.();
     } catch (e) {
       console.error("Could not change the subscription", e);
       setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
@@ -131,7 +176,8 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
         <>
           <p role="status">
             Cancelled: your site keeps working until {endDay(ends)}, then pauses. Visitors then
-            see that it is paused, and you can still sign in and subscribe again.
+            see that it is paused, and you can still sign in and subscribe again. You then have{" "}
+            {days} days before its content is deleted.
           </p>
           <button type="button" disabled={busy} onClick={() => change(false)}>
             Keep my subscription
@@ -151,8 +197,8 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
             Cancel subscription
           </button>
           <p className="muted">
-            Your site keeps working until the end of the month paid for, then pauses. It asks
-            first.
+            Your site keeps working until the end of the month paid for, then pauses. You then
+            have {days} days to subscribe again before its content is deleted. It asks first.
           </p>
         </>
       )}
@@ -170,7 +216,10 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
           onConfirm={() => change(true)}
         >
           <p>Your site keeps working until the end of the month paid for, then pauses.</p>
-          <p>Until then, you can keep your subscription after all.</p>
+          <p>
+            Until then, you can keep your subscription after all. Once it pauses, you have {days}{" "}
+            days to subscribe again before its content is deleted.
+          </p>
         </ConfirmDialog>
       )}
     </div>

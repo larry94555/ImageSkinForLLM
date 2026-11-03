@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 FILENAME = "admin-settings.json"
 MINUTES = (5, 240)
+# How long a paused site is kept before its content is deleted (R69a; Larry, 2026-11-03).
+DELETE_DAYS = 30
+DAYS = (1, 365)
 ORDER = (
     "The thresholds must go in order, each a percentage from 1 to 99: red below orange, and "
     "orange below blue."
@@ -40,6 +43,9 @@ class AdminSettings:
     # it gets both checked.
     disable_custom_image: bool = True
     disable_custom_voice: bool = True
+    # Days a paused site, cancelled or deleted by its host, is kept before its content is
+    # deleted (R69a), so a host who missed a payment can come back.
+    days_before_deleting: int = DELETE_DAYS
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,7 +61,9 @@ def number(value: object) -> bool:
 
 def checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
     """The settings with the changes made; ValueError with a plain message if one is wrong."""
-    unknown = sorted(set(changes) - {"timeout_minutes", "thresholds", *CHECKBOXES})
+    unknown = sorted(
+        set(changes) - {"timeout_minutes", "thresholds", "days_before_deleting", *CHECKBOXES}
+    )
     if unknown:
         raise ValueError(f"There is no admin setting called {unknown[0]}.")
     if "timeout_minutes" in changes:
@@ -66,6 +74,15 @@ def checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
                 f"The minutes without activity must be a whole number from {low} to {high}."
             )
         settings = replace(settings, timeout_minutes=minutes)
+    if "days_before_deleting" in changes:
+        days = changes["days_before_deleting"]
+        low, high = DAYS
+        if type(days) is not int or not low <= days <= high:
+            raise ValueError(
+                f"The days before a paused site is deleted must be a whole number from {low} to"
+                f" {high}."
+            )
+        settings = replace(settings, days_before_deleting=days)
     if "thresholds" in changes:
         given = changes["thresholds"]
         if not isinstance(given, dict) or set(given) - set(asdict(RECOMMENDED)):

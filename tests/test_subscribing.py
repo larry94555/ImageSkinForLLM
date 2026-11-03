@@ -144,6 +144,9 @@ def test_a_host_subscribes_on_stripes_page_and_the_event_records_it(
         "subdomain": None,
         "pick_subdomain": False,
         "change_subdomain": False,
+        "deletable": True,
+        "days_before_deleting": 30,
+        "deletes_at": None,
     }
     # Cancelled first, so the payment brings the paused site back (R69's subscribe again).
     assert dan.post(f"{site}/api/site/cancel").is_success

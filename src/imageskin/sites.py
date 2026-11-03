@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import string
 import threading
 import time
@@ -57,7 +58,7 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import TRIAL_USED, HostAccounts, normal_email, trial_cookie
+from imageskin.hosts import NO_SITE, TRIAL_USED, HostAccounts, normal_email, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
@@ -84,6 +85,9 @@ NO_SUBDOMAIN_YET = "This site has no address of its own yet: subscribe to pick o
 SUBSCRIBE_FIRST = "Subscribe first: the address is picked once the first payment is made."
 SITES_FILE = "sites.json"
 SITES_FOLDER = "sites"
+# Where a deleted site's folder is moved before it is removed, so a removal that fails is tried
+# again (R69a).
+DELETED_FOLDER = "deleted-sites"
 NOT_FOUND_PAGE = (
     "<!doctype html><meta charset=utf-8><title>Site not found</title>"
     "<p>Site not found. Check the address, or go to the main address.</p>"
@@ -145,6 +149,9 @@ FINAL = ("canceled", "incomplete_expired")
 EVENT_AT = "event_at"
 # Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
 SUBSCRIPTIONS_HAD = "subscriptions_had"
+# Why a site is paused once its host asked to delete it (R69a): its content is deleted after
+# the days in the admin settings, as any paused site's is.
+DELETING = "deleted by its host"
 
 
 class TrialUsed(SiteError):
@@ -169,6 +176,14 @@ class SiteDirectory:
         # A hash of each email address that has had a free trial, kept when its site or account
         # goes, so each has one (R66).
         self._trials_used: list[str] = []
+        # The codes of trial sites since deleted (R69a): a trial path is never given again, so a
+        # link to a deleted trial can't open another's site (R63).
+        self._codes_kept: list[str] = []
+        # Whether the last read of sites.json found it and read it whole: only then may
+        # `purge_deleted` remove anything (Codex's review of PR #300).
+        self._read_whole = False
+        # Called with each deleted site's name, so the server forgets its app (R69a).
+        self.on_deleted: list[Callable[[str], None]] = []
 
     def _load(self) -> dict[str, dict[str, Any]]:
         """The sites, read again only when the file has changed. One that can't be read is
@@ -180,25 +195,33 @@ class SiteDirectory:
             seen = None
         except OSError as e:
             logger.error("Could not read the sites file", extra={"error": str(e)})
+            self._read_whole = False
             return {}
+        self._read_whole = seen is not None
         if seen != self._seen:
             sites: dict[str, dict[str, Any]] = {}
             used: list[str] = []
+            kept: list[str] = []
             if seen is not None:
                 try:
                     data = json.loads(self.path.read_text(encoding="utf-8"))
                     sites, used = data["sites"], data.get("trials_used", [])
+                    kept = data.get("codes_kept", [])
                     if not isinstance(sites, dict):
                         raise ValueError("sites must be an object")
                     if not isinstance(used, list):
                         raise ValueError("trials_used must be a list")
+                    if not isinstance(kept, list):
+                        raise ValueError("codes_kept must be a list")
                 except (OSError, ValueError, KeyError, TypeError) as e:
                     logger.error(
                         "Could not read the sites file",
                         extra={"path": str(self.path), "error": str(e)},
                     )
+                    self._read_whole = False
                     return {}
             self._sites, self._trials_used, self._seen = sites, used, seen
+            self._codes_kept = kept
             self._record_old_trials()
         return self._sites
 
@@ -226,14 +249,23 @@ class SiteDirectory:
             pass
         logger.info("Trials made before recorded", extra={"trials": len(missing)})
 
-    def _write(self, sites: dict[str, dict[str, Any]], used: list[str] | None = None) -> None:
-        """Write sites.json, with the lock held, keeping the emails that had a trial."""
+    def _write(
+        self,
+        sites: dict[str, dict[str, Any]],
+        used: list[str] | None = None,
+        kept: list[str] | None = None,
+    ) -> None:
+        """Write sites.json, with the lock held, keeping the emails that had a trial and the
+        codes of deleted trials."""
         used = self._trials_used if used is None else used
+        kept = self._codes_kept if kept is None else kept
         writing = self.path.with_name(f"{SITES_FILE}.writing")
         writing.write_text(
-            json.dumps({"sites": sites, "trials_used": used}, indent=2), encoding="utf-8"
+            json.dumps({"sites": sites, "trials_used": used, "codes_kept": kept}, indent=2),
+            encoding="utf-8",
         )
         os.replace(writing, self.path)
+        self._codes_kept = kept
 
     def trial_used(self, email: str) -> bool:
         """Whether the email address has had a free trial (R66), even one since gone."""
@@ -294,7 +326,7 @@ class SiteDirectory:
     def name_problem(self, name: str) -> str | None:
         """Why `name` can't be a site's subdomain, said plainly, or None when it can (R63)."""
         with self._lock:
-            return _name_problem(self._load(), name)
+            return _name_problem(self._load(), name, self._codes_kept)
 
     def pick_subdomain(self, site: str, name: str) -> str:
         """Give the subscribed trial site its subdomain, picked by its host at their first
@@ -528,6 +560,209 @@ class SiteDirectory:
         logger.info("Site host changed", extra={"site": name, "host": new_email})
         return True
 
+    def deletable(
+        self, name: str, paused_before: float | None, subscription_id: str | None
+    ) -> str | None:
+        """Why the site mustn't be deleted now, or None when it may (R69a): no such site, or,
+        for the sweep (`paused_before`), not paused since before then any more, or its
+        subscription changed, as a host who paid again unpauses it (Codex's review of PR
+        #300)."""
+        with self._lock:
+            return self._not_deletable(self._load(), name, paused_before, subscription_id)
+
+    @staticmethod
+    def _not_deletable(
+        sites: dict[str, dict[str, Any]],
+        name: str,
+        paused_before: float | None,
+        subscription_id: str | None,
+    ) -> str | None:
+        site = sites.get(name)
+        if site is None:
+            return "no such site"
+        if paused_before is None:
+            return None
+        at = site.get("paused_at")
+        if not site.get("paused") or not isinstance(at, int | float) or at >= paused_before:
+            return "no longer paused long enough"
+        if (site.get("subscription") or {}).get("id") != subscription_id:
+            return "subscription changed"
+        return None
+
+    def delete(
+        self,
+        name: str,
+        why: str,
+        paused_before: float | None = None,
+        subscription_id: str | None = None,
+    ) -> bool:
+        """Delete the site (R69a): its record, so its subdomain is free at once, and its folder,
+        with everything in it. A trial's code is kept, never given again. Its host's account is
+        kept, with no site, so they can still sign in and resume (R69b); their sign-ins end.
+        Any subscription Stripe keeps must be cancelled first (`site_deletion`). False, with
+        nothing changed, when it mustn't be deleted (`deletable`), checked again under the lock
+        as the record goes, so a payment that came meanwhile always wins, or when its folder
+        can't be moved aside.
+
+        The folder is first moved aside, into `deleted-sites`, in the same lock, so the site's
+        files leave its address together with its record; it is then removed. A removal that
+        fails is retried at each sweep (`purge_deleted`), logged until it succeeds (Codex's
+        review of PR #300)."""
+        start = time.perf_counter()
+        with self._lock:
+            sites = dict(self._load())
+            refused = self._not_deletable(sites, name, paused_before, subscription_id)
+            if refused is not None:
+                logger.warning("Site not deleted", extra={"site": name, "why": refused})
+                return False
+            site = sites.pop(name)
+            folder = site_home(name, self.home)
+            aside = self.home / DELETED_FOLDER / f"{name}-{time.time_ns()}"
+            if folder.exists():
+                try:
+                    aside.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(folder, aside)
+                except OSError as e:
+                    logger.error(
+                        "Site not deleted",
+                        extra={"site": name, "why": "folder not moved aside", "error": str(e)},
+                    )
+                    return False
+            kept = self._codes_kept
+            if site.get("trial") and name not in kept:
+                kept = [*kept, name]
+            try:
+                self._write(sites, kept=kept)
+            except OSError as e:
+                # The record stays, so its folder goes back (Codex's review of PR #300). A crash
+                # here instead is put right by `purge_deleted`, which never removes a listed
+                # site's folder.
+                if aside.exists():
+                    os.replace(aside, folder)
+                logger.error(
+                    "Site not deleted",
+                    extra={"site": name, "why": "sites file not written", "error": str(e)},
+                )
+                return False
+            host = str(site.get("host", ""))
+            if host and self._hosts.site_of(host) == name:
+                self._hosts.set_site(host, NO_SITE)
+        for forget in self.on_deleted:
+            forget(name)
+        left = self.purge_deleted()
+        logger.info(
+            "Site deleted",
+            extra={
+                "site": name,
+                "host": host,
+                "why": why,
+                "subdomain": _subdomain(name, site),
+                "trial": bool(site.get("trial")),
+                "files_removed": not any(p.name.startswith(f"{name}-") for p in left),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return True
+
+    def purge_deleted(self) -> list[Path]:
+        """Remove the folders of deleted sites, moved aside as each was deleted (R69a): the ones
+        that couldn't be removed, logged, and tried again at the next sweep.
+
+        A folder moved aside for a site still listed in sites.json, as when the server stopped
+        between the move and writing the file, is never removed: it goes back to the site, or,
+        when the site has a folder again, is kept and logged (Codex's review of PR #300). A
+        site added since with the same name is a new one, made after the folder was moved. While
+        sites.json is missing or can't be read, nothing is removed or moved."""
+        aside = self.home / DELETED_FOLDER
+        left: list[Path] = []
+        removable = []
+        with self._lock:
+            sites = self._load()
+            if not self._read_whole and aside.is_dir() and any(aside.iterdir()):
+                # A sites file that is missing or can't be read says nothing about which sites
+                # are listed, so nothing is removed until it is read again (Codex's review).
+                left = sorted(aside.iterdir())
+                logger.error(
+                    "Deleted sites' files kept: the sites file could not be read",
+                    extra={"folders": len(left)},
+                )
+                return left
+            for folder in sorted(aside.iterdir()) if aside.is_dir() else []:
+                name, _, moved_ns = folder.name.rpartition("-")
+                site = sites.get(name)
+                made = site.get("created_at", 0) if site else None
+                if (
+                    site is None
+                    or not moved_ns.isdigit()
+                    or not isinstance(made, int | float)
+                    or made * 1e9 > int(moved_ns)
+                ):
+                    removable.append(folder)
+                    continue
+                home = site_home(name, self.home)
+                if home.exists():
+                    logger.error(
+                        "Deleted site's files kept: the site is still listed",
+                        extra={"site": name, "path": str(folder)},
+                    )
+                    left.append(folder)
+                    continue
+                try:
+                    os.replace(folder, home)
+                except OSError as e:
+                    logger.error("Site's files not restored", extra={"site": name, "error": str(e)})
+                    left.append(folder)
+                else:
+                    logger.warning("Site's files restored", extra={"site": name})
+        for folder in removable:
+            try:
+                shutil.rmtree(folder)
+            except OSError as e:
+                logger.error(
+                    "Deleted site's files not removed yet",
+                    extra={"path": str(folder), "error": str(e)},
+                )
+                left.append(folder)
+            else:
+                logger.info("Deleted site's files removed", extra={"path": str(folder)})
+        return left
+
+    def pause_to_delete(self, name: str) -> float | None:
+        """Pause the site as its host asked to delete it (R69a): when it was paused, from which
+        its content is deleted after the admin settings' days, or None for no such site. A site
+        paused already keeps the time it paused, so asking again never puts the deletion off.
+        Until then its host still signs in, and subscribing again brings it back (R69)."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None:
+                return None
+            at = site.get("paused_at")
+            if not site.get("paused") or not isinstance(at, int | float):
+                at = time.time()
+            sites[name] = {**site, "paused": DELETING, "paused_at": at}
+            self._write(sites)
+        logger.info("Site paused", extra={"site": name, "why": DELETING, "paused_at": at})
+        return float(at)
+
+    def paused_at(self, name: str) -> float | None:
+        """When the site paused, or None while it runs (R69, R69a)."""
+        with self._lock:
+            site = self._load().get(name) or {}
+        at = site.get("paused_at")
+        return float(at) if site.get("paused") and isinstance(at, int | float) else None
+
+    def paused_since(self, before: float) -> list[str]:
+        """The sites paused before the time `before` (R69a), oldest first."""
+        with self._lock:
+            sites = self._load()
+            paused = [
+                (float(s["paused_at"]), n)
+                for n, s in sites.items()
+                if s.get("paused") and isinstance(s.get("paused_at"), int | float)
+            ]
+        return [n for at, n in sorted(paused) if at < before]
+
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
         host: its code and folder. SiteError as for `add`.
@@ -540,6 +775,7 @@ class SiteDirectory:
             sites = self._load()
             # A subdomain picked may look like a code, so a new trial's code is neither (R63).
             taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
+            taken |= set(self._codes_kept)  # and never a deleted trial's (R69a)
             own = next(
                 (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
             )
@@ -570,12 +806,13 @@ class SiteDirectory:
             raise SiteError(f"{name} is kept for the service. Choose another name.")
         with self._lock:
             sites = dict(self._load())
-            if name in sites or _site_at(sites, name) is not None:
+            if name in sites or _site_at(sites, name) is not None or name in self._codes_kept:
                 raise SiteError(f"There is already a site called {name}.")
             host_site = self._hosts.site_of(email)
             if host_site is None:
                 raise SiteError(f"No host has signed up as {email}.")
-            if host_site != DEFAULT_SITE:
+            # A host whose site was deleted (R69a) may have another.
+            if host_site not in (DEFAULT_SITE, NO_SITE):
                 raise SiteError(f"{email} is already the host of {host_site}.")
             used = self._trials_used
             if trial:
@@ -617,15 +854,22 @@ def _site_at(sites: dict[str, dict[str, Any]], name: str) -> str | None:
     return None
 
 
-def _name_problem(sites: dict[str, dict[str, Any]], name: str) -> str | None:
+def _name_problem(
+    sites: dict[str, dict[str, Any]], name: str, kept: list[str] | None = None
+) -> str | None:
     """Why `name` can't be a subdomain, in the sites just read (R63): its letters, a name kept
-    for the service, or one in use, which counts every trial's code, even one moved since. A
-    name a site changed away from is free at once (R64)."""
+    for the service, or one in use, which counts every trial's code, even one moved or deleted
+    since (`kept`, R69a). A name a site changed away from, or a deleted site's, is free at once
+    (R64, R69a)."""
     if not SITE_NAME.fullmatch(name):
         return NAME_LETTERS
     if name in RESERVED:
         return f"{name} is kept for the service. Choose another name."
-    if _site_at(sites, name) is not None or sites.get(name, {}).get("trial"):
+    if (
+        _site_at(sites, name) is not None
+        or sites.get(name, {}).get("trial")
+        or name in (kept or [])
+    ):
         return f"{name} is taken. Choose another name."
     return None
 
@@ -862,6 +1106,15 @@ class SiteApps:
             extra={"site": site, "duration_ms": round((time.perf_counter() - start) * 1000, 1)},
         )
         return made
+
+    def forget(self, site: str) -> None:
+        """Drop the deleted site's app (R69a), so a new site given its name later starts
+        afresh."""
+        with self._lock:
+            dropped = self._apps.pop(site, None)
+            self._matched.discard(site)
+        if dropped is not None:
+            logger.info("Site state dropped", extra={"site": site})
 
     def sites(self) -> list[str]:
         """The sites whose app is made, in the order they were."""

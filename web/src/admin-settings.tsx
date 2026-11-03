@@ -19,6 +19,7 @@ type Fields = {
   red: string;
   noImage: boolean;
   noVoice: boolean;
+  days: string;
 };
 
 function fieldsOf(settings: AdminSettings): Fields {
@@ -30,6 +31,7 @@ function fieldsOf(settings: AdminSettings): Fields {
     red: String(t.red_below),
     noImage: settings.disable_custom_image,
     noVoice: settings.disable_custom_voice,
+    days: String(settings.days_before_deleting),
   };
 }
 
@@ -70,6 +72,7 @@ export function AdminSettingsPage() {
         },
         disable_custom_image: changes.noImage,
         disable_custom_voice: changes.noVoice,
+        days_before_deleting: Number(changes.days),
       });
       console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
       setSettings(read);
@@ -92,14 +95,19 @@ export function AdminSettingsPage() {
     return error ? <p className="error">{error}</p> : <p className="muted">Reading the admin settings…</p>;
   }
 
-  const input = (name: "minutes" | "blue" | "orange" | "red", label: string, min: number, max: number) => (
+  const input = (
+    name: "minutes" | "blue" | "orange" | "red" | "days",
+    label: string,
+    min: number,
+    max: number,
+  ) => (
     <label className="admin-number">
       <span>{label}</span>
       <input
         type="number"
         min={min}
         max={max}
-        step={name === "minutes" ? 1 : "any"}
+        step={name === "minutes" || name === "days" ? 1 : "any"}
         value={fields[name]}
         onInput={(e) => {
           setSaved(false);
@@ -188,6 +196,15 @@ export function AdminSettingsPage() {
           </p>
           <p>{checkbox("noImage", "Disable custom image")}</p>
           <p>{checkbox("noVoice", "Disable custom voice")}</p>
+        </section>
+        <section className="panel" aria-labelledby="admin-deleting">
+          <h2 id="admin-deleting">Deleting paused sites</h2>
+          <p className="muted">
+            A site paused because its subscription ended, its trial was cancelled or its host
+            asked to delete it keeps its content this many days, so its host can come back, then
+            everything on it is deleted. Recommended: {settings.recommended.days_before_deleting}.
+          </p>
+          {input("days", "Days before deleting (1 to 365)", 1, 365)}
         </section>
         <p>
           <button type="submit" disabled={busy}>
