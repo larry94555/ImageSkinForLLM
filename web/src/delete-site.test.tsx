@@ -6,9 +6,11 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
+import { daysLeft } from "./delete-site";
 import { endDay } from "./subscription";
 
-const DELETES = 1_796_000_000;
+// Seven days from now, as the server answers just after Delete site.
+const DELETES = Math.round(Date.now() / 1000) + 7 * 24 * 60 * 60;
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -89,8 +91,10 @@ test("Delete site asks first, with the password, then says when the content goes
   });
   fireEvent.click(again.getByRole("button", { name: "Yes, delete it" }));
   const status = (await section.findByRole("status")).textContent;
-  expect(status).toContain(`will be deleted on ${endDay(DELETES)}`);
-  expect(status).toContain("subscribe again to bring it back");
+  expect(status).toBe(
+    "Your site has been paused. You will have 7 days to start it again before it gets deleted.",
+  );
+  expect(section.getByText(new RegExp(`deleted on ${endDay(DELETES)}`))).toBeTruthy();
   expect(asked).toContain('POST /api/site/delete {"password":"a long secret"}');
   expect(section.queryByRole("button", { name: "Delete site" })).toBeNull();
 });
@@ -122,4 +126,11 @@ test("The main address has no Delete site", async () => {
   await screen.findByRole("heading", { name: "Settings" });
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.queryByRole("region", { name: "Delete site" })).toBeNull();
+});
+
+test("The days left count down from the admin settings' days", () => {
+  const day = 24 * 60 * 60;
+  expect(daysLeft(1000 + 30 * day, 30, 1000)).toBe(30);
+  expect(daysLeft(1000 + 30 * day, 30, 1000 + 1.5 * day)).toBe(29);
+  expect(daysLeft(1000, 30, 1000 + day)).toBe(0);
 });

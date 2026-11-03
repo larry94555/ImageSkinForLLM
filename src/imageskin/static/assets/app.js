@@ -2214,6 +2214,9 @@ function modelsNote(models, model, provider) {
 }
 //#endregion
 //#region src/delete-site.tsx
+function daysLeft(deletesAt, days, now = Date.now() / 1e3) {
+	return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / 86400)));
+}
 function DeleteSite({ days, deletesAt }) {
 	const [asking, setAsking] = d(false);
 	const [password, setPassword] = d("");
@@ -2244,14 +2247,21 @@ function DeleteSite({ days, deletesAt }) {
 				id: "settings-delete-site",
 				children: "Delete site"
 			}),
-			when !== null ? /* @__PURE__ */ u("p", {
+			when !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				role: "status",
 				children: [
-					"Your site is paused, and everything on it will be deleted on ",
-					endDay(when),
-					". Until then you can sign in and subscribe again to bring it back. Your account is kept either way."
+					"Your site has been paused. You will have ",
+					daysLeft(when, days),
+					" days to start it again before it gets deleted."
 				]
-			}) : /* @__PURE__ */ u("div", {
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"It is deleted on ",
+					endDay(when),
+					". Subscribing again before then brings it back as it was. Your account is kept either way."
+				]
+			})] }) : /* @__PURE__ */ u("div", {
 				className: "switch",
 				children: [
 					/* @__PURE__ */ u("button", {

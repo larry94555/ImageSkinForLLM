@@ -14,6 +14,12 @@ interface Props {
   deletesAt: number | null; // when this site's content is deleted, once it is paused
 }
 
+// The whole days left before a paused site is deleted (R69a): the admin settings' days just
+// after it paused, fewer as they pass, and never more than those days or fewer than 0.
+export function daysLeft(deletesAt: number, days: number, now: number = Date.now() / 1000): number {
+  return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / (24 * 60 * 60))));
+}
+
 export function DeleteSite({ days, deletesAt }: Props) {
   const [asking, setAsking] = useState(false);
   const [password, setPassword] = useState("");
@@ -42,10 +48,16 @@ export function DeleteSite({ days, deletesAt }: Props) {
     <section className="panel" aria-labelledby="settings-delete-site">
       <h2 id="settings-delete-site">Delete site</h2>
       {when !== null ? (
-        <p role="status">
-          Your site is paused, and everything on it will be deleted on {endDay(when)}. Until then
-          you can sign in and subscribe again to bring it back. Your account is kept either way.
-        </p>
+        <>
+          <p role="status">
+            Your site has been paused. You will have {daysLeft(when, days)} days to start it again
+            before it gets deleted.
+          </p>
+          <p className="muted">
+            It is deleted on {endDay(when)}. Subscribing again before then brings it back as it
+            was. Your account is kept either way.
+          </p>
+        </>
       ) : (
         <div className="switch">
           <button
