@@ -135,6 +135,14 @@ class SiteError(Exception):
 
 # Stripe's statuses of a subscription in force (R67).
 ACTIVE = ("active", "trialing", "past_due")
+# Stripe's statuses of a subscription it has ended, which pause its site (R69).
+ENDED = ("canceled", "unpaid", "incomplete_expired")
+# Why a site whose subscription ended is paused, and when a cancelled one ends (R69).
+SUBSCRIPTION_ENDED = "subscription ended"
+ENDS_AT = "ends_at"
+# Stripe's statuses a subscription never leaves, and when its last event was made (R69).
+FINAL = ("canceled", "incomplete_expired")
+EVENT_AT = "event_at"
 # Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
 SUBSCRIPTIONS_HAD = "subscriptions_had"
 
@@ -417,9 +425,25 @@ class SiteDirectory:
         )
         return True
 
-    def subscription_changed(self, subscription_id: str, status: str) -> str | None:
-        """Record a subscription's new status from Stripe's event (R67): the site's name, or None
-        for a subscription no site has. What a cancelled or unpaid one does is R69's."""
+    def subscription_changed(
+        self,
+        subscription_id: str,
+        status: str,
+        ends_at: float | None = None,
+        event_at: float | None = None,
+    ) -> str | None:
+        """Record a subscription's new status from Stripe's event (R67), and when it ends if it
+        is cancelled (R69): the site's name, or None for a subscription no site has. A
+        subscription Stripe has ended pauses its site (R69), which visitors then see; its host
+        can still sign in and subscribe again. A failed renewal (`past_due`) keeps the site
+        working while Stripe tries again, with a notice to its host only; once paid, an `unpaid`
+        one that paused the site brings it back.
+
+        Stripe doesn't send events in order, so one older than the last recorded (`event_at`,
+        the event's `created`) changes nothing, and nothing changes a subscription once it is
+        `canceled` or `incomplete_expired`, for good at Stripe: a late `updated` can't make it
+        active again while the site stays paused (Codex's review of PR #299). A new
+        subscription, from a new checkout, still subscribes the site."""
         with self._lock:
             sites = dict(self._load())
             name = next(
@@ -432,16 +456,62 @@ class SiteDirectory:
             )
             if name is None:
                 return None
-            sites[name] = {
-                **sites[name],
-                "subscription": {**sites[name]["subscription"], "status": status},
+            site = dict(sites[name])
+            kept = site["subscription"]
+            last = kept.get(EVENT_AT)
+            stale = event_at is not None and isinstance(last, int | float) and event_at < last
+            if kept.get("status") in FINAL or stale:
+                logger.warning(
+                    "Old subscription event ignored",
+                    extra={
+                        "site": name,
+                        "subscription": subscription_id,
+                        "status": status,
+                        "now": kept.get("status"),
+                        "why": "ended for good" if kept.get("status") in FINAL else "older",
+                    },
+                )
+                return name
+            site["subscription"] = {
+                **kept,
+                "status": status,
+                ENDS_AT: ends_at,
+                EVENT_AT: event_at if event_at is not None else last,
             }
+            pause = status in ENDED and not site.get("paused")
+            unpause = status in ACTIVE and site.get("paused") == SUBSCRIPTION_ENDED
+            if pause:
+                site.update(paused=SUBSCRIPTION_ENDED, paused_at=time.time())
+            if unpause:
+                site = {k: v for k, v in site.items() if k not in ("paused", "paused_at")}
+            sites[name] = site
             self._write(sites)
         logger.info(
             "Subscription changed",
-            extra={"site": name, "subscription": subscription_id, "status": status},
+            extra={
+                "site": name,
+                "subscription": subscription_id,
+                "status": status,
+                "ends_at": ends_at,
+            },
         )
+        if pause:
+            logger.info("Site paused", extra={"site": name, "why": SUBSCRIPTION_ENDED})
+        if unpause:
+            logger.info("Site unpaused", extra={"site": name, "why": "paid"})
         return name
+
+    def set_ends_at(self, name: str, ends_at: float | None) -> bool:
+        """Record when the site's subscription ends, as its host cancelled it or kept it after
+        all (R69), before Stripe's event says so too: whether it has a subscription."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None or not site.get("subscription"):
+                return False
+            sites[name] = {**site, "subscription": {**site["subscription"], ENDS_AT: ends_at}}
+            self._write(sites)
+        return True
 
     def set_host(self, name: str, email: str, new_email: str) -> bool:
         """Give the site the host's new email (R62c), if `email` is its host: whether it did."""

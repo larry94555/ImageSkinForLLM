@@ -9,10 +9,12 @@ import {
   getSubscription,
   pickSubdomain,
   ServerRefusal,
+  setSubscriptionCancelled,
   startSubscribing,
   type SubdomainCheck,
   type Subscription,
 } from "./api";
+import { ConfirmDialog } from "./confirm-dialog";
 import { useHost } from "./host";
 
 // Where the browser goes to pay; a function so tests can see it.
@@ -67,7 +69,14 @@ export function SubscriptionSection() {
       {subscription.subscribed ? (
         <>
           <p role="status">Subscribed: {subscription.price}.</p>
+          {subscription.payment_failed && (
+            <p className="error" role="alert">
+              Your last payment didn't go through. Stripe will try your card again over the next
+              few days, and your site keeps working meanwhile.
+            </p>
+          )}
           {subscription.pick_subdomain && <SubdomainPicker />}
+          <CancelSubscription endsAt={subscription.ends_at ?? null} />
         </>
       ) : (
         <div className="switch">
@@ -85,6 +94,86 @@ export function SubscriptionSection() {
     </section>
     {address}
     </>
+  );
+}
+
+// The day a cancelled subscription ends, as the host's browser writes dates.
+export function endDay(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleDateString(undefined, { dateStyle: "long" });
+}
+
+// Cancel, for a subscribed site (roadmap R69): the site keeps working until the end of the
+// period paid for, then pauses; until then, Keep my subscription undoes it.
+function CancelSubscription({ endsAt }: { endsAt: number | null }) {
+  const [ends, setEnds] = useState<number | null>(endsAt);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  async function change(cancel: boolean) {
+    setAsking(false);
+    setBusy(true);
+    setFailed(null);
+    try {
+      const when = await setSubscriptionCancelled(cancel);
+      console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
+      setEnds(when);
+    } catch (e) {
+      console.error("Could not change the subscription", e);
+      setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="switch">
+      {ends !== null ? (
+        <>
+          <p role="status">
+            Cancelled: your site keeps working until {endDay(ends)}, then pauses. Visitors then
+            see that it is paused, and you can still sign in and subscribe again.
+          </p>
+          <button type="button" disabled={busy} onClick={() => change(false)}>
+            Keep my subscription
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="remove"
+            disabled={busy}
+            onClick={() => {
+              console.info("Cancel subscription: asking to confirm");
+              setAsking(true);
+            }}
+          >
+            Cancel subscription
+          </button>
+          <p className="muted">
+            Your site keeps working until the end of the month paid for, then pauses. It asks
+            first.
+          </p>
+        </>
+      )}
+      {busy && <p className="muted busy">Asking Stripe…</p>}
+      {failed && <p className="error">{failed}</p>}
+      {asking && (
+        <ConfirmDialog
+          title="Are you sure you want to cancel your subscription?"
+          keepLabel="No, keep it"
+          confirmLabel="Yes, cancel it"
+          onCancel={() => {
+            console.info("Cancel subscription: kept");
+            setAsking(false);
+          }}
+          onConfirm={() => change(true)}
+        >
+          <p>Your site keeps working until the end of the month paid for, then pauses.</p>
+          <p>Until then, you can keep your subscription after all.</p>
+        </ConfirmDialog>
+      )}
+    </div>
   );
 }
 

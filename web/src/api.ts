@@ -1360,6 +1360,20 @@ export interface Subscription {
   pick_subdomain?: boolean;
   // True for a site with its own subdomain, which its host can change (R64).
   change_subdomain?: boolean;
+  // When a cancelled subscription ends, in seconds since 1970, or null (R69).
+  ends_at?: number | null;
+  // True while Stripe retries a renewal that failed (R69).
+  payment_failed?: boolean;
+}
+
+// Cancels the subscription at the end of the period paid for, or keeps it after all (R69):
+// when it ends, or null once kept. Throws a ServerRefusal saying why not.
+export async function setSubscriptionCancelled(cancel: boolean): Promise<number | null> {
+  const response = await fetch(`/api/site/subscription/${cancel ? "cancel" : "keep"}`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { ends_at: number | null }).ends_at;
 }
 
 // Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.

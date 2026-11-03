@@ -406,6 +406,10 @@ Added by Larry on 2026-11-03, after signing in at app.me0.ai was refused with "Y
 210. **The host's display name.** Each host has a display name, such as "Dr. Smith", which participants and visitors see wherever the host is named. It is asked for at sign-up and can be changed on the account page *(default)*. The email address is used only to sign in and is never shown to participants or visitors.
 211. **Participants belong to the host.** A participant signs up to a host, not to one site: one account and one sign-in work on that host's sites. The host sets a policy for which of their sites a participant may open directly, and which site a participant is sent to after signing in, as a default for every participant and for each participant on their own *(default)*. Until the host changes it, every site is open to every participant, and they are sent to the host's first site *(default)*.
 212. **A site a participant may not use.** A signed-in participant who opens one of the host's sites that the host's policy (item 211) doesn't let them use sees a page like the one an anonymous visitor sees before signing in, saying only "This subdomain is not yet active -- check with the host on its status." It names neither the host nor the site's details, since anyone could have arrived there. The host sets who sees it, with item 211's policy.
+213. **Resuming a cancelled subscription.** Added by Larry on 2026-11-03: a host who cancels keeps their account, and resuming is one click, never a new sign-up. Cancelling never deletes the host's account in `hosts.json`, their email and password, or the payment provider's record of them as a customer, which keeps their card on file there *(default)*.
+   - **Before the period paid for ends,** **Keep my subscription** in Settings undoes the cancellation (built in R69).
+   - **Once the site is paused,** signing in shows the host a notice on every page with **Resume subscription**, and Settings has it too. It restarts the subscription with the card the payment provider already has, after one confirmation that says the price, with no card details typed again; only when the provider has no usable card does it send the host to the provider's page to give one *(default)*. The site comes back at once as it was, at its own subdomain, with its person, content, settings, visitors and history.
+   - **After 30 days paused,** the site's content is deleted (item 64), but the host's account is kept, so they still sign in, and **Resume subscription** starts their site again, empty, at its old subdomain if it is still free, or at a new name they pick (item 65) *(default)*.
 
 ### How this changes earlier items
 
@@ -416,6 +420,7 @@ Noted here and applied when the PRs for these items are built.
 - **Items 31 to 33 (anonymous questions, participant accounts, require sign-up):** built after the customers' sites, on each site for its own visitors and participants.
 - **Item 29 (LLM choice):** chosen per site.
 - **Item 61 (one site per customer account), changed by item 208:** a host's account can have any number of sites; only the free trial stays one per email address.
+- **Item 64 (cancel, and a paused site), changed by item 213:** deleting a site after 30 days paused, or at the customer's request, deletes the site and what it owns but keeps the host's account, so they can sign in and resume (Larry, 2026-11-03).
 - **Item 66 (each site is separate), changed by items 209 and 211:** a host's PDFs, and their participants, can be shared among that host's own sites. Nothing crosses to another host's sites.
 - **Item 32 (participant accounts), changed by item 211:** a participant account belongs to a host and works on the host's sites that the host allows, instead of belonging to one site.
 
