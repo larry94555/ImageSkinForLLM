@@ -136,7 +136,14 @@ from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.password_reset import reset_router
 from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
-from imageskin.payments import SUBSCRIPTION, BadEvent, CardNeeded, PaymentError, ends_at
+from imageskin.payments import (
+    PAID,
+    SUBSCRIPTION,
+    BadEvent,
+    CardNeeded,
+    PaymentError,
+    ends_at,
+)
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -168,7 +175,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import ACTIVE, FINAL, Service, SiteError, make_service, site_home
+from imageskin.sites import FINAL, Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -1097,10 +1104,14 @@ def create_app(
                 # twice; and the same resume tried again has the same idempotency key, named
                 # by the subscription it follows, so a later resume after a new cancellation
                 # has a new one (Codex's review of PR #301).
+                # One `past_due` isn't paid, so it is ended rather than taken for a resume, and
+                # a new one is charged now (Codex's review of PR #301).
+                made = payments.live_subscription(host_site, customer)
+                if made and made.get("status") not in PAID:
+                    payments.cancel_now(host_site, str(made["id"]))
+                    made = None
                 try:
-                    made = payments.live_subscription(host_site, customer) or payments.resume(
-                        host_site, customer, card, old or "first"
-                    )
+                    made = made or payments.resume(host_site, customer, card, old or "first")
                 except CardNeeded:
                     url = payments.checkout(host_site, host.email, back, back, customer)
                     logger.info(
@@ -1109,7 +1120,7 @@ def create_app(
                     return {"resumed": False, "url": url}
             except PaymentError as e:
                 raise HTTPException(status_code=502, detail=str(e)) from e
-            if made.get("status") not in ACTIVE or not made.get("id"):
+            if made.get("status") not in PAID or not made.get("id"):
                 logger.error(
                     "Resumed subscription not paid",
                     extra={"site": host_site, "status": made.get("status")},

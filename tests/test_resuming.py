@@ -203,6 +203,26 @@ def test_a_lost_answer_then_a_retry_or_restart_makes_one_subscription(
     assert fake.keys == [f"resume-{code}-sub_1"]
 
 
+def test_a_past_due_subscription_at_stripe_is_never_taken_as_paid(tmp_path: Path) -> None:
+    """Stripe has a `past_due` subscription for the site, whose payment failed: it is ended, not
+    recorded as paid, and the resume charges a new one (Codex's review of PR #301)."""
+    fake, sites, service, dan, site, code = paused(tmp_path)
+    fake.made["other"] = {"id": "sub_due", "status": "past_due", "metadata": {"site": code}}
+    assert dan.post(f"{site}/api/site/subscription/resume").json() == {"resumed": True}
+    assert fake.deleted == ["https://api.stripe.com/v1/subscriptions/sub_due"]
+    assert fake.keys == [f"resume-{code}-sub_1"]
+    assert service.sites.subscription(code)["id"] == "sub_new2"
+
+
+def test_a_new_subscription_stripe_hasnt_been_paid_for_keeps_the_site_paused(
+    tmp_path: Path,
+) -> None:
+    fake, sites, service, dan, site, code = paused(tmp_path)
+    fake.made[f"resume-{code}-sub_1"] = {"id": "sub_x", "status": "incomplete", "metadata": {}}
+    answer = dan.post(f"{site}/api/site/subscription/resume")
+    assert answer.status_code == 502 and service.sites.paused(code) == "subscription ended"
+
+
 def test_a_later_resume_after_a_new_cancellation_has_a_new_key(tmp_path: Path) -> None:
     fake, sites, service, dan, site, code = paused(tmp_path)
     assert dan.post(f"{site}/api/site/subscription/resume").json() == {"resumed": True}

@@ -37,8 +37,10 @@ SUBSCRIPTION = "5 GB for $1.99 a month"
 # How old an event's signature may be, as Stripe's own libraries allow, so a recorded one can't
 # be sent again later.
 TOLERANCE_S = 5 * 60
-# Stripe's statuses of a subscription in force, as the sites keep them (R67).
+# Stripe's statuses of a subscription in force, as the sites keep them (R67), and of one whose
+# payment is settled, which alone brings a paused site back (R69b; Codex's review of PR #301).
 IN_FORCE = ("active", "trialing", "past_due")
+PAID = ("active", "trialing")
 NOT_SET_UP = "Subscribing isn't set up on this server yet. Please tell whoever runs it."
 UNAVAILABLE = "Stripe couldn't be reached just now. Please try again in a minute."
 
@@ -255,7 +257,9 @@ class Stripe:
     def live_subscription(self, site: str, customer: str) -> dict[str, Any] | None:
         """A subscription in force that Stripe already has for the customer and this site
         (R69b), as one made by a resume whose answer was lost: it is recorded rather than a
-        second one made (Codex's review of PR #301). None when there is none."""
+        second one made (Codex's review of PR #301). A paid one comes first; one `past_due`
+        isn't paid, so it never brings the site back, and the caller ends it instead. None
+        when there is none."""
         query = urllib.parse.urlencode({"customer": customer, "status": "all", "limit": "100"})
         try:
             found = self.get(f"{API}/subscriptions?{query}", self.secret_key)
@@ -268,16 +272,19 @@ class Stripe:
         except (OSError, ValueError) as e:
             logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
             raise PaymentError(UNAVAILABLE) from e
-        for subscription in found.get("data") or []:
-            if (subscription.get("metadata") or {}).get("site") == site and subscription.get(
-                "status"
-            ) in IN_FORCE:
-                logger.warning(
-                    "Subscription already made at Stripe",
-                    extra={"site": site, "subscription": subscription.get("id")},
-                )
-                return dict(subscription)
-        return None
+        mine = [
+            s
+            for s in found.get("data") or []
+            if (s.get("metadata") or {}).get("site") == site and s.get("status") in IN_FORCE
+        ]
+        mine.sort(key=lambda s: s.get("status") not in PAID)
+        if not mine:
+            return None
+        logger.warning(
+            "Subscription already made at Stripe",
+            extra={"site": site, "subscription": mine[0].get("id"), "status": mine[0]["status"]},
+        )
+        return dict(mine[0])
 
     def resume(
         self, site: str, customer: str, card: str | None, attempt: str = ""
