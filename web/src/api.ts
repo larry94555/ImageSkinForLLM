@@ -1354,6 +1354,39 @@ export interface Subscription {
   price: string;
   status: string | null;
   subscribed: boolean;
+  // The site's subdomain, or null for a trial at its path still (R63).
+  subdomain?: string | null;
+  // True once a trial is paid for: its host picks its subdomain (R63).
+  pick_subdomain?: boolean;
+}
+
+// Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.
+export interface SubdomainCheck {
+  name: string;
+  problem: string | null;
+}
+
+export async function checkSubdomain(name: string): Promise<SubdomainCheck> {
+  const query = new URLSearchParams({ name });
+  return json<SubdomainCheck>(await fetch(`/api/site/subdomain/check?${query}`));
+}
+
+// Picks the paid trial's subdomain (R63): its address, and a one-time link that signs the host
+// in there (R255). Throws a ServerRefusal saying why not.
+export interface PickedSubdomain {
+  subdomain: string;
+  address: string;
+  sign_in_at?: string;
+}
+
+export async function pickSubdomain(name: string): Promise<PickedSubdomain> {
+  const response = await fetch("/api/site/subdomain", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as PickedSubdomain;
 }
 
 export async function getSubscription(): Promise<Subscription> {

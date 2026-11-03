@@ -502,7 +502,14 @@ def serve(settings: Settings) -> None:
     from fastapi import FastAPI
 
     from imageskin.app import create_app, make_engines
-    from imageskin.sites import DEFAULT_SITE, SiteApps, make_service, site_home, site_matcher
+    from imageskin.sites import (
+        DEFAULT_SITE,
+        SiteApps,
+        make_service,
+        site_home,
+        site_matcher,
+        trial_mover,
+    )
     from imageskin.startup import StartupTimes
 
     start = time.perf_counter()
@@ -553,7 +560,10 @@ def serve(settings: Settings) -> None:
 
     # Each request goes to its site by its address (R61).
     sites = SiteApps(
-        site_app, site_matcher(service.sites, settings.main_domain, service.sign_in_returns)
+        site_app,
+        site_matcher(service.sites, settings.main_domain, service.sign_in_returns),
+        # A trial path goes to the subdomain its host picked (R63).
+        trial_mover(service.sites, settings.main_domain),
     )
     # The one site is made before the server listens, as the app was before R61b.
     app = sites.app(DEFAULT_SITE)
@@ -658,7 +668,7 @@ def manage_sites(command: str, name: str, host: str) -> int:
     sites = SiteDirectory(home, HostAccounts(home))
     if command == "list":
         for site in sites.names():
-            where = f"/t/{site}" if sites.is_trial(site) else f"{site}.localhost"
+            where = f"/t/{site}" if sites.is_trial(site) else f"{sites.subdomain(site)}.localhost"
             print(f"{site}: {sites.host(site)} at {where}")
         return 0
     try:

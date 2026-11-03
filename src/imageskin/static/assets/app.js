@@ -10,11 +10,22 @@ function under(url, path = sitePath()) {
 	if (url === path || url.startsWith(`${path}/`)) return url;
 	return `${path}${url}`;
 }
+var moving = { to: (url) => window.location.assign(url) };
 function sendFetchesUnderSitePath(target = window) {
 	const path = sitePath();
 	if (!path) return;
 	const original = target.fetch.bind(target);
-	target.fetch = (input, init) => original(typeof input === "string" ? under(input, path) : input, init);
+	let moved = false;
+	target.fetch = async (input, init) => {
+		const response = await original(typeof input === "string" ? under(input, path) : input, init);
+		const to = response.headers.get("x-site-moved");
+		if (to && !moved) {
+			moved = true;
+			console.info(`Trial site moved to ${to}: going there`);
+			moving.to(`${to}${window.location.hash}`);
+		}
+		return response;
+	};
 	console.info(`Trial site: calls are made under ${path}`);
 }
 //#endregion
@@ -612,6 +623,19 @@ async function reportRecording(report) {
 		body: JSON.stringify(report)
 	});
 	if (!response.ok) throw new Error(await refusal(response));
+}
+async function checkSubdomain(name) {
+	const query = new URLSearchParams({ name });
+	return json(await fetch(`/api/site/subdomain/check?${query}`));
+}
+async function pickSubdomain(name) {
+	const response = await fetch("/api/site/subdomain", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
 }
 async function getSubscription() {
 	return json(await fetch("/api/site/subscription"));
@@ -2210,14 +2234,14 @@ function SubscriptionSection() {
 				id: "settings-subscription",
 				children: "Subscription"
 			}),
-			subscription.subscribed ? /* @__PURE__ */ u("p", {
+			subscription.subscribed ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				role: "status",
 				children: [
 					"Subscribed: ",
 					subscription.price,
 					"."
 				]
-			}) : /* @__PURE__ */ u("div", {
+			}), subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {})] }) : /* @__PURE__ */ u("div", {
 				className: "switch",
 				children: [
 					/* @__PURE__ */ u("button", {
@@ -2239,6 +2263,80 @@ function SubscriptionSection() {
 						children: "Opening Stripe…"
 					})
 				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			})
+		]
+	});
+}
+function SubdomainPicker() {
+	const [name, setName] = d("");
+	const [check, setCheck] = d(null);
+	const [picking, setPicking] = d(false);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		setCheck(null);
+		if (!name.trim()) return;
+		let current = true;
+		const timer = setTimeout(() => {
+			checkSubdomain(name).then((found) => current && setCheck(found), (e) => console.error("Could not check the subdomain", e));
+		}, 300);
+		return () => {
+			current = false;
+			clearTimeout(timer);
+		};
+	}, [name]);
+	async function pick(event) {
+		event.preventDefault();
+		setPicking(true);
+		setFailed(null);
+		try {
+			const picked = await pickSubdomain(name);
+			console.info("Subdomain picked: going to the site's new address", picked.address);
+			go.to(picked.sign_in_at ?? `${picked.address}/`);
+		} catch (e) {
+			console.error("Could not pick the subdomain", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The address could not be set. Try again.");
+			setPicking(false);
+		}
+	}
+	const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
+	return /* @__PURE__ */ u("form", {
+		className: "switch",
+		onSubmit: pick,
+		"aria-label": "Your site's address",
+		children: [
+			/* @__PURE__ */ u("label", {
+				htmlFor: "settings-subdomain",
+				children: "Pick your site's address"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."
+			}),
+			/* @__PURE__ */ u("input", {
+				id: "settings-subdomain",
+				value: name,
+				autoComplete: "off",
+				spellcheck: false,
+				disabled: picking,
+				onInput: (e) => setName(e.target.value)
+			}),
+			check !== null && /* @__PURE__ */ u("p", {
+				className: check.problem === null ? "muted" : "error",
+				role: "status",
+				children: check.problem ?? `${check.name} is free.`
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: !free || picking,
+				children: "Use this address"
+			}),
+			picking && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Moving your site…"
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",

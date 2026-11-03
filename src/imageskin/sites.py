@@ -73,6 +73,14 @@ RESERVED = MAIN_NAMES | {"admin", "api", "trial", "mail", DEFAULT_SITE}
 # A trial site's code, and the path it is at (R61a).
 TRIAL_CODE_LENGTH = 12
 TRIAL_PATH = re.compile(rf"/t/([a-z0-9]{{{TRIAL_CODE_LENGTH}}})(?=/|$)")
+# The subdomain a trial site's host picked at their first payment (R63), kept in its record.
+PICKED = "subdomain"
+NAME_LETTERS = (
+    "A site's name can have only letters, digits and hyphens, at most 63 of them, and can't"
+    " start or end with a hyphen."
+)
+NOT_A_TRIAL = "This site has its address already."
+SUBSCRIBE_FIRST = "Subscribe first: the address is picked once the first payment is made."
 SITES_FILE = "sites.json"
 SITES_FOLDER = "sites"
 NOT_FOUND_PAGE = (
@@ -253,15 +261,71 @@ class SiteDirectory:
 
     def exists(self, name: str) -> bool:
         """Whether a site is at the subdomain `name`."""
+        return self.site_at(name) is not None
+
+    def site_at(self, name: str) -> str | None:
+        """The site at the subdomain `name`: the site of that name, or the trial site whose host
+        picked it at their first payment (R63), which keeps its code as its name inside, so its
+        folder and its host's account stay as they are."""
         with self._lock:
-            site = self._load().get(name)
-        return site is not None and not site.get("trial")
+            return _site_at(self._load(), name)
+
+    def subdomain(self, site: str) -> str | None:
+        """The site's subdomain, or None for a trial site at its path still (R63)."""
+        with self._lock:
+            found = self._load().get(site)
+        if found is None:
+            return None
+        if found.get(PICKED):
+            return str(found[PICKED])
+        return None if found.get("trial") else site
+
+    def moved_to(self, code: str) -> str | None:
+        """The subdomain a trial path now goes to, once its host picked one (R63)."""
+        with self._lock:
+            found = self._load().get(code)
+        return None if found is None or not found.get(PICKED) else str(found[PICKED])
+
+    def name_problem(self, name: str) -> str | None:
+        """Why `name` can't be a site's subdomain, said plainly, or None when it can (R63)."""
+        with self._lock:
+            return _name_problem(self._load(), name)
+
+    def pick_subdomain(self, site: str, name: str) -> str:
+        """Give the subscribed trial site its subdomain, picked by its host at their first
+        payment (R63): the name. The trial path then goes there, and stays the site's, so no
+        other trial gets it. SiteError, said plainly, when the name can't be had or the site
+        isn't a subscribed trial."""
+        name = name.strip().lower()
+        with self._lock:
+            sites = dict(self._load())
+            found = sites.get(site)
+            why = None
+            if found is None or not found.get("trial") or found.get(PICKED):
+                why = "not a trial", NOT_A_TRIAL
+            elif (found.get("subscription") or {}).get("status") not in ACTIVE:
+                why = "not subscribed", SUBSCRIBE_FIRST
+            else:
+                problem = _name_problem(sites, name)
+                if problem is not None:
+                    why = "name refused", problem
+            if why is not None:
+                logger.warning(
+                    "Subdomain not picked", extra={"site": site, "subdomain": name, "why": why[0]}
+                )
+                raise SiteError(why[1])
+            assert found is not None
+            sites[site] = {**found, PICKED: name, "picked_at": time.time()}
+            self._write(sites)
+        logger.info("Subdomain picked", extra={"site": site, "subdomain": name})
+        return name
 
     def is_trial(self, code: str) -> bool:
-        """Whether a trial site is at `/t/<code>` (R61a)."""
+        """Whether a trial site is at `/t/<code>` (R61a), and not yet at the subdomain its host
+        picked (R63)."""
         with self._lock:
             site = self._load().get(code)
-        return site is not None and bool(site.get("trial"))
+        return site is not None and bool(site.get("trial")) and not site.get(PICKED)
 
     def host(self, name: str) -> str | None:
         """The site's host's email."""
@@ -376,7 +440,8 @@ class SiteDirectory:
         host = email.strip().lower()
         with self._lock:
             sites = self._load()
-            taken = set(sites)
+            # A subdomain picked may look like a code, so a new trial's code is neither (R63).
+            taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
             own = next(
                 (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
             )
@@ -402,15 +467,12 @@ class SiteDirectory:
 
     def _add(self, name: str, email: str, trial: bool) -> Path:
         if not SITE_NAME.fullmatch(name):
-            raise SiteError(
-                "A site's name can have only letters, digits and hyphens, at most 63 of them,"
-                " and can't start or end with a hyphen."
-            )
+            raise SiteError(NAME_LETTERS)
         if name in RESERVED:
             raise SiteError(f"{name} is kept for the service. Choose another name.")
         with self._lock:
             sites = dict(self._load())
-            if name in sites:
+            if name in sites or _site_at(sites, name) is not None:
                 raise SiteError(f"There is already a site called {name}.")
             host_site = self._hosts.site_of(email)
             if host_site is None:
@@ -435,6 +497,26 @@ class SiteDirectory:
             extra={"site": name, "host": email, "path": str(folder), "trial": trial},
         )
         return folder
+
+
+def _site_at(sites: dict[str, dict[str, Any]], name: str) -> str | None:
+    """The site at the subdomain `name`, in the sites just read (R61, R63)."""
+    found = sites.get(name)
+    if found is not None and not found.get("trial"):
+        return name
+    return next((n for n, s in sites.items() if s.get(PICKED) == name), None)
+
+
+def _name_problem(sites: dict[str, dict[str, Any]], name: str) -> str | None:
+    """Why `name` can't be a subdomain, in the sites just read (R63): its letters, a name kept
+    for the service, or one in use, which counts every trial's code, even one moved since."""
+    if not SITE_NAME.fullmatch(name):
+        return NAME_LETTERS
+    if name in RESERVED:
+        return f"{name} is kept for the service. Choose another name."
+    if name in sites or _site_at(sites, name) is not None:
+        return f"{name} is taken. Choose another name."
+    return None
 
 
 def site_matcher(
@@ -463,9 +545,34 @@ def site_matcher(
             return DEFAULT_SITE
         if label is None:
             return None
-        return label if sites.exists(label) else None
+        return sites.site_at(label)
 
     return site_of
+
+
+def trial_mover(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str | None]:
+    """Where a request to a trial path goes once its host picked a subdomain (R63): the same
+    path at the subdomain, with the scheme, port and query kept, or None."""
+    domain = main_domain.strip(".").lower()
+
+    def moved(scope: Scope) -> str | None:
+        code = trial_code(scope)
+        name = None if code is None else sites.moved_to(code)
+        if code is None or name is None:
+            return None
+        headers = dict(scope.get("headers") or [])
+        host = bytes(headers.get(b"host", b"")).decode("latin-1")
+        address = address_of(scope).lower()
+        port = host[len(address) :] if host.lower().startswith(address) else ""
+        local = address == "localhost" or address.endswith(".localhost")
+        proto = bytes(headers.get(b"x-forwarded-proto", b"")).decode("latin-1")
+        scheme = "https" if "https" in (proto, scope.get("scheme")) else "http"
+        rest = str(scope.get("path", ""))[len(f"/t/{code}") :] or "/"
+        query = bytes(scope.get("query_string") or b"").decode("latin-1")
+        where = f"{scheme}://{name}.{'localhost' if local else domain}{port}{rest}"
+        return f"{where}?{query}" if query else where
+
+    return moved
 
 
 def trial_code(scope: Scope) -> str | None:
@@ -601,9 +708,14 @@ class SiteApps:
     time the site is used, once, however many requests ask for it at the same time."""
 
     def __init__(
-        self, make: Callable[[str], Asgi], site_of: Callable[[Scope], str | None] = one_site
+        self,
+        make: Callable[[str], Asgi],
+        site_of: Callable[[Scope], str | None] = one_site,
+        moved: Callable[[Scope], str | None] = lambda scope: None,
     ):
         self._make = make
+        # A trial path whose site moved to its subdomain (R63) goes there.
+        self._moved = moved
         self._matched: set[str] = set()  # the sites already logged at info level
         self._site_of = site_of
         self._apps: dict[str, Asgi] = {}
@@ -649,6 +761,10 @@ class SiteApps:
         if scope["type"] == "lifespan":
             await self._lifespan(receive, send)
             return
+        moved = self._moved(scope)
+        if moved is not None:
+            await self._moved_away(scope, send, moved)
+            return
         site = self._site_of(scope)
         address = address_of(scope)
         if site is None:
@@ -682,9 +798,9 @@ class SiteApps:
         await made(scope, receive, send)
 
     @staticmethod
-    async def _redirect(scope: Scope, send: Send, location: str) -> None:
-        query = bytes(scope.get("query_string") or b"").decode("latin-1")
-        target = f"{location}?{query}" if query else location
+    async def _redirect(scope: Scope, send: Send, location: str, query: bool = True) -> None:
+        kept = bytes(scope.get("query_string") or b"").decode("latin-1") if query else ""
+        target = f"{location}?{kept}" if kept else location
         await send(
             {
                 "type": "http.response.start",
@@ -693,6 +809,41 @@ class SiteApps:
             }
         )
         await send({"type": "http.response.body", "body": b""})
+
+    @staticmethod
+    async def _moved_away(scope: Scope, send: Send, moved: str) -> None:
+        """A trial path whose site moved to its subdomain (R63). A page is redirected there. A
+        call isn't: a tab opened before the move makes it from the trial path's origin, and a
+        redirect to another origin would be blocked without the trial path's cookie anyway, so
+        it is answered here with the site's new address (`X-Site-Moved`), which the page goes
+        to (`site-path.ts`) (Codex's review of PR #297)."""
+        rest = str(scope.get("path", ""))[len("/t/") + TRIAL_CODE_LENGTH :]
+        call = rest.startswith("/api/")
+        logger.info(
+            "Trial path moved",
+            extra={"path": scope.get("path"), "to": moved, "call": call or None},
+        )
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4404})
+            return
+        if not call:
+            await SiteApps._redirect(scope, send, moved, query=False)
+            return
+        # The site's home page there: the address without the call's path and query.
+        home = moved.split("?", 1)[0].removesuffix(rest) + "/"
+        body = json.dumps({"detail": f"This site has moved to {home}", "moved_to": home}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 409,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"x-site-moved", home.encode("latin-1")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
     @staticmethod
     async def _not_found(scope: Scope, send: Send) -> None:

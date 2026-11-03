@@ -62,14 +62,19 @@ def origin_of(request: Request) -> str:
 
 
 def site_address(
-    request: Request, here: str, site: str, is_trial: Callable[[str], bool] = lambda _: False
+    request: Request,
+    here: str,
+    site: str,
+    is_trial: Callable[[str], bool] = lambda _: False,
+    subdomain: Callable[[str], str | None] = lambda site: site,
 ) -> str:
     """Where a site is, with the scheme the browser used, from the address this request came
     to, which is the site `here`'s: the main address, the site's name in front of it, or its
     trial path after it (R61a). A host who signs in elsewhere is sent there (R255). From a
     site's own address, the main address is the configured one (MAIN_ADDRESS_VARIABLE, the
     deploy's SITE_ADDRESS, such as app.me0.ai), not the bare domain, which needn't reach the
-    app (Codex's review of PR #295); with none set, as on a laptop, it is the domain."""
+    app (Codex's review of PR #295); with none set, as on a laptop, it is the domain. A trial
+    site whose host picked its subdomain (R63) is at that subdomain."""
     https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     host = request.headers.get("host", "localhost")
     if here == DEFAULT_SITE or is_trial(here):
@@ -82,7 +87,7 @@ def site_address(
     elif is_trial(site):
         where = f"{main}/t/{site}"
     else:
-        where = f"{site}.{domain}"
+        where = f"{subdomain(site) or site}.{domain}"
     return f"{'https' if https else 'http'}://{where}"
 
 
@@ -96,6 +101,7 @@ def host_router(
     trial_used: Callable[[str], bool] = lambda _: False,
     paused: Callable[[str], str | None] = lambda _: None,
     subscribed: Callable[[str], bool] = lambda _: False,
+    subdomain: Callable[[str], str | None] = lambda site: site,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -307,7 +313,7 @@ def host_router(
             # own site with a one-time link, which signs them in there (R255). A cookie set here
             # wouldn't reach a site at another subdomain.
             link = accounts.sign_in_link(email)
-            to = site_address(request, site, e.site, is_trial)
+            to = site_address(request, site, e.site, is_trial, subdomain)
             logger.info(
                 "Host sent to their own site",
                 extra={"email": normal_email(email), "here": site, "site": e.site, "to": to},

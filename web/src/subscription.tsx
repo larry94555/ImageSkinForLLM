@@ -4,7 +4,15 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { getSubscription, ServerRefusal, startSubscribing, type Subscription } from "./api";
+import {
+  checkSubdomain,
+  getSubscription,
+  pickSubdomain,
+  ServerRefusal,
+  startSubscribing,
+  type SubdomainCheck,
+  type Subscription,
+} from "./api";
 import { useHost } from "./host";
 
 // Where the browser goes to pay; a function so tests can see it.
@@ -45,7 +53,10 @@ export function SubscriptionSection() {
     <section className="panel" aria-labelledby="settings-subscription">
       <h2 id="settings-subscription">Subscription</h2>
       {subscription.subscribed ? (
-        <p role="status">Subscribed: {subscription.price}.</p>
+        <>
+          <p role="status">Subscribed: {subscription.price}.</p>
+          {subscription.pick_subdomain && <SubdomainPicker />}
+        </>
       ) : (
         <div className="switch">
           <button type="button" disabled={starting} onClick={subscribe}>
@@ -60,5 +71,77 @@ export function SubscriptionSection() {
       )}
       {failed && <p className="error">{failed}</p>}
     </section>
+  );
+}
+
+// How long typing pauses before the name is checked, in milliseconds.
+export const CHECK_AFTER_MS = 300;
+
+// Picking the site's subdomain once its trial is paid for (roadmap R63): the name is checked as
+// it is typed, and the browser then goes to the site at its new address, signed in there.
+function SubdomainPicker() {
+  const [name, setName] = useState("");
+  const [check, setCheck] = useState<SubdomainCheck | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCheck(null);
+    if (!name.trim()) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      checkSubdomain(name).then(
+        (found) => current && setCheck(found),
+        (e: unknown) => console.error("Could not check the subdomain", e),
+      );
+    }, CHECK_AFTER_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [name]);
+
+  async function pick(event: Event) {
+    event.preventDefault();
+    setPicking(true);
+    setFailed(null);
+    try {
+      const picked = await pickSubdomain(name);
+      console.info("Subdomain picked: going to the site's new address", picked.address);
+      go.to(picked.sign_in_at ?? `${picked.address}/`);
+    } catch (e) {
+      console.error("Could not pick the subdomain", e);
+      setFailed(e instanceof ServerRefusal ? e.message : "The address could not be set. Try again.");
+      setPicking(false);
+    }
+  }
+
+  const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
+  return (
+    <form className="switch" onSubmit={pick} aria-label="Your site's address">
+      <label htmlFor="settings-subdomain">Pick your site's address</label>
+      <p className="muted">
+        Your site moves from its trial path to a subdomain of its own, with everything on it. The
+        trial path then goes there.
+      </p>
+      <input
+        id="settings-subdomain"
+        value={name}
+        autoComplete="off"
+        spellcheck={false}
+        disabled={picking}
+        onInput={(e) => setName((e.target as HTMLInputElement).value)}
+      />
+      {check !== null && (
+        <p className={check.problem === null ? "muted" : "error"} role="status">
+          {check.problem ?? `${check.name} is free.`}
+        </p>
+      )}
+      <button type="submit" disabled={!free || picking}>
+        Use this address
+      </button>
+      {picking && <p className="muted busy">Moving your site…</p>}
+      {failed && <p className="error">{failed}</p>}
+    </form>
   );
 }

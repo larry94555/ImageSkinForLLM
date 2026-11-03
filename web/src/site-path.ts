@@ -17,14 +17,29 @@ export function under(url: string, path: string = sitePath()): string {
   return `${path}${url}`;
 }
 
-// Makes every fetch of an address of the app go under the trial site's path.
+// Where the page goes when its trial site has moved to its own subdomain; a function so tests
+// can see it.
+export const moving = { to: (url: string) => window.location.assign(url) };
+
+// Makes every fetch of an address of the app go under the trial site's path. Once the site's
+// host picks its subdomain (roadmap R63), a call from a page opened before then is answered
+// with the site's new address (X-Site-Moved), and the page goes there, on the same page.
 export function sendFetchesUnderSitePath(
   target: { fetch: typeof fetch } = window,
 ): void {
   const path = sitePath();
   if (!path) return;
   const original = target.fetch.bind(target);
-  target.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
-    original(typeof input === "string" ? under(input, path) : input, init);
+  let moved = false;
+  target.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await original(typeof input === "string" ? under(input, path) : input, init);
+    const to = response.headers.get("x-site-moved");
+    if (to && !moved) {
+      moved = true;
+      console.info(`Trial site moved to ${to}: going there`);
+      moving.to(`${to}${window.location.hash}`);
+    }
+    return response;
+  };
   console.info(`Trial site: calls are made under ${path}`);
 }

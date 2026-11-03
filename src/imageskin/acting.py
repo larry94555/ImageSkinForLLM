@@ -123,9 +123,15 @@ class ActingAsHost:
         return None if acting is None else acting.back
 
 
-def site_address(request: Request, site: str, is_trial: Callable[[str], bool]) -> str:
+def site_address(
+    request: Request,
+    site: str,
+    is_trial: Callable[[str], bool],
+    subdomain: Callable[[str], str | None] = lambda site: site,
+) -> str:
     """Where a site is, from the main address this request came to: the main address itself,
-    its trial path (R61a), or its subdomain (R61), with the scheme and port kept."""
+    its trial path (R61a), or its subdomain (R61), the one its host picked for a trial site
+    (R63), with the scheme and port kept."""
     https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     host = request.headers.get("host", "localhost")
     scheme = "https" if https else "http"
@@ -134,7 +140,7 @@ def site_address(request: Request, site: str, is_trial: Callable[[str], bool]) -
     if is_trial(site):
         return f"{scheme}://{host}/t/{site}"
     main = re.sub(r"^(www|app)\.", "", host)
-    return f"{scheme}://{site}.{main}"
+    return f"{scheme}://{subdomain(site) or site}.{main}"
 
 
 def acting_routes(
@@ -143,6 +149,7 @@ def acting_routes(
     site: str,
     is_trial: Callable[[str], bool],
     require_admin: Callable[..., None],
+    subdomain: Callable[[str], str | None] = lambda site: site,
 ) -> tuple[APIRouter, APIRouter]:
     """The administrator's route that makes the link, at the main address only through
     `require_admin` (R44), and the routes every site has for opening it, its activity and
@@ -161,7 +168,8 @@ def acting_routes(
         if target is None or admin_token is None:
             raise HTTPException(status_code=404, detail=NO_SUCH_HOST)
         link = acting.link(admin_token, email, site_address(request, DEFAULT_SITE, is_trial))
-        return {"link": f"{site_address(request, target, is_trial)}/api/host/act-as/{link}"}
+        where = site_address(request, target, is_trial, subdomain)
+        return {"link": f"{where}/api/host/act-as/{link}"}
 
     @host.get("/{link}", response_model=None)
     def open_link(request: Request, link: str) -> RedirectResponse | JSONResponse:
