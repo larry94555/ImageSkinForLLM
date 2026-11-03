@@ -86,7 +86,7 @@ def test_cancel_keeps_the_site_until_the_end_then_stripe_pauses_it(
     assert visitor.get(f"{site}/api/content").status_code == 200
     # Stripe's own event says the same.
     assert send(main, changed("active", cancel_at_period_end=True, cancel_at=ENDS)).is_success
-    assert service.sites.subscription(code)["ends_at"] == ENDS  # type: ignore[index]
+    assert service.sites.subscription(code)["ends_at"] == ENDS
 
     # At the end, Stripe deletes the subscription: the site pauses.
     caplog.clear()
@@ -113,7 +113,7 @@ def test_keep_undoes_a_cancel_before_the_end(tmp_path: Path) -> None:
     assert fake.posted[-1][1] == {"cancel_at_period_end": "false"}
     assert dan.get(f"{site}/api/site/subscription").json()["ends_at"] is None
     assert send(main, changed("active", cancel_at_period_end=False)).is_success
-    assert service.sites.subscription(code)["ends_at"] is None  # type: ignore[index]
+    assert service.sites.subscription(code)["ends_at"] is None
 
 
 def test_a_failed_renewal_is_said_to_the_host_only_and_the_site_keeps_working(
@@ -142,7 +142,7 @@ def test_cancel_is_refused_without_a_subscription_or_when_stripe_fails(
         failed = dan.post(f"{site}/api/site/subscription/cancel")
     assert failed.status_code == 502 and failed.json()["detail"] == UNAVAILABLE
     assert "Stripe not reached" in caplog.messages
-    assert service.sites.subscription(code).get("ends_at") is None  # type: ignore[union-attr]
+    assert service.sites.subscription(code).get("ends_at") is None
     fake.fail = None
     # Only for the signed-in host.
     stranger = TestClient(dan.app, base_url=MAIN)
