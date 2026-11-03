@@ -192,6 +192,37 @@ test("signing up at the main address goes to the new site's setup at its trial p
   expect(state.email).toBeNull();
 });
 
+test("signing in at another site's address goes to the host's own site (R255)", async () => {
+  const { state, fetchMock } = server();
+  const real = fetchMock.getMockImplementation()!;
+  const link = "https://larry-freeman.me0.ai/api/host/sign-in/once";
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/host/sign-in") {
+      return Response.json({
+        signed_in: false,
+        email: "host@example.com",
+        site: "larry-freeman",
+        sign_in_at: link,
+      });
+    }
+    return real(url, init);
+  });
+  const went: string[] = [];
+  vi.spyOn(navigation, "goTo").mockImplementation((url: string) => {
+    went.push(url);
+  });
+  window.location.hash = "#/host/sign-in";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Host sign in" });
+  fill(/^Email/, "host@example.com");
+  fill(/^Password/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  // The link as it is: its own page sends the host on to their site's home page.
+  await vi.waitFor(() => expect(went).toEqual([link]));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(state.email).toBeNull();
+});
+
 test("a wrong password is refused with its message, then the right one signs in", async () => {
   const { pages } = server();
   window.location.hash = "#/host/sign-in";

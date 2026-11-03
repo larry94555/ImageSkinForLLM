@@ -74,6 +74,12 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
     const started = performance.now();
     const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
     console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+    if (signedIn.sign_in_at) {
+      // The host's site is at another address (R255): signed in there, by its link.
+      console.info("Host sent to their own site to sign in");
+      goTo(signedIn.sign_in_at);
+      return true;
+    }
     if (signedIn.go_to) {
       // Signing up made the host a site of their own (R62): its setup is next.
       console.info(`Host's new site: ${signedIn.go_to}`);

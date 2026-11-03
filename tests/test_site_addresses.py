@@ -170,11 +170,16 @@ def test_only_the_sites_own_host_signs_in_there(tmp_path: Path) -> None:
     sites, made, service = served(tmp_path)
     a = TestClient(sites, base_url="http://a.localhost")
     main = TestClient(sites, base_url="http://localhost")
-    assert sign_in(main, "ann@example.com") == 401  # ann is site a's now
-    refused = a.post("/api/host/sign-in", json={"email": "bob@example.com", "password": PASSWORD})
-    # Bob is the main address's: with the right password he is told where (R61e).
-    assert refused.status_code == 401
-    assert refused.json()["detail"] == "Your site is at localhost. Sign in there."
+    # Ann is site a's now: at the main address she is sent there to be signed in (R255), and
+    # is not signed in at the main address itself.
+    sent = main.post("/api/host/sign-in", json={"email": "ann@example.com", "password": PASSWORD})
+    assert sent.json()["sign_in_at"].startswith("http://a.localhost/api/host/sign-in/")
+    assert main.get("/api/host/session").json()["signed_in"] is False
+    sent = a.post("/api/host/sign-in", json={"email": "bob@example.com", "password": PASSWORD})
+    # Bob is the main address's: with the right password he is sent there.
+    assert sent.status_code == 200 and sent.json()["site"] == DEFAULT_SITE
+    assert sent.json()["sign_in_at"].startswith("http://localhost/api/host/sign-in/")
+    assert a.get("/api/host/session").json()["signed_in"] is False
     wrong = a.post("/api/host/sign-in", json={"email": "bob@example.com", "password": "x" * 12})
     assert wrong.json()["detail"] == WRONG  # a wrong password learns nothing
     assert sign_in(a, "ann@example.com") == 200

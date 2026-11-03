@@ -16,6 +16,9 @@ services:
     environment:
       # Start now downloads the default people from Caddy inside Docker (roadmap R32a).
       IMAGESKIN_DEFAULT_PEOPLE_URL: http://caddy:8090
+      # The main address, such as app.me0.ai, where a site's address sends a host of the main
+      # address's site to sign in (R255): the same SITE_ADDRESS as Caddy's, from .env.
+      IMAGESKIN_MAIN_ADDRESS: ${SITE_ADDRESS:-}
       # A Hugging Face read token, for Pocket TTS's weights that clone a voice (R160, README.md
       # here, step 6d). Without one, the person's own voice is spoken with Chatterbox, slower.
       HF_TOKEN: ${HF_TOKEN:-}

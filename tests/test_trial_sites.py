@@ -97,16 +97,19 @@ def test_a_trial_sites_page_and_calls_reach_it_under_its_path(
     assert matched[0]["site"] == code and matched[0]["trial"] == code
 
 
-def test_a_host_of_a_trial_site_is_told_its_path(tmp_path: Path) -> None:
+def test_a_host_of_a_trial_site_is_sent_to_its_path(tmp_path: Path) -> None:
     sites, _, service = served(tmp_path)
     service.host_accounts.sign_up(CY, PASSWORD, "test")
     code, _ = service.sites.add_trial(CY)
     main = TestClient(sites, base_url="http://www.localhost:8000")
-    told = main.post("/api/host/sign-in", json={"email": CY, "password": PASSWORD})
-    assert told.json()["detail"] == f"Your site is at localhost:8000/t/{code}. Sign in there."
+    sent = main.post("/api/host/sign-in", json={"email": CY, "password": PASSWORD})
+    # The browser stays at the main address it came to, where the trial site is.
+    assert sent.json()["sign_in_at"].startswith(
+        f"http://www.localhost:8000/t/{code}/api/host/sign-in/"
+    )
     trial = TestClient(sites, base_url="http://localhost:8000")
-    told = trial.post(f"/t/{code}/api/host/sign-in", json={"email": ANN, "password": PASSWORD})
-    assert told.json()["detail"] == "Your site is at a.localhost:8000. Sign in there."
+    sent = trial.post(f"/t/{code}/api/host/sign-in", json={"email": ANN, "password": PASSWORD})
+    assert sent.json()["sign_in_at"].startswith("http://a.localhost:8000/api/host/sign-in/")
 
 
 def test_a_trial_site_is_added_and_listed_from_the_command_line(
