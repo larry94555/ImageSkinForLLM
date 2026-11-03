@@ -126,6 +126,8 @@ class SiteError(Exception):
 
 # Stripe's statuses of a subscription in force (R67).
 ACTIVE = ("active", "trialing", "past_due")
+# Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
+SUBSCRIPTIONS_HAD = "subscriptions_had"
 
 
 class TrialUsed(SiteError):
@@ -282,14 +284,29 @@ class SiteDirectory:
 
     def subscribe(self, name: str, subscription_id: str, customer: str) -> bool:
         """Record the site's paid subscription from Stripe's event (R67), and unpause it: whether
-        the site is there. The same event again changes nothing."""
+        the site is there. A checkout for a subscription the site has had before changes nothing,
+        whatever its status now: Stripe sends an event again, or late, so a replayed checkout
+        mustn't bring back a subscription cancelled since (Codex's review of PR #293). Only a new
+        subscription does; the ids the site has had are kept in sites.json, so this holds across
+        restarts."""
         with self._lock:
             sites = dict(self._load())
             site = sites.get(name)
             if site is None:
                 return False
             kept = site.get("subscription") or {}
-            if kept.get("id") == subscription_id and kept.get("status") in ACTIVE:
+            had = list(site.get(SUBSCRIPTIONS_HAD, []))
+            if subscription_id in had or kept.get("id") == subscription_id:
+                if kept.get("id") != subscription_id or kept.get("status") not in ACTIVE:
+                    logger.warning(
+                        "Old checkout ignored",
+                        extra={
+                            "site": name,
+                            "subscription": subscription_id,
+                            "now": kept.get("id"),
+                            "status": kept.get("status"),
+                        },
+                    )
                 return True
             was_paused = "paused" in site
             site = {k: v for k, v in site.items() if k not in ("paused", "paused_at")}
@@ -299,6 +316,7 @@ class SiteDirectory:
                 "status": "active",
                 "since": time.time(),
             }
+            site[SUBSCRIPTIONS_HAD] = [*had, subscription_id]
             sites[name] = site
             self._write(sites)
         logger.info(

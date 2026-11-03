@@ -311,3 +311,40 @@ def test_the_api_is_called_with_the_secret_key_and_the_form(
     [(url, data, headers, timeout)] = seen
     assert url == "https://api.stripe.com/v1/x" and data == b"a=b+c" and timeout == 20
     assert headers["Authorization"] == "Bearer sk_test"
+
+
+def test_a_replayed_checkout_doesnt_bring_back_a_cancelled_subscription(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Codex's review of PR #293: Stripe sends events at least once and in any order, so the
+    # first checkout sent again after the cancellation must leave it cancelled.
+    stripe = Stripe("sk_test", SECRET, "price_5gb", FakeStripe())
+    sites, _, service = served(tmp_path, stripe)
+    _, site = a_trial(sites, tmp_path / "home")
+    code = site.removeprefix("/t/")
+    main = TestClient(sites, base_url=MAIN)
+    send(main, completed(code))
+    deleted = {
+        "id": "evt_2",
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"id": "sub_1", "status": "canceled"}},
+    }
+    assert send(main, deleted).is_success
+    with caplog.at_level(logging.WARNING):
+        assert send(main, completed(code)).is_success
+    assert "Old checkout ignored" in caplog.messages
+    assert not service.sites.subscribed(code)
+    assert (service.sites.subscription(code) or {})["status"] == "canceled"
+
+    # The same after a restart: a new service reads sites.json afresh.
+    sites, _, service = served(tmp_path, stripe)
+    main = TestClient(sites, base_url=MAIN)
+    assert send(main, completed(code)).is_success
+    assert (service.sites.subscription(code) or {})["status"] == "canceled"
+
+    # A new subscription, from subscribing again, is recorded, and then the old one stays old.
+    assert send(main, completed(code, "sub_2")).is_success
+    assert service.sites.subscribed(code)
+    assert (service.sites.subscription(code) or {})["id"] == "sub_2"
+    assert send(main, completed(code)).is_success
+    assert (service.sites.subscription(code) or {})["id"] == "sub_2"
