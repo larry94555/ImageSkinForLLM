@@ -19,7 +19,7 @@ from test_subscribing import (  # noqa: F401
 )
 
 from imageskin.payments import UNAVAILABLE, PaymentError, Stripe, ends_at
-from imageskin.sites import SUBSCRIPTION_ENDED
+from imageskin.sites import SUBSCRIPTION_ENDED, SiteDirectory
 
 pytestmark = pytest.mark.real_hosts
 
@@ -163,3 +163,48 @@ def test_when_a_subscription_ends_is_read_from_stripes_object() -> None:
     with pytest.raises(PaymentError):
         stripe = Stripe("sk", SECRET, "price", post=lambda *a: (_ for _ in ()).throw(ValueError()))
         stripe.set_cancel("a", "sub_1", True)
+
+
+def test_a_late_event_never_brings_an_ended_subscription_back(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Stripe doesn't send events in order: an `updated` (active) arriving after the deletion,
+    even after a restart, leaves the site paused and unsubscribed, and a new checkout still
+    brings it back (Codex's review of PR #299)."""
+    _, sites, service, dan, site, code, main = subscribed(tmp_path)
+    assert send(main, {**changed("canceled", "deleted"), "created": 200}).is_success
+    with caplog.at_level(logging.WARNING):
+        assert send(main, {**changed("active"), "created": 100}).is_success
+    ignored = next(r for r in caplog.records if r.message == "Old subscription event ignored")
+    assert ignored.__dict__["why"] == "ended for good"
+    # The same after a restart, which reads sites.json again; and with no time on the event.
+    restarted = SiteDirectory(service.home, service.host_accounts)
+    assert restarted.subscription_changed("sub_1", "active") == code
+    for directory in (service.sites, restarted):
+        assert directory.paused(code) == SUBSCRIPTION_ENDED
+        assert not directory.subscribed(code)
+    assert dan.get(f"{site}/api/site/subscription").json()["subscribed"] is False
+    assert dan.post(f"{site}/api/site/subscribe").is_success
+    assert send(main, completed(code, "sub_2")).is_success
+    assert service.sites.subscribed(code) and service.sites.paused(code) is None
+    assert TestClient(sites, base_url=MAIN).get(f"{site}/api/content").status_code == 200
+
+
+def test_an_older_event_changes_nothing_and_a_paid_unpaid_one_unpauses(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, service, dan, site, code, main = subscribed(tmp_path)
+    assert send(main, {**changed("unpaid"), "created": 300}).is_success
+    assert service.sites.paused(code) == SUBSCRIPTION_ENDED
+    with caplog.at_level(logging.WARNING):
+        assert send(main, {**changed("past_due"), "created": 200}).is_success
+    ignored = next(r for r in caplog.records if r.message == "Old subscription event ignored")
+    assert ignored.__dict__["why"] == "older"
+    assert service.sites.subscription(code)["status"] == "unpaid"
+    # Paid at last: Stripe makes it active again, and the site comes back.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        assert send(main, {**changed("active"), "created": 400}).is_success
+    assert "Site unpaused" in caplog.messages
+    assert service.sites.paused(code) is None and service.sites.subscribed(code)
+    assert dan.get(f"{site}/api/site/subscription").json()["payment_failed"] is False

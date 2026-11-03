@@ -1013,8 +1013,12 @@ def create_app(
             elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
                 # A deleted subscription has ended, whatever end it was set to (R69).
                 ends = None if kind.endswith("deleted") else ends_at(thing)
+                created = event.get("created")
                 site = service.sites.subscription_changed(
-                    str(thing.get("id")), str(thing.get("status")), ends
+                    str(thing.get("id")),
+                    str(thing.get("status")),
+                    ends,
+                    float(created) if isinstance(created, int | float) else None,
                 )
             return {"received": True}
 
