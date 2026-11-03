@@ -85,6 +85,9 @@ NO_SUBDOMAIN_YET = "This site has no address of its own yet: subscribe to pick o
 SUBSCRIBE_FIRST = "Subscribe first: the address is picked once the first payment is made."
 SITES_FILE = "sites.json"
 SITES_FOLDER = "sites"
+# Where a deleted site's folder is moved before it is removed, so a removal that fails is tried
+# again (R69a).
+DELETED_FOLDER = "deleted-sites"
 NOT_FOUND_PAGE = (
     "<!doctype html><meta charset=utf-8><title>Site not found</title>"
     "<p>Site not found. Check the address, or go to the main address.</p>"
@@ -551,19 +554,74 @@ class SiteDirectory:
         logger.info("Site host changed", extra={"site": name, "host": new_email})
         return True
 
-    def delete(self, name: str, why: str) -> bool:
+    def deletable(
+        self, name: str, paused_before: float | None, subscription_id: str | None
+    ) -> str | None:
+        """Why the site mustn't be deleted now, or None when it may (R69a): no such site, or,
+        for the sweep (`paused_before`), not paused since before then any more, or its
+        subscription changed, as a host who paid again unpauses it (Codex's review of PR
+        #300)."""
+        with self._lock:
+            return self._not_deletable(self._load(), name, paused_before, subscription_id)
+
+    @staticmethod
+    def _not_deletable(
+        sites: dict[str, dict[str, Any]],
+        name: str,
+        paused_before: float | None,
+        subscription_id: str | None,
+    ) -> str | None:
+        site = sites.get(name)
+        if site is None:
+            return "no such site"
+        if paused_before is None:
+            return None
+        at = site.get("paused_at")
+        if not site.get("paused") or not isinstance(at, int | float) or at >= paused_before:
+            return "no longer paused long enough"
+        if (site.get("subscription") or {}).get("id") != subscription_id:
+            return "subscription changed"
+        return None
+
+    def delete(
+        self,
+        name: str,
+        why: str,
+        paused_before: float | None = None,
+        subscription_id: str | None = None,
+    ) -> bool:
         """Delete the site (R69a): its record, so its subdomain is free at once, and its folder,
         with everything in it. A trial's code is kept, never given again. Its host's account is
         kept, with no site, so they can still sign in and resume (R69b); their sign-ins end.
-        Its subscription must be cancelled with Stripe first (`site_deletion`). False when there
-        is no such site."""
+        Any subscription Stripe keeps must be cancelled first (`site_deletion`). False, with
+        nothing changed, when it mustn't be deleted (`deletable`), checked again under the lock
+        as the record goes, so a payment that came meanwhile always wins, or when its folder
+        can't be moved aside.
+
+        The folder is first moved aside, into `deleted-sites`, in the same lock, so the site's
+        files leave its address together with its record; it is then removed. A removal that
+        fails is retried at each sweep (`purge_deleted`), logged until it succeeds (Codex's
+        review of PR #300)."""
         start = time.perf_counter()
         with self._lock:
             sites = dict(self._load())
-            site = sites.pop(name, None)
-            if site is None:
-                logger.warning("Site not deleted", extra={"site": name, "why": "no such site"})
+            refused = self._not_deletable(sites, name, paused_before, subscription_id)
+            if refused is not None:
+                logger.warning("Site not deleted", extra={"site": name, "why": refused})
                 return False
+            site = sites.pop(name)
+            folder = site_home(name, self.home)
+            aside = self.home / DELETED_FOLDER / f"{name}-{time.time_ns()}"
+            if folder.exists():
+                try:
+                    aside.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(folder, aside)
+                except OSError as e:
+                    logger.error(
+                        "Site not deleted",
+                        extra={"site": name, "why": "folder not moved aside", "error": str(e)},
+                    )
+                    return False
             kept = self._codes_kept
             if site.get("trial") and name not in kept:
                 kept = [*kept, name]
@@ -573,10 +631,7 @@ class SiteDirectory:
                 self._hosts.set_site(host, NO_SITE)
         for forget in self.on_deleted:
             forget(name)
-        folder = site_home(name, self.home)
-        shutil.rmtree(folder, ignore_errors=True)
-        if folder.exists():
-            logger.error("Site folder not removed", extra={"site": name, "path": str(folder)})
+        left = self.purge_deleted()
         logger.info(
             "Site deleted",
             extra={
@@ -585,10 +640,29 @@ class SiteDirectory:
                 "why": why,
                 "subdomain": _subdomain(name, site),
                 "trial": bool(site.get("trial")),
+                "files_removed": not any(p.name.startswith(f"{name}-") for p in left),
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
         return True
+
+    def purge_deleted(self) -> list[Path]:
+        """Remove the folders of deleted sites, moved aside as each was deleted (R69a): the ones
+        that couldn't be removed, logged, and tried again at the next sweep."""
+        aside = self.home / DELETED_FOLDER
+        left = []
+        for folder in sorted(aside.iterdir()) if aside.is_dir() else []:
+            try:
+                shutil.rmtree(folder)
+            except OSError as e:
+                logger.error(
+                    "Deleted site's files not removed yet",
+                    extra={"path": str(folder), "error": str(e)},
+                )
+                left.append(folder)
+            else:
+                logger.info("Deleted site's files removed", extra={"path": str(folder)})
+        return left
 
     def pause_to_delete(self, name: str) -> float | None:
         """Pause the site as its host asked to delete it (R69a): when it was paused, from which

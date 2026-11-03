@@ -379,3 +379,94 @@ def test_the_real_delete_request_sends_a_delete(monkeypatch: pytest.MonkeyPatch)
     }
     assert sent[0].get_method() == "DELETE"
     assert sent[0].headers["Authorization"] == "Bearer sk"
+
+
+def test_a_site_paid_for_again_during_the_sweep_is_kept(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The sweep picks a site paused too long; while Stripe is asked to cancel its unpaid
+    subscription, its host pays again with a new checkout. The site is kept, with its files
+    (Codex's review of PR #300)."""
+    fake, sites, service, dan, site, code = subscribed(tmp_path)
+    service.sites.subscription_changed("sub_1", "unpaid")  # paused, still kept at Stripe
+    main = TestClient(sites, base_url=MAIN)
+
+    def paid_meanwhile(url: str, key: str) -> dict[str, Any]:
+        assert send(main, completed(code, "sub_2")).is_success
+        answer: dict[str, Any] = fake.delete(url, key)
+        return answer
+
+    stripe = Stripe("sk_test", SECRET, "price_5gb", fake.post, delete=paid_meanwhile)
+    later = time.time() + 31 * DAY
+    with caplog.at_level(logging.WARNING):
+        assert delete_paused(service.sites, stripe, lambda: later) == []
+    assert service.sites.names() == [code] and service.sites.paused(code) is None
+    assert service.sites.subscribed(code)
+    assert (site_home(code, service.home) / "person.txt").exists()
+    whys = [r.__dict__.get("why") for r in caplog.records if r.message == "Site not deleted"]
+    assert whys == ["no longer paused long enough"]
+    assert any(r.message == "Subscription cancelled but site kept" for r in caplog.records)
+
+
+def test_the_sweep_checks_again_under_the_lock(tmp_path: Path) -> None:
+    fake, sites, service, dan, site, code = subscribed(tmp_path)
+    service.sites.subscription_changed("sub_1", "canceled")
+    paused_at = service.sites.paused_at(code)
+    assert paused_at is not None
+    cutoff = paused_at + 1e-6
+    while time.time() <= cutoff:  # so pausing again below is after the cutoff
+        pass
+    # Paid again with a new subscription: the old one is no longer the site's.
+    assert service.sites.subscribe(code, "sub_2", "cus_1")
+    assert not service.sites.delete(code, "test", paused_before=cutoff, subscription_id="sub_1")
+    # Paused again since, after the cutoff.
+    service.sites.subscription_changed("sub_2", "canceled")
+    assert not service.sites.delete(code, "test", paused_before=cutoff, subscription_id="sub_2")
+    assert service.sites.names() == [code]
+    assert service.sites.delete(
+        code, "test", paused_before=time.time() + 1, subscription_id="sub_2"
+    )
+
+
+def test_files_that_cant_be_removed_are_retried_at_the_next_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
+    import shutil
+
+    real_rmtree = shutil.rmtree
+
+    def locked(path: Any, *a: Any, **kw: Any) -> None:
+        raise PermissionError("a file is in use")
+
+    monkeypatch.setattr("imageskin.sites.shutil.rmtree", locked)
+    with caplog.at_level(logging.INFO):
+        assert service.sites.delete(code, "test")
+    # Gone from its address with its record, but its files wait aside, and the log says so.
+    assert service.sites.names() == [] and not site_home(code, service.home).exists()
+    aside = list((service.home / "deleted-sites").iterdir())
+    assert len(aside) == 1 and (aside[0] / "person.txt").exists()
+    assert any(r.message == "Deleted site's files not removed yet" for r in caplog.records)
+    logged = next(r for r in caplog.records if r.message == "Site deleted")
+    assert logged.__dict__["files_removed"] is False
+
+    monkeypatch.setattr("imageskin.sites.shutil.rmtree", real_rmtree)
+    with caplog.at_level(logging.INFO):
+        delete_paused(service.sites, None, time.time)
+    assert not aside[0].exists()
+    assert any(r.message == "Deleted site's files removed" for r in caplog.records)
+
+
+def test_a_folder_that_cant_be_moved_aside_keeps_the_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
+
+    def refused(*a: Any) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("imageskin.sites.os.replace", refused)
+    assert not service.sites.delete(code, "test")
+    monkeypatch.undo()
+    assert service.sites.names() == [code] and site_home(code, service.home).exists()
+    assert service.host_accounts.site_of(DAN) == code

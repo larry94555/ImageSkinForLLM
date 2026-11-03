@@ -16,6 +16,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 from imageskin.admin_settings import DELETE_DAYS
 from imageskin.payments import NOT_SET_UP, PaymentError, Stripe
@@ -28,11 +29,10 @@ SWEEP_EVERY_S = 60 * 60  # how often the server looks for sites paused too long
 PAUSED_TOO_LONG = "paused too long"
 
 
-def cancel_now(sites: SiteDirectory, payments: Stripe | None, name: str) -> None:
-    """Cancel the deleted site's subscription with Stripe, if Stripe still keeps one for it.
+def cancel_now(name: str, found: dict[str, Any] | None, payments: Stripe | None) -> None:
+    """Cancel the deleted site's subscription `found` with Stripe, if Stripe still keeps it.
     PaymentError when Stripe can't. Only for a site paused for the admin settings' days, which
     has no paid time left."""
-    found = sites.subscription(name)
     if found and found.get("id") and found.get("status") not in FINAL:
         if payments is None:
             logger.error(
@@ -43,12 +43,33 @@ def cancel_now(sites: SiteDirectory, payments: Stripe | None, name: str) -> None
         payments.cancel_now(name, str(found["id"]))
 
 
-def delete_site(sites: SiteDirectory, payments: Stripe | None, name: str, why: str) -> bool:
+def delete_site(
+    sites: SiteDirectory,
+    payments: Stripe | None,
+    name: str,
+    why: str,
+    paused_before: float | None = None,
+) -> bool:
     """Cancel the site's subscription with Stripe, if Stripe still keeps one for it, then delete
-    the site: whether it was there. PaymentError, with nothing deleted, when Stripe can't
-    cancel it."""
-    cancel_now(sites, payments, name)
-    return sites.delete(name, why)
+    the site: whether it was deleted. PaymentError, with nothing deleted, when Stripe can't
+    cancel it. With `paused_before`, for the sweep, only while the site is still paused since
+    before then with the same subscription, checked before Stripe is asked and again under the
+    site directory's lock as the record goes: a host who pays again meanwhile keeps their site
+    (Codex's review of PR #300)."""
+    found = sites.subscription(name)
+    subscription_id = None if not found or not found.get("id") else str(found["id"])
+    refused = sites.deletable(name, paused_before, subscription_id)
+    if refused is not None:
+        logger.warning("Site not deleted", extra={"site": name, "why": refused})
+        return False
+    cancel_now(name, found, payments)
+    deleted = sites.delete(name, why, paused_before, subscription_id)
+    if not deleted and found and found.get("status") not in FINAL:
+        logger.error(
+            "Subscription cancelled but site kept",
+            extra={"site": name, "subscription": subscription_id},
+        )
+    return deleted
 
 
 def delete_paused(
@@ -61,9 +82,11 @@ def delete_paused(
     subscription Stripe can't cancel now is kept, and tried again at the next sweep."""
     start = time.perf_counter()
     deleted = []
-    for name in sites.paused_since(now() - days * DAY_S):
+    sites.purge_deleted()  # retry the folders a failed removal left
+    cutoff = now() - days * DAY_S
+    for name in sites.paused_since(cutoff):
         try:
-            if delete_site(sites, payments, name, PAUSED_TOO_LONG):
+            if delete_site(sites, payments, name, PAUSED_TOO_LONG, paused_before=cutoff):
                 deleted.append(name)
         except PaymentError:
             logger.warning("Paused site kept for now", extra={"site": name, "why": "Stripe"})
