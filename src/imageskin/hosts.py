@@ -35,6 +35,10 @@ HOST_COOKIE = "imageskin_host"  # the cookie that keeps a host signed in (R188)
 # The site at the main address (R61): every host's until they are given a site of their own.
 DEFAULT_SITE = "default"
 SITE = "site"  # the host's site, kept with the host; none for the main address's
+# A host who signs in at another site's address goes to their own with a one-time link (R255),
+# good for this long *(default)*; at most this many are kept, the oldest dropped first.
+SIGN_IN_LINK_S = 60.0
+SIGN_IN_LINKS_KEPT = 1000
 MIN_PASSWORD = 10
 # Enough to catch a typo, not a full check: the confirmation email checks the address (R62b).
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -153,6 +157,8 @@ class HostAccounts:
         self._data: dict[str, Any] = {"hosts": {}, "sessions": {}}
         # The host an acting token acts as, while its administrator is signed in (R44a).
         self.acting: Callable[[str], str | None] | None = None
+        # One-time sign-in links to a host's own site, by their hash: the email and when (R255).
+        self._links: dict[str, tuple[str, float]] = {}
 
     def _load(self) -> dict[str, Any]:
         """The file's accounts and sign-ins, read again only when the file has changed;
@@ -345,6 +351,49 @@ class HostAccounts:
                 "address": address,
                 "took_ms": round((time.perf_counter() - start) * 1000),
             },
+        )
+        return token
+
+    def sign_in_link(self, email: str) -> str:
+        """A one-time link token that signs the host in at their own site (R255), made once their
+        password is checked at another site's address, whose cookie their site can't read."""
+        link = secrets.token_urlsafe(32)
+        now = self.clock()
+        with self._lock:
+            kept = {k: v for k, v in self._links.items() if now - v[1] <= SIGN_IN_LINK_S}
+            while len(kept) >= SIGN_IN_LINKS_KEPT:
+                del kept[min(kept, key=lambda k: kept[k][1])]
+            kept[token_key(link)] = (normal_email(email), now)
+            self._links = kept
+        return link
+
+    def open_sign_in_link(self, link: str, site: str, address: str) -> str | None:
+        """A new sign-in's token for the link's host, opened at their own `site`; the link then
+        works no more. None when it is unknown, used, too old, or not this site's host's."""
+        with self._lock:
+            found = self._links.pop(token_key(link), None)
+            why = None
+            if found is None:
+                why = "unknown link"
+            elif self.clock() - found[1] > SIGN_IN_LINK_S:
+                why = "link too old"
+            else:
+                data = self._load()
+                account = data["hosts"].get(found[0])
+                if account is None:
+                    why = "no such host"
+                elif account.get(SITE, DEFAULT_SITE) != site:
+                    why = "another site's host"
+                else:
+                    data = {**data, "sessions": {**data["sessions"]}}
+                    token = self._new_sign_in(data, found[0])
+                    self._save(data)
+        if why is not None or found is None:
+            logger.warning("Host sign-in link refused", extra={"why": why, "address": address})
+            return None
+        logger.info(
+            "Host signed in",
+            extra={"email": found[0], "address": address, "from": "another address"},
         )
         return token
 

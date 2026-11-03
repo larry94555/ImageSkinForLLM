@@ -247,15 +247,12 @@ def test_a_sites_name_comes_from_the_email_and_is_unique() -> None:
     assert site_name("...@example.com", set()) == "site"
 
 
-def test_a_moved_host_is_told_where_their_site_is(tmp_path: Path) -> None:
+def test_a_moved_host_is_sent_to_their_site(tmp_path: Path) -> None:
     sites, made, _ = served(tmp_path)
     main = TestClient(sites, base_url="http://www.localhost:8000")
-    told = main.post("/api/host/sign-in", json={"email": ANN, "password": PASSWORD})
-    assert told.status_code == 401
-    assert told.json() == {
-        "detail": "Your site is at a.localhost:8000. Sign in there.",
-        "site": "a",
-    }
+    sent = main.post("/api/host/sign-in", json={"email": ANN, "password": PASSWORD})
+    assert sent.status_code == 200 and sent.json()["site"] == "a"
+    assert sent.json()["sign_in_at"].startswith("http://a.localhost:8000/api/host/sign-in/")
     a = TestClient(sites, base_url="http://a.localhost:8000")
     assert sign_in(a, ANN) == 200
     assert a.post("/api/content", files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"))})

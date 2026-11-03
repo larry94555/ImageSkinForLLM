@@ -55,12 +55,13 @@ def origin_of(request: Request) -> str:
     return f"{'https' if https else 'http'}://{request.headers.get('host', 'localhost')}"
 
 
-def elsewhere(
+def site_address(
     request: Request, here: str, site: str, is_trial: Callable[[str], bool] = lambda _: False
 ) -> str:
-    """Where a host of another site signs in: the main address, their site's name in front of
-    it, or their trial site's path after it (R61a), from the address this request came to, which
-    is the site `here`'s."""
+    """Where a site is, with the scheme the browser used, from the address this request came
+    to, which is the site `here`'s: the main address, the site's name in front of it, or its
+    trial path after it (R61a). A host who signs in elsewhere is sent there (R255)."""
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     host = request.headers.get("host", "localhost")
     at_main = here == DEFAULT_SITE or is_trial(here)
     main = re.sub(r"^(www|app)\.", "", host) if at_main else host.split(".", 1)[-1]
@@ -70,7 +71,7 @@ def elsewhere(
         where = f"{main}/t/{site}"
     else:
         where = f"{site}.{main}"
-    return f"Your site is at {where}. Sign in there."
+    return f"{'https' if https else 'http'}://{where}"
 
 
 def host_router(
@@ -290,16 +291,51 @@ def host_router(
         try:
             token = accounts.sign_in(email, password, address(request), site)
         except HostElsewhere as e:
-            # The password was right: say where their site is (R61e).
+            # The password was right, at another site's address: the browser goes to the host's
+            # own site with a one-time link, which signs them in there (R255). A cookie set here
+            # wouldn't reach a site at another subdomain.
+            link = accounts.sign_in_link(email)
+            to = site_address(request, site, e.site, is_trial)
+            logger.info(
+                "Host sent to their own site",
+                extra={"email": normal_email(email), "here": site, "site": e.site, "to": to},
+            )
             return JSONResponse(
-                {"detail": elsewhere(request, site, e.site, is_trial), "site": e.site},
-                status_code=401,
+                {
+                    "signed_in": False,
+                    "email": normal_email(email),
+                    "site": e.site,
+                    "sign_in_at": f"{to}/api/host/sign-in/{link}",
+                }
             )
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         return signed_in(request, token, email)
+
+    @router.get("/sign-in/{link}", response_model=None)
+    def open_sign_in_link(request: Request, link: str) -> RedirectResponse:
+        """The one-time link from a sign-in at another address (R255): signed in here, the
+        host's own site, with the cookie that keeps them so, then its home page. A link that
+        doesn't work goes to Host sign in."""
+        root = request.scope.get("root_path", "")
+        token = accounts.open_sign_in_link(link, site, address(request))
+        if token is None:
+            return RedirectResponse(f"{root}/#/host/sign-in", status_code=303)
+        response = RedirectResponse(f"{root}/#/", status_code=303)
+        https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        # The site's own host cookie, renamed for a trial site by `SiteApps`, as at sign-in.
+        response.set_cookie(
+            COOKIE,
+            token,
+            max_age=COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="strict",
+            secure=https,
+            path="/",
+        )
+        return response
 
     @router.post("/sign-out")
     def sign_out(request: Request, token: Token = None) -> JSONResponse:

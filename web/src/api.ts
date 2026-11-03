@@ -1330,6 +1330,9 @@ export interface HostSession {
   email: string | null;
   // After signing up at the main address: the new site's page, at its trial path (R62).
   go_to?: string;
+  // After signing in at another site's address: a one-time link that signs the host in at their
+  // own site, which the browser goes to (R255).
+  sign_in_at?: string;
   // False until a customer who signed up at the main address confirms their email (R62b).
   confirmed?: boolean;
   // True when this is the administrator acting as the host (roadmap R44a), for the bar (R44b).

@@ -2892,6 +2892,11 @@ function HostProvider({ children }) {
 		const started = performance.now();
 		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
 		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		if (signedIn.sign_in_at) {
+			console.info("Host sent to their own site to sign in");
+			goTo(signedIn.sign_in_at);
+			return true;
+		}
 		if (signedIn.go_to) {
 			console.info(`Host's new site: ${signedIn.go_to}`);
 			goTo(`${signedIn.go_to}#/setup`);
