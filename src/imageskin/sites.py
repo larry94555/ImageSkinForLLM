@@ -135,6 +135,11 @@ class SiteError(Exception):
 
 # Stripe's statuses of a subscription in force (R67).
 ACTIVE = ("active", "trialing", "past_due")
+# Stripe's statuses of a subscription it has ended, which pause its site (R69).
+ENDED = ("canceled", "unpaid", "incomplete_expired")
+# Why a site whose subscription ended is paused, and when a cancelled one ends (R69).
+SUBSCRIPTION_ENDED = "subscription ended"
+ENDS_AT = "ends_at"
 # Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
 SUBSCRIPTIONS_HAD = "subscriptions_had"
 
@@ -417,9 +422,14 @@ class SiteDirectory:
         )
         return True
 
-    def subscription_changed(self, subscription_id: str, status: str) -> str | None:
-        """Record a subscription's new status from Stripe's event (R67): the site's name, or None
-        for a subscription no site has. What a cancelled or unpaid one does is R69's."""
+    def subscription_changed(
+        self, subscription_id: str, status: str, ends_at: float | None = None
+    ) -> str | None:
+        """Record a subscription's new status from Stripe's event (R67), and when it ends if it
+        is cancelled (R69): the site's name, or None for a subscription no site has. A
+        subscription Stripe has ended pauses its site (R69), which visitors then see; its host
+        can still sign in and subscribe again. A failed renewal (`past_due`) keeps the site
+        working while Stripe tries again, with a notice to its host only."""
         with self._lock:
             sites = dict(self._load())
             name = next(
@@ -432,16 +442,37 @@ class SiteDirectory:
             )
             if name is None:
                 return None
-            sites[name] = {
-                **sites[name],
-                "subscription": {**sites[name]["subscription"], "status": status},
-            }
+            site = dict(sites[name])
+            site["subscription"] = {**site["subscription"], "status": status, ENDS_AT: ends_at}
+            pause = status in ENDED and not site.get("paused")
+            if pause:
+                site.update(paused=SUBSCRIPTION_ENDED, paused_at=time.time())
+            sites[name] = site
             self._write(sites)
         logger.info(
             "Subscription changed",
-            extra={"site": name, "subscription": subscription_id, "status": status},
+            extra={
+                "site": name,
+                "subscription": subscription_id,
+                "status": status,
+                "ends_at": ends_at,
+            },
         )
+        if pause:
+            logger.info("Site paused", extra={"site": name, "why": SUBSCRIPTION_ENDED})
         return name
+
+    def set_ends_at(self, name: str, ends_at: float | None) -> bool:
+        """Record when the site's subscription ends, as its host cancelled it or kept it after
+        all (R69), before Stripe's event says so too: whether it has a subscription."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None or not site.get("subscription"):
+                return False
+            sites[name] = {**site, "subscription": {**site["subscription"], ENDS_AT: ends_at}}
+            self._write(sites)
+        return True
 
     def set_host(self, name: str, email: str, new_email: str) -> bool:
         """Give the site the host's new email (R62c), if `email` is its host: whether it did."""

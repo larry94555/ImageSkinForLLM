@@ -624,6 +624,11 @@ async function reportRecording(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function setSubscriptionCancelled(cancel) {
+	const response = await fetch(`/api/site/subscription/${cancel ? "cancel" : "keep"}`, { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).ends_at;
+}
 async function checkSubdomain(name) {
 	const query = new URLSearchParams({ name });
 	return json(await fetch(`/api/site/subdomain/check?${query}`));
@@ -2253,14 +2258,23 @@ function SubscriptionSection() {
 				id: "settings-subscription",
 				children: "Subscription"
 			}),
-			subscription.subscribed ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
-				role: "status",
-				children: [
-					"Subscribed: ",
-					subscription.price,
-					"."
-				]
-			}), subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {})] }) : /* @__PURE__ */ u("div", {
+			subscription.subscribed ? /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("p", {
+					role: "status",
+					children: [
+						"Subscribed: ",
+						subscription.price,
+						"."
+					]
+				}),
+				subscription.payment_failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					role: "alert",
+					children: "Your last payment didn't go through. Stripe will try your card again over the next few days, and your site keeps working meanwhile."
+				}),
+				subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
+				/* @__PURE__ */ u(CancelSubscription, { endsAt: subscription.ends_at ?? null })
+			] }) : /* @__PURE__ */ u("div", {
 				className: "switch",
 				children: [
 					/* @__PURE__ */ u("button", {
@@ -2289,6 +2303,78 @@ function SubscriptionSection() {
 			})
 		]
 	}), address] });
+}
+function endDay(seconds) {
+	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleDateString(void 0, { dateStyle: "long" });
+}
+function CancelSubscription({ endsAt }) {
+	const [ends, setEnds] = d(endsAt);
+	const [asking, setAsking] = d(false);
+	const [busy, setBusy] = d(false);
+	const [failed, setFailed] = d(null);
+	async function change(cancel) {
+		setAsking(false);
+		setBusy(true);
+		setFailed(null);
+		try {
+			const when = await setSubscriptionCancelled(cancel);
+			console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
+			setEnds(when);
+		} catch (e) {
+			console.error("Could not change the subscription", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
+		}
+		setBusy(false);
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "switch",
+		children: [
+			ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Cancelled: your site keeps working until ",
+					endDay(ends),
+					", then pauses. Visitors then see that it is paused, and you can still sign in and subscribe again."
+				]
+			}), /* @__PURE__ */ u("button", {
+				type: "button",
+				disabled: busy,
+				onClick: () => change(false),
+				children: "Keep my subscription"
+			})] }) : /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "remove",
+				disabled: busy,
+				onClick: () => {
+					console.info("Cancel subscription: asking to confirm");
+					setAsking(true);
+				},
+				children: "Cancel subscription"
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Your site keeps working until the end of the month paid for, then pauses. It asks first."
+			})] }),
+			busy && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Asking Stripe…"
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to cancel your subscription?",
+				keepLabel: "No, keep it",
+				confirmLabel: "Yes, cancel it",
+				onCancel: () => {
+					console.info("Cancel subscription: kept");
+					setAsking(false);
+				},
+				onConfirm: () => change(true),
+				children: [/* @__PURE__ */ u("p", { children: "Your site keeps working until the end of the month paid for, then pauses." }), /* @__PURE__ */ u("p", { children: "Until then, you can keep your subscription after all." })]
+			})
+		]
+	});
 }
 function SubdomainPicker({ current }) {
 	const [name, setName] = d("");

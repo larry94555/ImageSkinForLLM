@@ -139,6 +139,8 @@ def test_a_host_subscribes_on_stripes_page_and_the_event_records_it(
         "price": SUBSCRIPTION,
         "status": None,
         "subscribed": False,
+        "ends_at": None,
+        "payment_failed": False,
         "subdomain": None,
         "pick_subdomain": False,
         "change_subdomain": False,

@@ -112,6 +112,40 @@ class Stripe:
         )
         return str(session["url"])
 
+    def set_cancel(self, site: str, subscription_id: str, cancel: bool) -> float | None:
+        """Cancel the subscription at the end of the period paid for, or keep it after all (R69):
+        when it ends, or None when it is kept. Stripe then sends the subscription's change, and,
+        at the end, its deletion, which pauses the site."""
+        start = time.perf_counter()
+        form = {"cancel_at_period_end": "true" if cancel else "false"}
+        try:
+            answer = self.post(f"{API}/subscriptions/{subscription_id}", form, self.secret_key)
+        except urllib.error.HTTPError as e:
+            logger.error(
+                "Stripe refused the cancellation",
+                extra={
+                    "site": site,
+                    "cancel": cancel,
+                    "status": e.code,
+                    "error": e.read()[:500].decode(errors="replace"),
+                },
+            )
+            raise PaymentError(UNAVAILABLE) from e
+        except (OSError, ValueError) as e:
+            logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
+            raise PaymentError(UNAVAILABLE) from e
+        ends = ends_at(answer) if cancel else None
+        logger.info(
+            "Subscription cancelled" if cancel else "Subscription kept",
+            extra={
+                "site": site,
+                "subscription": subscription_id,
+                "ends_at": ends,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return ends
+
     def event(self, body: bytes, signature: str | None) -> dict[str, Any]:
         """The event Stripe sent, once its Stripe-Signature header is checked: signed with the
         webhook's secret, recently. BadEvent otherwise."""
@@ -136,6 +170,23 @@ class Stripe:
         except (ValueError, KeyError, TypeError) as e:
             raise BadEvent("not an event") from e
         return event
+
+
+def ends_at(subscription: dict[str, Any]) -> float | None:
+    """When a subscription set to cancel ends, from Stripe's subscription object: its
+    `cancel_at`, or the end of the period paid for, which newer API versions keep on its item.
+    None when it isn't set to end."""
+    if not subscription.get("cancel_at_period_end") and not subscription.get("cancel_at"):
+        return None
+    items = (subscription.get("items") or {}).get("data") or [{}]
+    for when in (
+        subscription.get("cancel_at"),
+        subscription.get("current_period_end"),
+        items[0].get("current_period_end"),
+    ):
+        if isinstance(when, int | float):
+            return float(when)
+    return None
 
 
 def stripe_from_environment() -> Stripe | None:

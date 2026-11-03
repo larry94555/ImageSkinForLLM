@@ -136,7 +136,7 @@ from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.password_reset import reset_router
 from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
-from imageskin.payments import SUBSCRIPTION, BadEvent, PaymentError
+from imageskin.payments import SUBSCRIPTION, BadEvent, PaymentError, ends_at
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -889,6 +889,9 @@ def create_app(
             "price": SUBSCRIPTION,
             "status": found and found.get("status"),
             "subscribed": subscribed,
+            # When a cancelled subscription ends, and a failed renewal Stripe retries (R69).
+            "ends_at": (found or {}).get("ends_at") if subscribed else None,
+            "payment_failed": (found or {}).get("status") == "past_due",
             # The site's subdomain, or, once a trial is paid for, that its host picks one (R63).
             "subdomain": service.sites.subdomain(host_site),
             "pick_subdomain": subscribed and service.sites.is_trial(host_site),
@@ -935,6 +938,35 @@ def create_app(
             answer["sign_in_at"] = f"{address}/api/host/sign-in/{link}"
         return answer
 
+    def cancelling(host: Host, cancel: bool) -> dict[str, object]:
+        """Cancel the site's subscription at the end of the period paid for, or keep it after
+        all (R69): when it ends, or None once kept. The site works until then; Stripe's event
+        at the end pauses it."""
+        found = service.sites.subscription(host_site)
+        if not service.sites.subscribed(host_site) or not found:
+            logger.warning(
+                "Subscription not changed", extra={"site": host_site, "why": "not subscribed"}
+            )
+            raise HTTPException(status_code=409, detail="This site has no subscription to change.")
+        if service.payments is None:
+            raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+        try:
+            ends = service.payments.set_cancel(host_site, str(found["id"]), cancel)
+        except PaymentError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        service.sites.set_ends_at(host_site, ends)
+        return {"ends_at": ends}
+
+    @app.post("/api/site/subscription/cancel")
+    def cancel_subscription(host: SignedInHost) -> dict[str, object]:
+        """Cancel from Settings (R69): the site keeps working until the period paid for ends."""
+        return cancelling(host, cancel=True)
+
+    @app.post("/api/site/subscription/keep")
+    def keep_subscription(host: SignedInHost) -> dict[str, object]:
+        """Keep a cancelled subscription after all, before it ends (R69)."""
+        return cancelling(host, cancel=False)
+
     @app.post("/api/site/subscribe")
     def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:
         """Start subscribing on Stripe's page (R67): its address, which the browser goes to.
@@ -979,8 +1011,10 @@ def create_app(
                     ):
                         logger.error("Subscription for no site", extra={"site": site})
             elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
+                # A deleted subscription has ended, whatever end it was set to (R69).
+                ends = None if kind.endswith("deleted") else ends_at(thing)
                 site = service.sites.subscription_changed(
-                    str(thing.get("id")), str(thing.get("status"))
+                    str(thing.get("id")), str(thing.get("status")), ends
                 )
             return {"received": True}
 
