@@ -260,3 +260,35 @@ def test_the_subdomain_guide_and_checklist_are_there_and_linked() -> None:
     readme = text(DEPLOY / "README.md")
     assert "(../docs/guides/Subdomain-Setup-Guide.md)" in readme
     assert "(../docs/guides/Subdomain-Setup-Checklist.md)" in readme
+
+
+def test_stripe_reaches_its_events_path_without_the_password() -> None:
+    # Stripe's servers send subscription events with no password (roadmap R67); the app checks
+    # each one's signature. Since R71 nothing is behind a password, so the path needs no handle
+    # of its own and goes to the app with everything else.
+    caddyfile = text(DEPLOY / "Caddyfile")
+    snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
+    assert "basic_auth" not in snippet and "handle /api/" not in snippet
+
+
+def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> None:
+    compose = text(DEPLOY / "compose.yaml")
+    app = compose.split("\n  app:")[1].split("\n  llama:")[0]
+    example = set(re.findall(r"^(\w+)=", text(DEPLOY / ".env.example"), re.MULTILINE))
+    for name in ("IMAGESKIN_STRIPE_SECRET_KEY", "IMAGESKIN_STRIPE_WEBHOOK_SECRET"):
+        assert f"{name}: ${{{name}:-}}" in app
+        assert name in example
+    assert load_settings(DEPLOY / "config.toml").stripe_price_id == ""  # commented out until set
+    assert '# stripe_price_id = "' in text(DEPLOY / "config.toml")
+    readme = text(DEPLOY / "README.md")
+    assert "## 9. Turn on subscribing (Stripe)" in readme
+    for event in (
+        "checkout.session.completed",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        assert event in readme
+    assert "/api/payments/stripe/events" in readme
+    # Caddy needs the subdomain setup's two lines first (R71a), so step 9 says so.
+    step9 = readme.split("## 9. Turn on subscribing (Stripe)")[1].split("\n## ")[0]
+    assert "Subdomain-Setup-Guide.md" in step9 and "CLOUDFLARE_API_TOKEN" in step9

@@ -23,3 +23,7 @@ trusted_proxies = "*"
 # site is at name.<it>. Requests to any other name are answered Site not found, so set it to
 # SITE_ADDRESS's domain when it isn't on me0.ai (for an sslip.io address, the whole address).
 main_domain = "me0.ai"
+
+# Subscribing (roadmap R67): the monthly price's ID from Stripe, such as "price_1Q...". The secret
+# key and the webhook's signing secret go in .env, never here (README.md, "Turn on subscribing").
+# stripe_price_id = "price_paste_it_here"

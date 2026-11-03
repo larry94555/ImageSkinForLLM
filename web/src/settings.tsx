@@ -14,6 +14,7 @@ import { ChangeSetup } from "./change-setup";
 import { ChatGptPlanSection } from "./chatgpt-plan";
 import { DeleteData } from "./delete-data";
 import { LlmSettingSection } from "./llm-setting";
+import { SubscriptionSection } from "./subscription";
 import { VideoAndChat } from "./video-and-chat";
 import { YourFiles } from "./your-files";
 
@@ -262,7 +263,8 @@ export function SettingsPage({
       <VideoAndChat />
       {/* The photos and recordings are the host's (R41b), so only they can delete them. */}
       {settings.view === "host" && <DeleteData onDeleted={onDataDeleted} />}
-      {/* A free trial's host cancels it here (R66). */}
+      {/* Subscribing (R67), and a free trial's host cancels it here (R66). */}
+      <SubscriptionSection />
       <CancelTrial />
       </ReadOnly>
       {/* In either view: the admin view is apart from both (R150). */}

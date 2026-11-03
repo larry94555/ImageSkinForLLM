@@ -19,6 +19,10 @@ services:
       # A Hugging Face read token, for Pocket TTS's weights that clone a voice (R160, README.md
       # here, step 6d). Without one, the person's own voice is spoken with Chatterbox, slower.
       HF_TOKEN: ${HF_TOKEN:-}
+      # Stripe's secret key and the webhook's signing secret, for subscribing (R67, README.md
+      # here, "Turn on subscribing"). Without them, Subscribe says it isn't set up yet.
+      IMAGESKIN_STRIPE_SECRET_KEY: ${IMAGESKIN_STRIPE_SECRET_KEY:-}
+      IMAGESKIN_STRIPE_WEBHOOK_SECRET: ${IMAGESKIN_STRIPE_WEBHOOK_SECRET:-}
       # Where the LLM's models folder (/models below) is on the machine itself, for the admin
       # dashboard's disk (R175): Docker keeps the llama-models volume there.
       IMAGESKIN_LLM_MODELS_ON_HOST: /models:/var/lib/docker/volumes/imageskin_llama-models/_data
