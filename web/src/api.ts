@@ -1358,6 +1358,8 @@ export interface Subscription {
   subdomain?: string | null;
   // True once a trial is paid for: its host picks its subdomain (R63).
   pick_subdomain?: boolean;
+  // True for a site with its own subdomain, which its host can change (R64).
+  change_subdomain?: boolean;
 }
 
 // Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.
@@ -1371,7 +1373,7 @@ export async function checkSubdomain(name: string): Promise<SubdomainCheck> {
   return json<SubdomainCheck>(await fetch(`/api/site/subdomain/check?${query}`));
 }
 
-// Picks the paid trial's subdomain (R63): its address, and a one-time link that signs the host
+// Picks the paid trial's subdomain (R63), or changes the site's (R64): its address, and a one-time link that signs the host
 // in there (R255). Throws a ServerRefusal saying why not.
 export interface PickedSubdomain {
   subdomain: string;

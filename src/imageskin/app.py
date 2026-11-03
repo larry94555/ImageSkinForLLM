@@ -892,6 +892,8 @@ def create_app(
             # The site's subdomain, or, once a trial is paid for, that its host picks one (R63).
             "subdomain": service.sites.subdomain(host_site),
             "pick_subdomain": subscribed and service.sites.is_trial(host_site),
+            # A site with its subdomain can change it (R64).
+            "change_subdomain": service.sites.subdomain(host_site) is not None,
         }
 
     @app.get("/api/site/subdomain/check")
@@ -902,19 +904,30 @@ def create_app(
         return {"name": name, "problem": service.sites.name_problem(name)}
 
     @app.post("/api/site/subdomain")
-    def pick_subdomain(
+    def set_subdomain(
         request: Request, host: SignedInHost, name: Annotated[str, Body(embed=True)]
     ) -> dict[str, object]:
-        """Pick the subscribed trial site's subdomain (R63): its address, and a one-time link
-        that signs the host in there (R255), as the trial path's cookie isn't sent to it. The
-        administrator acting as the host gets the address only, and acts as them again there."""
+        """Pick the subscribed trial site's subdomain (R63), or change the one it has (R64): its
+        address, and a one-time link that signs the host in there (R255), as this address's
+        cookie isn't sent to it. The administrator acting as the host gets the address only, and
+        acts as them again there."""
+        if host_site == DEFAULT_SITE:
+            raise HTTPException(status_code=409, detail="The main address keeps its address.")
+        trial = service.sites.is_trial(host_site)
         try:
-            picked = service.sites.pick_subdomain(host_site, name)
+            if trial:
+                picked = service.sites.pick_subdomain(host_site, name)
+            else:
+                picked = service.sites.change_subdomain(host_site, name)[1]
         except SiteError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
-        # The trial path is at the main address, so the subdomain is worked out from there.
+        # From the trial path, at the main address, or from the site's old subdomain.
         address = site_address(
-            request, DEFAULT_SITE, host_site, service.sites.is_trial, service.sites.subdomain
+            request,
+            DEFAULT_SITE if trial else host_site,
+            host_site,
+            service.sites.is_trial,
+            service.sites.subdomain,
         )
         answer: dict[str, object] = {"subdomain": picked, "address": address}
         if not host.acting:
