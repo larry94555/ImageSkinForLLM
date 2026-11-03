@@ -48,7 +48,10 @@ export function SubscriptionSection() {
     </section>
   );
   // Any site but the main address's can be deleted by its host (R69a).
-  const deletion = subscription.deletable && <DeleteSite />;
+  const days = subscription.days_before_deleting ?? 30;
+  const deletion = subscription.deletable && (
+    <DeleteSite days={days} deletesAt={subscription.deletes_at ?? null} />
+  );
   if (!subscription.subscribed && !subscription.available) {
     return address || deletion ? (
       <>
@@ -86,7 +89,7 @@ export function SubscriptionSection() {
             </p>
           )}
           {subscription.pick_subdomain && <SubdomainPicker />}
-          <CancelSubscription endsAt={subscription.ends_at ?? null} />
+          <CancelSubscription endsAt={subscription.ends_at ?? null} days={days} />
         </>
       ) : (
         <div className="switch">
@@ -115,7 +118,7 @@ export function endDay(seconds: number): string {
 
 // Cancel, for a subscribed site (roadmap R69): the site keeps working until the end of the
 // period paid for, then pauses; until then, Keep my subscription undoes it.
-function CancelSubscription({ endsAt }: { endsAt: number | null }) {
+function CancelSubscription({ endsAt, days }: { endsAt: number | null; days: number }) {
   const [ends, setEnds] = useState<number | null>(endsAt);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -142,7 +145,8 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
         <>
           <p role="status">
             Cancelled: your site keeps working until {endDay(ends)}, then pauses. Visitors then
-            see that it is paused, and you can still sign in and subscribe again.
+            see that it is paused, and you can still sign in and subscribe again. You then have{" "}
+            {days} days before its content is deleted.
           </p>
           <button type="button" disabled={busy} onClick={() => change(false)}>
             Keep my subscription
@@ -162,8 +166,8 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
             Cancel subscription
           </button>
           <p className="muted">
-            Your site keeps working until the end of the month paid for, then pauses. It asks
-            first.
+            Your site keeps working until the end of the month paid for, then pauses. You then
+            have {days} days to subscribe again before its content is deleted. It asks first.
           </p>
         </>
       )}
@@ -181,7 +185,10 @@ function CancelSubscription({ endsAt }: { endsAt: number | null }) {
           onConfirm={() => change(true)}
         >
           <p>Your site keeps working until the end of the month paid for, then pauses.</p>
-          <p>Until then, you can keep your subscription after all.</p>
+          <p>
+            Until then, you can keep your subscription after all. Once it pauses, you have {days}{" "}
+            days to subscribe again before its content is deleted.
+          </p>
         </ConfirmDialog>
       )}
     </div>

@@ -168,7 +168,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.site_deletion import delete_site
+from imageskin.site_deletion import pause_to_delete
 from imageskin.sites import Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
@@ -900,6 +900,9 @@ def create_app(
             "change_subdomain": service.sites.subdomain(host_site) is not None,
             # Any site but the main address's can be deleted by its host (R69a).
             "deletable": host_site != DEFAULT_SITE,
+            # The days a paused site is kept, and when this one's content is deleted (R69a).
+            "days_before_deleting": admin_settings.current.days_before_deleting,
+            "deletes_at": deletes_at(),
         }
 
     @app.get("/api/site/subdomain/check")
@@ -970,13 +973,21 @@ def create_app(
         """Keep a cancelled subscription after all, before it ends (R69)."""
         return cancelling(host, cancel=False)
 
+    def deletes_at() -> float | None:
+        """When the paused site's content is deleted (R69a): the admin settings' days after it
+        paused, or None while it runs."""
+        at = service.sites.paused_at(host_site)
+        days = admin_settings.current.days_before_deleting
+        return None if at is None else at + days * 24 * 60 * 60
+
     @app.post("/api/site/delete")
     def delete_this_site(
         host: SignedInHost, password: Annotated[str, Body(embed=True, max_length=1000)]
-    ) -> dict[str, bool]:
-        """Delete the site from Settings (R69a), once its host gives their password: its
-        subscription is cancelled at once, then its folder and everything in it go. Its host's
-        account is kept, so they can sign in and resume (R69b), and their sign-ins end."""
+    ) -> dict[str, object]:
+        """Delete site, from Settings (R69a), once its host gives their password: never at once
+        (Larry, 2026-11-03). Its subscription is cancelled now, so nothing more is charged, and
+        the site is paused; its content is deleted after the admin settings' days. Until then
+        its host signs in, and subscribing again brings it back: when it is deleted."""
         if host_site == DEFAULT_SITE:
             raise HTTPException(status_code=409, detail="The main address can't be deleted.")
         # The administrator acting as the host gives their own password (R44b).
@@ -991,14 +1002,17 @@ def create_app(
                 extra={"site": host_site, "email": host.email, "why": "wrong password"},
             )
             raise HTTPException(status_code=401, detail=WRONG_PASSWORD)
-        why = "the administrator, acting as its host" if host.acting else "its host"
         try:
-            deleted = delete_site(service.sites, service.payments, host_site, why)
+            paused = pause_to_delete(service.sites, service.payments, host_site)
         except PaymentError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
-        if not deleted:
+        if paused is None:
             raise HTTPException(status_code=404, detail="This site was deleted already.")
-        return {"deleted": True}
+        logger.info(
+            "Site deletion asked",
+            extra={"site": host_site, "acting": host.acting, "deletes_at": deletes_at()},
+        )
+        return {"paused": True, "deletes_at": deletes_at()}
 
     @app.post("/api/site/subscribe")
     def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:

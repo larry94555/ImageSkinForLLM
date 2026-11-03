@@ -1,27 +1,35 @@
-// Delete site, on the Settings page (roadmap R69a): its host deletes the site for good, after a
-// confirmation with their password. Its subscription is cancelled at once and everything on it
-// goes; their account is kept, so they can sign in and start again (R69b).
+// Delete site, on the Settings page (roadmap R69a): never at once (Larry, 2026-11-03). After a
+// confirmation with the host's password, any subscription is cancelled now and the site paused;
+// its content is deleted after the admin settings' days, so a host who changes their mind can
+// still come back by subscribing again. Their account is kept either way (R69b).
 
 import { useState } from "preact/hooks";
 
 import { deleteSite, ServerRefusal } from "./api";
 import { ConfirmDialog } from "./confirm-dialog";
+import { endDay } from "./subscription";
 
-export function DeleteSite() {
+interface Props {
+  days: number; // how long a paused site is kept, from the admin settings
+  deletesAt: number | null; // when this site's content is deleted, once it is paused
+}
+
+export function DeleteSite({ days, deletesAt }: Props) {
   const [asking, setAsking] = useState(false);
   const [password, setPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [deleted, setDeleted] = useState(false);
+  const [when, setWhen] = useState<number | null>(deletesAt);
   const [failed, setFailed] = useState<string | null>(null);
+  const kept = `${days} day${days === 1 ? "" : "s"}`;
 
   async function remove() {
     setAsking(false);
     setDeleting(true);
     setFailed(null);
     try {
-      await deleteSite(password);
-      console.info("Site deleted");
-      setDeleted(true);
+      const at = await deleteSite(password);
+      console.info("Site deletion asked: it is deleted at", at);
+      setWhen(at);
     } catch (e) {
       console.error("Could not delete the site", e);
       setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
@@ -33,10 +41,10 @@ export function DeleteSite() {
   return (
     <section className="panel" aria-labelledby="settings-delete-site">
       <h2 id="settings-delete-site">Delete site</h2>
-      {deleted ? (
+      {when !== null ? (
         <p role="status">
-          Your site is deleted, with everything on it, and its address is free. Your account is
-          kept, so you can sign in and start again.
+          Your site is paused, and everything on it will be deleted on {endDay(when)}. Until then
+          you can sign in and subscribe again to bring it back. Your account is kept either way.
         </p>
       ) : (
         <div className="switch">
@@ -52,8 +60,9 @@ export function DeleteSite() {
             Delete site
           </button>
           <p className="muted">
-            Deletes your site for good: its person, files and address, and cancels any
-            subscription at once. Your account is kept. It asks first.
+            Cancels any subscription and pauses your site now. Its person, files and address are
+            deleted {kept} later, unless you subscribe again first. Your account is kept. It asks
+            first.
           </p>
           {deleting && <p className="muted busy">Deleting…</p>}
         </div>
@@ -72,8 +81,9 @@ export function DeleteSite() {
           onConfirm={remove}
         >
           <p>
-            Everything on it goes and can't be brought back. Any subscription is cancelled at
-            once, with no more payments.
+            Any subscription is cancelled now, with no more payments, and your site is paused.
+            You have {kept} to change your mind by subscribing again; then everything on it is
+            deleted and can't be brought back.
           </p>
           <label htmlFor="delete-site-password">Your password, to confirm</label>
           <input

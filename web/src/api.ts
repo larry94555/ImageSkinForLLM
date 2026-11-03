@@ -1192,11 +1192,14 @@ export interface AdminSettings {
   thresholds: Thresholds;
   disable_custom_image: boolean;
   disable_custom_voice: boolean;
+  // Days a paused site is kept before its content is deleted (R69a), 30 to begin with.
+  days_before_deleting: number;
   recommended: {
     timeout_minutes: number;
     thresholds: Thresholds;
     disable_custom_image: boolean;
     disable_custom_voice: boolean;
+    days_before_deleting: number;
   };
 }
 
@@ -1260,7 +1263,10 @@ export async function setHostDisabled(email: string, disabled: boolean): Promise
 // Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
 export async function saveAdminSettings(
   changes: Partial<
-    Pick<AdminSettings, "timeout_minutes" | "thresholds" | "disable_custom_image" | "disable_custom_voice">
+    Pick<
+      AdminSettings,
+      "timeout_minutes" | "thresholds" | "disable_custom_image" | "disable_custom_voice" | "days_before_deleting"
+    >
   >,
 ): Promise<AdminSettings> {
   const response = await fetch("/api/admin/settings", {
@@ -1362,6 +1368,10 @@ export interface Subscription {
   change_subdomain?: boolean;
   // True for any site but the main address's, which its host can delete (R69a).
   deletable?: boolean;
+  // The days a paused site is kept before its content is deleted, from the admin settings, and
+  // when this site's is, in seconds since 1970, once it is paused (R69a).
+  days_before_deleting?: number;
+  deletes_at?: number | null;
   // When a cancelled subscription ends, in seconds since 1970, or null (R69).
   ends_at?: number | null;
   // True while Stripe retries a renewal that failed (R69).
@@ -1378,15 +1388,17 @@ export async function setSubscriptionCancelled(cancel: boolean): Promise<number 
   return ((await response.json()) as { ends_at: number | null }).ends_at;
 }
 
-// Deletes the site (R69a), once its host gives their password: its subscription is cancelled at
-// once, then everything on it goes. Throws a ServerRefusal saying why not.
-export async function deleteSite(password: string): Promise<void> {
+// Delete site (R69a), once its host gives their password: its subscription is cancelled now and
+// the site paused; its content is deleted later, at the time answered, in seconds since 1970.
+// Throws a ServerRefusal saying why not.
+export async function deleteSite(password: string): Promise<number | null> {
   const response = await fetch("/api/site/delete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { deletes_at: number | null }).deletes_at;
 }
 
 // Whether a subdomain can be had (R63): the name as it would be kept, and why not, or null.

@@ -1,11 +1,14 @@
 // Deleting a site (roadmap R69a): Settings asks first, with the host's password, then says the
-// site is deleted and the account kept; a wrong password or Stripe's refusal is said, and the
-// main address has no Delete site.
+// site is paused and when its content is deleted, after the admin settings' days; a wrong
+// password or Stripe's refusal is said, and the main address has no Delete site.
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
+import { endDay } from "./subscription";
+
+const DELETES = 1_796_000_000;
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -32,11 +35,13 @@ function server({
           status: null,
           subscribed: false,
           deletable,
+          days_before_deleting: 7,
+          deletes_at: null,
         });
       }
       if (url === "/api/site/delete") {
         if (refusal) return Response.json({ detail: refusal.detail }, { status: refusal.status });
-        return Response.json({ deleted: true });
+        return Response.json({ paused: true, deletes_at: DELETES });
       }
       return new Response("", { status: 404 });
     }),
@@ -63,12 +68,15 @@ async function panel() {
   return within(await screen.findByRole("region", { name: "Delete site" }));
 }
 
-test("Delete site asks first, with the password, then says the account is kept", async () => {
+test("Delete site asks first, with the password, then says when the content goes", async () => {
   const asked = server();
   const section = await panel();
+  // The days come from the admin settings.
+  expect(section.getByText(/deleted 7 days later/)).toBeTruthy();
   fireEvent.click(section.getByRole("button", { name: "Delete site" }));
   const dialog = within(await screen.findByRole("alertdialog"));
   expect(dialog.getByText("Are you sure you want to delete your site?")).toBeTruthy();
+  expect(dialog.getByText(/You have 7 days to change your mind/)).toBeTruthy();
   // Backing out deletes nothing.
   fireEvent.click(dialog.getByRole("button", { name: "No, keep my site" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -80,7 +88,9 @@ test("Delete site asks first, with the password, then says the account is kept",
     target: { value: "a long secret" },
   });
   fireEvent.click(again.getByRole("button", { name: "Yes, delete it" }));
-  expect((await section.findByRole("status")).textContent).toContain("Your account is kept");
+  const status = (await section.findByRole("status")).textContent;
+  expect(status).toContain(`will be deleted on ${endDay(DELETES)}`);
+  expect(status).toContain("subscribe again to bring it back");
   expect(asked).toContain('POST /api/site/delete {"password":"a long secret"}');
   expect(section.queryByRole("button", { name: "Delete site" })).toBeNull();
 });

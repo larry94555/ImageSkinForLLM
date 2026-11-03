@@ -146,8 +146,9 @@ FINAL = ("canceled", "incomplete_expired")
 EVENT_AT = "event_at"
 # Every Stripe subscription id a site has had, so an old checkout can't bring one back (R67).
 SUBSCRIPTIONS_HAD = "subscriptions_had"
-# A site paused this long is deleted (R69a), unless its host subscribes again first.
-PAUSED_DAYS_KEPT = 30
+# Why a site is paused once its host asked to delete it (R69a): its content is deleted after
+# the days in the admin settings, as any paused site's is.
+DELETING = "deleted by its host"
 
 
 class TrialUsed(SiteError):
@@ -588,6 +589,31 @@ class SiteDirectory:
             },
         )
         return True
+
+    def pause_to_delete(self, name: str) -> float | None:
+        """Pause the site as its host asked to delete it (R69a): when it was paused, from which
+        its content is deleted after the admin settings' days, or None for no such site. A site
+        paused already keeps the time it paused, so asking again never puts the deletion off.
+        Until then its host still signs in, and subscribing again brings it back (R69)."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None:
+                return None
+            at = site.get("paused_at")
+            if not site.get("paused") or not isinstance(at, int | float):
+                at = time.time()
+            sites[name] = {**site, "paused": DELETING, "paused_at": at}
+            self._write(sites)
+        logger.info("Site paused", extra={"site": name, "why": DELETING, "paused_at": at})
+        return float(at)
+
+    def paused_at(self, name: str) -> float | None:
+        """When the site paused, or None while it runs (R69, R69a)."""
+        with self._lock:
+            site = self._load().get(name) or {}
+        at = site.get("paused_at")
+        return float(at) if site.get("paused") and isinstance(at, int | float) else None
 
     def paused_since(self, before: float) -> list[str]:
         """The sites paused before the time `before` (R69a), oldest first."""

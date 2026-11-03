@@ -15,6 +15,7 @@ function server() {
     thresholds: { ...RECOMMENDED },
     disable_custom_image: true,
     disable_custom_voice: true,
+    days_before_deleting: 30,
     refuse: null as number | null,
   };
   const settings = (): AdminSettings => ({
@@ -22,11 +23,13 @@ function server() {
     thresholds: { ...state.thresholds },
     disable_custom_image: state.disable_custom_image,
     disable_custom_voice: state.disable_custom_voice,
+    days_before_deleting: state.days_before_deleting,
     recommended: {
       timeout_minutes: 30,
       thresholds: RECOMMENDED,
       disable_custom_image: true,
       disable_custom_voice: true,
+      days_before_deleting: 30,
     },
   });
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -55,6 +58,7 @@ function server() {
         state.thresholds = changes.thresholds ?? state.thresholds;
         state.disable_custom_image = changes.disable_custom_image ?? state.disable_custom_image;
         state.disable_custom_voice = changes.disable_custom_voice ?? state.disable_custom_voice;
+        state.days_before_deleting = changes.days_before_deleting ?? state.days_before_deleting;
       }
       return Response.json(settings());
     }
@@ -122,6 +126,7 @@ test("saving changes them and the sign-out minutes shown elsewhere", async () =>
   await type(/Blue/, "70");
   await type(/Orange/, "40");
   await type(/Red/, "20");
+  await type(/Days before deleting/, "7");
   await save();
   expect(puts()).toEqual([
     {
@@ -129,6 +134,7 @@ test("saving changes them and the sign-out minutes shown elsewhere", async () =>
       thresholds: { blue_above: 70, orange_below: 40, red_below: 20 },
       disable_custom_image: true,
       disable_custom_voice: true,
+      days_before_deleting: 7,
     },
   ]);
   expect((await screen.findByRole("status")).textContent).toContain("Saved.");
@@ -162,7 +168,7 @@ test("the recommended thresholds are put back at once", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Use the recommended thresholds" }));
   });
   expect(puts()).toEqual([
-    { timeout_minutes: 45, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true },
+    { timeout_minutes: 45, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true, days_before_deleting: 30 },
   ]);
   await screen.findByRole("status");
   expect(field(/Blue/).value).toBe("60");
@@ -178,7 +184,7 @@ test("the recommended thresholds keep the minutes as typed, not as last saved", 
     fireEvent.click(screen.getByRole("button", { name: "Use the recommended thresholds" }));
   });
   expect(puts()).toEqual([
-    { timeout_minutes: 5, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true },
+    { timeout_minutes: 5, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true, days_before_deleting: 30 },
   ]);
   await screen.findByRole("status");
   expect(field(/Minutes without activity/).value).toBe("5");

@@ -568,7 +568,11 @@ def serve(settings: Settings) -> None:
     )
     # A deleted site's app is dropped, and a site paused 30 days is deleted (R69a).
     service.sites.on_deleted.append(sites.forget)
-    keep_deleting_paused(service.sites, service.payments)
+    keep_deleting_paused(
+        service.sites,
+        service.payments,
+        days=lambda: service.admin_settings.current.days_before_deleting,
+    )
     # The one site is made before the server listens, as the app was before R61b.
     app = sites.app(DEFAULT_SITE)
     # This month's network use for the admin dashboard, kept through restarts (R153).
