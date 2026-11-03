@@ -1,10 +1,11 @@
-# HTTPS and the password in front of the app (roadmap R32). Caddy gets and renews the
-# certificates from Let's Encrypt by itself. The values come from .env.
+# HTTPS in front of the app (roadmap R32). Caddy gets and renews the certificates from Let's
+# Encrypt by itself. The values come from .env. There is no password here since R71: visitors
+# use a site with none, and the hosts and the administrator have their own sign-ins in the app.
 
-# What every address serves: the default people's packs, then the app behind the password.
+# What every address serves: the default people's packs, then the app.
 (site) {
-	# The default people's packs (roadmap R32a), for Start now on any computer: made-up people,
-	# so they are served without the password. Only the .zip files in default-people/ are sent.
+	# The default people's packs (roadmap R32a), for Start now on any computer: made-up people.
+	# Only the .zip files in default-people/ are sent.
 	handle_path /default-people/* {
 		@pack path_regexp ^/[a-z0-9_]+\.zip$
 		handle @pack {
@@ -13,18 +14,7 @@
 		}
 		respond 404
 	}
-	# Stripe's events about subscriptions (roadmap R67), sent to the main address by Stripe's
-	# servers, which have no password: the app checks each one's signature instead. Only the
-	# main address has this path; at a subdomain the app answers Not found.
-	handle /api/payments/stripe/events {
-		reverse_proxy app:8000
-	}
 	handle {
-		# One name and password for the rest of the site, asked for once by the browser, until
-		# R71 removes it for the customers' sites.
-		basic_auth {
-			{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}
-		}
 		reverse_proxy app:8000 {
 			# Send each part of a reply's video as soon as it is written (roadmap R22d).
 			flush_interval -1

@@ -18,5 +18,5 @@ Run the `docker compose` and `grep` checks on the server, in `~/ImageSkinForLLM/
 | ☐ | Caddy has Cloudflare's module (step 5) | `docker compose exec caddy caddy list-modules \| grep cloudflare` | `dns.providers.cloudflare` |
 | ☐ | Caddy's settings are valid (step 5) | `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile` | `Valid configuration` |
 | ☐ | The wildcard certificate was obtained (step 6) | `docker compose logs caddy \| grep -i "obtained"` | `certificate obtained successfully` for `*.me0.ai` |
-| ☐ | A subdomain reaches the app (step 6) | open `https://nosuchsite.me0.ai` | a padlock, then **Site not found** after the password |
+| ☐ | A subdomain reaches the app (step 6) | open `https://nosuchsite.me0.ai` | a padlock and **Site not found**, with no password asked |
 | ☐ | A site opens at its subdomain (step 6) | `imageskin site list`, then open one's address | that site, with the padlock |

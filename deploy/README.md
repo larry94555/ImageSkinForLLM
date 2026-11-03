@@ -1,15 +1,15 @@
 # Hosting the app on Oracle Cloud's free tier
 
-This puts the whole app on a hosted HTTPS site (roadmap R32), on a machine Oracle gives away for free: 4 ARM cores, 24 GB of memory and up to 200 GB of disk, with no time limit. The microphone works there, since browsers allow it only over HTTPS. The site asks for one name and password before anything is shown, so only you can use it.
+This puts the whole app on a hosted HTTPS site (roadmap R32), on a machine Oracle gives away for free: 4 ARM cores, 24 GB of memory and up to 200 GB of disk, with no time limit. The microphone works there, since browsers allow it only over HTTPS. Since R71 the site asks for no password of its own: visitors use each site as it is, and the hosts and the administrator sign in to the app itself (host accounts, R62, and the administrator's password, R149).
 
 Four pieces run on the machine, with Docker:
 
 - **the app**, from the `Dockerfile` at the top of the repository, with every voice and video extra installed;
 - **the LLM**, llama.cpp's `llama-server` with Gemma 3 4B, the same model as on the laptop, which only the app can reach;
-- **Caddy**, a web server in front of it, which gets the HTTPS certificate from Let's Encrypt (and renews it) by itself and asks for the password;
+- **Caddy**, a web server in front of it, which gets the HTTPS certificate from Let's Encrypt (and renews it) by itself;
 - **data volumes**: `/data` inside the app, which keeps the uploads, the prepared face, the settings and any API keys, and the downloaded models, and another keeps the LLM's model, through restarts and new versions.
 
-The secrets stay on the server: the password's hash is in `deploy/.env` there, which is never committed, and API keys typed on the Settings page are saved in the data volume, readable only by the app.
+The secrets stay on the server: the tokens are in `deploy/.env` there, which is never committed, and API keys typed on the Settings page are saved in the data volume, readable only by the app.
 
 It takes about an hour, most of it waiting for the first build.
 
@@ -89,7 +89,7 @@ exit
 
 Connect again with the same `ssh` command as in step 4, so Docker can be used without `sudo`, and check it with `docker run --rm hello-world`.
 
-## 6. Get the app and set the address and password
+## 6. Get the app and set the address
 
 ### 6a. Get the app
 
@@ -107,17 +107,9 @@ The site needs a name that leads to the machine's public IP address. The IP is o
 - **With your domain (me0.ai):** at the company you bought `me0.ai` from (its **DNS** settings), add a record with **Type** `A`, **Name** (or Host) `app`, and **Value** (or Points to) your machine's IP, such as `129.146.1.2`. The site is then `app.me0.ai`. The record can take a few minutes to work: on your laptop, `nslookup app.me0.ai` prints the machine's IP once it does. Don't start the site (step 7) before then, or Let's Encrypt can't give it a certificate.
 - **With no domain:** use the IP with dashes and `.sslip.io`, such as `129-146-1-2.sslip.io`. [sslip.io](https://sslip.io) points that name at that IP for free, so there is nothing to set up.
 
-### 6c. Make the password's hash
+### 6c. Fill in `.env`
 
-```
-docker run --rm -it caddy:2 caddy hash-password
-```
-
-Type the password you want, press Enter, type it again and press Enter. It prints one long line starting `$2a$14$`: the password in a form that can't be turned back into it. Copy that whole line (select it with the mouse; in most terminals selecting copies it, or use Ctrl+Shift+C).
-
-### 6d. Fill in `.env`
-
-Open it with `nano .env`. Change only the lines that don't start with `#`, one per setting; leave the `#` lines (notes) as they are. For the site `app.me0.ai`, the name `larry` and the hash from 6c, the whole file reads like this:
+Open it with `nano .env`. Change only the lines that don't start with `#`, one per setting; leave the `#` lines (notes) as they are. For the site `app.me0.ai`, the file's settings read like this:
 
 ```
 # Copy to .env (cp .env.example .env) and fill in. .env stays on the server only.
@@ -131,19 +123,19 @@ MAIN_DOMAIN=me0.ai
 # A Cloudflare API token that can edit me0.ai's DNS ...
 CLOUDFLARE_API_TOKEN=Xy9AbCdEfGhIjKlMnOpQrStUvWxYz0123456789
 
-# The name and password the browser asks for. ...
-LOGIN_NAME=larry
-LOGIN_PASSWORD_HASH='$2a$14$Xb3k9mQ1vL7pR2sT8uW0yOeZ4aB6cD5fG1hJ2kL3mN4oP5qR6sT7u'
+# A Hugging Face read token ...
+HF_TOKEN=
 ```
 
 - `SITE_ADDRESS`: the name from 6b, with no `https://` and no `/` at the end.
 - `MAIN_DOMAIN` and `CLOUDFLARE_API_TOKEN`: for every site's own subdomain, such as `anna.me0.ai` (roadmap R71a). The [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md) says how to get the token and point `*.me0.ai` at the machine, and the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) lists every change to confirm.
-- `LOGIN_NAME`: the name the browser will ask for; any word you like.
-- `LOGIN_PASSWORD_HASH`: your own hash from 6c (the one above is only an example), between the single quotes, which keep its `$` signs as they are. The browser asks for the password you typed in 6c, not the hash.
+- `HF_TOKEN`: filled in at 6d.
+
+A `.env` made before R71 also has `LOGIN_NAME` and `LOGIN_PASSWORD_HASH`, the old site password's. Nothing reads them now; delete those two lines.
 
 Save with Ctrl+O and Enter, and close with Ctrl+X. `cat .env` shows it to check.
 
-### 6e. A Hugging Face token, for a fast voice
+### 6d. A Hugging Face token, for a fast voice
 
 The person's own voice is spoken with Pocket TTS, which keeps up with the video: each clip is made faster than it plays, so a reply has no long pauses. Without it, the app uses Chatterbox, which took 11 to 32 seconds a clip on this machine, so a reply could pause for half a minute between sentences (roadmap R160). Pocket's weights that clone a voice are free, but Hugging Face asks you to accept their terms once:
 
@@ -172,7 +164,7 @@ docker compose logs caddy | grep -i "certificate obtained"
 
 `docker compose ps` shows `app` as **healthy** and `caddy` as **Up**, the app's log has `Starting server` with `"host": "0.0.0.0"`, and Caddy's has `certificate obtained successfully` for your address.
 
-Open `https://<SITE_ADDRESS>` (such as https://129-146-1-2.sslip.io) in your browser. It asks for the name and password; then the app opens as it does on your laptop, with a padlock in the address bar. A wrong password asks again and shows nothing of the app.
+Open `https://<SITE_ADDRESS>` (such as https://129-146-1-2.sslip.io) in your browser. The app opens as it does on your laptop, with a padlock in the address bar and no password asked: anyone with the address can use the sites as a visitor. Settings, the host pages and the admin view each need their own sign-in, so set the administrator's password before sharing the address ([Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)).
 
 ## 8. The LLM
 
@@ -258,7 +250,7 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
    ```
 
    Then `nano config.toml`, take the `# ` off the `stripe_price_id` line at the end, and put your price's ID between the quotes, such as `stripe_price_id = "price_1Q..."`.
-6. **Restart with them.** A changed `.env` needs the app made again, not only restarted, and Caddy reads the new Caddyfile that lets Stripe reach the webhook without the site's password:
+6. **Restart with them.** A changed `.env` needs the app made again, not only restarted, and Caddy reads the new Caddyfile, which since R71 asks for no password, so Stripe's events reach the app:
 
    ```
    docker compose up -d --build
@@ -280,9 +272,8 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
 | To | Run, in `~/ImageSkinForLLM/deploy` |
 |---|---|
 | Update to the latest version | `git pull`, then `docker compose up -d --build` |
-| Change the password | a new hash in `.env`, then `docker compose up -d` |
-| Speak with Pocket TTS on a site set up before it (R160) | step 6e, then `git pull`, `docker compose up -d --build`, and **Prepare** again on the Setup page; the log then says `cloned with Pocket TTS` (`docker compose logs app \| grep "Prepare speaks"`) |
-| Set or change the administrator password (the admin view's, not the site's) | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
+| Speak with Pocket TTS on a site set up before it (R160) | step 6d, then `git pull`, `docker compose up -d --build`, and **Prepare** again on the Setup page; the log then says `cloned with Pocket TTS` (`docker compose logs app \| grep "Prepare speaks"`) |
+| Set or change the administrator password | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Let only your own laptops sign in as the administrator | list each laptop's ID, from its Settings page, in `admin/admin-laptops.toml` here; no restart (see "Only the laptops you list" in [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Find out why an admin sign-in failed ("Admin login failed with error code A-…") | `docker compose logs app --since 24h \| grep A-…` with the page's code; the reasons are in the [FAQ](../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why) |
 | Serve each site at its own subdomain, such as `anna.me0.ai` | [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md), then the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) |

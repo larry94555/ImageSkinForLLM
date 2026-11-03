@@ -73,7 +73,7 @@ imageskin --config config.toml serve     # settings from a file; see config.exam
 
 Logs are written to stderr as one JSON object per line.
 
-To run it on a hosted HTTPS site behind a password instead, on Oracle Cloud's free tier, follow [deploy/README.md](deploy/README.md) (roadmap R32).
+To run it on a hosted HTTPS site instead, on Oracle Cloud's free tier, follow [deploy/README.md](deploy/README.md) (roadmap R32).
 
 ## Browser app
 

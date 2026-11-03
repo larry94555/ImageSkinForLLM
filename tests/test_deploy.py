@@ -24,11 +24,18 @@ def test_the_hosted_config_loads_and_listens_where_caddy_and_docker_look() -> No
     assert "COPY deploy/config.toml /etc/imageskin/config.toml" in dockerfile
 
 
-def test_the_password_is_asked_before_anything_is_proxied() -> None:
+def test_no_password_is_asked_in_front_of_the_sites() -> None:
+    # R71: visitors use a site with no password; the hosts and the administrator sign in to the
+    # app itself (R62, R149). R32's one name and password at the proxy is gone everywhere.
     caddyfile = text(DEPLOY / "Caddyfile")
-    # The app's own pages: only Stripe's events path is proxied before it (test below).
-    assert caddyfile.index("basic_auth") < caddyfile.index("reverse_proxy app:8000 {")
-    assert "{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}" in caddyfile
+    assert "basic_auth" not in caddyfile and "LOGIN_" not in caddyfile
+    assert "LOGIN_" not in text(DEPLOY / "compose.yaml")
+    assert "LOGIN_" not in text(DEPLOY / ".env.example")
+    assert "hash-password" not in text(DEPLOY / "README.md")
+    for guide in ("FAQ.md", "guides/Set-up-Hugging-Face-Models.md"):
+        assert "LOGIN_" not in text(ROOT / "docs" / guide)
+    snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
+    assert "handle {\n\t\treverse_proxy app:8000 {" in snippet
 
 
 def test_only_caddy_reaches_the_app() -> None:
@@ -48,8 +55,6 @@ def test_every_variable_compose_needs_is_in_the_example_env() -> None:
     example = set(re.findall(r"^(\w+)=", text(DEPLOY / ".env.example"), re.MULTILINE))
     assert needed == {
         "SITE_ADDRESS",
-        "LOGIN_NAME",
-        "LOGIN_PASSWORD_HASH",
         "MAIN_DOMAIN",
         "CLOUDFLARE_API_TOKEN",
     }
@@ -124,11 +129,11 @@ def test_the_containers_leave_room_for_the_machine() -> None:
     assert gigabytes <= 21
 
 
-def test_the_default_people_are_served_without_the_password() -> None:
-    # Start now on any computer downloads them (roadmap R32a); only the app is behind basic_auth.
+def test_the_default_people_are_served_by_caddy_itself() -> None:
+    # Start now on any computer downloads them (roadmap R32a), only the .zip packs.
     caddyfile = text(DEPLOY / "Caddyfile")
     site = caddyfile.split("\n:8090")[0]
-    assert site.index("handle_path /default-people/*") < site.index("basic_auth")
+    assert site.index("handle_path /default-people/*") < site.index("reverse_proxy app:8000")
     assert site.count("root * /srv/default-people") == 1
     compose = text(DEPLOY / "compose.yaml")
     assert "./default-people:/srv/default-people:ro" in compose
@@ -217,14 +222,14 @@ def test_the_guide_and_the_faq_cover_the_allowed_laptops() -> None:
 
 def test_every_subdomain_is_served_with_the_wildcard_certificate() -> None:
     # Each site at its own subdomain (roadmap R71a): *.<MAIN_DOMAIN>, with the certificate from
-    # Cloudflare's DNS check, served as the main address is, password and all.
+    # Cloudflare's DNS check, served as the main address is.
     caddyfile = text(DEPLOY / "Caddyfile")
     main = caddyfile.split("\n{$SITE_ADDRESS} {")[1].split("\n}")[0]
     wildcard = caddyfile.split("\n*.{$MAIN_DOMAIN} {")[1].split("\n}")[0]
     assert "import site" in main and "import site" in wildcard
     assert "dns cloudflare {env.CLOUDFLARE_API_TOKEN}" in wildcard
     snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
-    assert snippet.index("basic_auth") < snippet.index("reverse_proxy app:8000 {")
+    assert "reverse_proxy app:8000" in snippet
     # Caddy is built with that module, and given the domain and the token.
     assert "xcaddy build --with github.com/caddy-dns/cloudflare" in text(
         DEPLOY / "caddy/Dockerfile"
@@ -259,13 +264,11 @@ def test_the_subdomain_guide_and_checklist_are_there_and_linked() -> None:
 
 def test_stripe_reaches_its_events_path_without_the_password() -> None:
     # Stripe's servers send subscription events with no password (roadmap R67); the app checks
-    # each one's signature. Only that one path skips basic_auth.
+    # each one's signature. Since R71 nothing is behind a password, so the path needs no handle
+    # of its own and goes to the app with everything else.
     caddyfile = text(DEPLOY / "Caddyfile")
     snippet = caddyfile.split("\n(site) {")[1].split("\n}")[0]
-    stripe = snippet.split("handle /api/payments/stripe/events {")[1].split("}")[0]
-    assert stripe.strip() == "reverse_proxy app:8000"
-    assert snippet.index("handle /api/payments/stripe/events") < snippet.index("basic_auth")
-    assert snippet.count("handle /api/") == 1
+    assert "basic_auth" not in snippet and "handle /api/" not in snippet
 
 
 def test_stripes_secrets_reach_the_app_from_env_and_the_readme_says_how() -> None:

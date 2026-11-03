@@ -33,7 +33,7 @@ cd ~/github/ImageSkinForLLM/deploy
 docker compose up -d --build
 ```
 
-This starts three containers, from `deploy/compose.yaml`: `app` (the app itself), `llama` (the local LLM, llama.cpp's `llama-server` with Gemma 3 4B) and `caddy` (HTTPS and the password, in front of the app). `-d` runs them in the background, so closing the SSH window doesn't stop them, and they start again by themselves after the machine restarts. The first build takes 15 to 30 minutes; later ones reuse most of it. The first start of `llama` also downloads its model, about 2.5 GB.
+This starts three containers, from `deploy/compose.yaml`: `app` (the app itself), `llama` (the local LLM, llama.cpp's `llama-server` with Gemma 3 4B) and `caddy` (HTTPS, in front of the app). `-d` runs them in the background, so closing the SSH window doesn't stop them, and they start again by themselves after the machine restarts. The first build takes 15 to 30 minutes; later ones reuse most of it. The first start of `llama` also downloads its model, about 2.5 GB.
 
 **Check it is running** (every command here is run in `~/github/ImageSkinForLLM/deploy`):
 
@@ -47,7 +47,7 @@ docker compose logs llama | grep "server is listening"
 - The app is ready for use once its log has `Loading has completed. The application is ready for use.` (see the entry above). Until then a page opened or a prompt sent waits, so it looks stuck.
 - The LLM is ready once its log has `server is listening on http://0.0.0.0:8080`. Until then the chat says the LLM can't be reached.
 
-Then open `https://<SITE_ADDRESS>` (the address in `deploy/.env`, such as https://app.me0.ai) and sign in with the name and password.
+Then open `https://<SITE_ADDRESS>` (the address in `deploy/.env`, such as https://app.me0.ai). It asks for no password since R71.
 
 **Watch the logs:**
 
@@ -70,7 +70,7 @@ docker compose logs -f caddy
 
 Both `stop` and `down` keep the data: the uploads, the prepared face, the settings, the API keys and the LLM's model stay in their volumes. `docker compose down -v` would delete them all, so don't use it unless you mean to start over.
 
-**If it doesn't start:** `docker compose ps -a` shows a container that exited or keeps restarting, and `docker compose logs <name> --tail 50` says why. A missing `SITE_ADDRESS`, `LOGIN_NAME` or `LOGIN_PASSWORD_HASH` stops `docker compose up` with `set ... in .env`: fill in `deploy/.env` (README step 6d). For certificate errors, a port already in use, or the machine freezing during Prepare, see "If it doesn't work" in [deploy/README.md](../deploy/README.md#if-it-doesnt-work).
+**If it doesn't start:** `docker compose ps -a` shows a container that exited or keeps restarting, and `docker compose logs <name> --tail 50` says why. A missing `SITE_ADDRESS`, `MAIN_DOMAIN` or `CLOUDFLARE_API_TOKEN` stops `docker compose up` with `set ... in .env`: fill in `deploy/.env` (README step 6c, and the [Subdomain setup guide](guides/Subdomain-Setup-Guide.md) for the last two). For certificate errors, a port already in use, or the machine freezing during Prepare, see "If it doesn't work" in [deploy/README.md](../deploy/README.md#if-it-doesnt-work).
 
 ## Setup shows fewer (or different) photos and recordings than before
 

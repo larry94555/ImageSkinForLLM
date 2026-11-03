@@ -68,13 +68,13 @@ You do this once per Hugging Face account and once per site.
 
 ## The `.env` file
 
-`deploy/.env` holds the hosted site's settings and secrets. It stays on the server only: it is never committed, and `chmod 600 .env` makes it readable only by you. Start from the example with `cp .env.example .env`. It has four settings:
+`deploy/.env` holds the hosted site's settings and secrets. It stays on the server only: it is never committed, and `chmod 600 .env` makes it readable only by you. Start from the example with `cp .env.example .env`. Its settings:
 
 | Setting | What it is | Example |
 |---|---|---|
 | `SITE_ADDRESS` | The site's name, whose A record points at the server. With no domain, the server's IP with dashes and `.sslip.io`. | `app.me0.ai` |
-| `LOGIN_NAME` | The name the browser asks for. | `larry` |
-| `LOGIN_PASSWORD_HASH` | The password's hash, from `docker run --rm -it caddy:2 caddy hash-password`, between single quotes. | `'$2a$14$...'` |
+| `MAIN_DOMAIN` | The domain every site's subdomain is under (the [Subdomain setup guide](Subdomain-Setup-Guide.md)). | `me0.ai` |
+| `CLOUDFLARE_API_TOKEN` | The Cloudflare token Caddy uses for the `*.me0.ai` certificate (the same guide). | `Xy9AbCd...` |
 | `HF_TOKEN` | The Hugging Face read token, for Pocket TTS. Leave it empty to speak with Chatterbox. | `hf_AbCd...` |
 
 `deploy/compose.yaml` passes `HF_TOKEN` to the app's container; `huggingface_hub` reads it from there. A change to `.env` takes effect with `docker compose up -d` (add `--build` when the code changed too).
