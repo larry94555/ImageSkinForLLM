@@ -35,7 +35,7 @@ from imageskin.email_change import WRONG_PASSWORD
 from imageskin.hosts import NO_SITE, SITE_DELETED
 from imageskin.payments import UNAVAILABLE, PaymentError, Stripe, delete_request
 from imageskin.site_deletion import PAUSED_TOO_LONG, delete_paused, keep_deleting_paused
-from imageskin.sites import DELETING, SiteApps, site_home
+from imageskin.sites import DELETING, SiteApps, SiteDirectory, site_home
 
 pytestmark = pytest.mark.real_hosts
 
@@ -470,3 +470,60 @@ def test_a_folder_that_cant_be_moved_aside_keeps_the_site(
     monkeypatch.undo()
     assert service.sites.names() == [code] and site_home(code, service.home).exists()
     assert service.host_accounts.site_of(DAN) == code
+
+
+def test_a_sites_file_that_cant_be_written_puts_the_folder_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
+    from imageskin.sites import SiteDirectory
+
+    def disk_full(*a: Any, **kw: Any) -> None:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(SiteDirectory, "_write", disk_full)
+    assert not service.sites.delete(code, "test")
+    monkeypatch.undo()
+    assert service.sites.names() == [code]
+    assert (site_home(code, service.home) / "person.txt").read_text() == "Dan's person"
+    assert service.host_accounts.site_of(DAN) == code
+
+
+def test_a_folder_moved_aside_for_a_listed_site_is_restored_never_removed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The server stopped after moving the folder aside and before writing sites.json: the next
+    sweep puts the site's files back (Codex's review of PR #300)."""
+    fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
+    import os
+
+    folder = site_home(code, service.home)
+    aside = service.home / "deleted-sites" / f"{code}-{time.time_ns()}"
+    aside.parent.mkdir()
+    os.replace(folder, aside)
+    restarted = SiteDirectory(service.home, service.host_accounts)
+    with caplog.at_level(logging.WARNING):
+        assert delete_paused(restarted, None, time.time) == []
+    assert (folder / "person.txt").read_text() == "Dan's person" and not aside.exists()
+    assert any(r.message == "Site's files restored" for r in caplog.records)
+
+    # With a folder of its own again, the one aside is kept, never removed.
+    os.replace(folder, aside)
+    folder.mkdir()
+    assert restarted.purge_deleted() == [aside] and (aside / "person.txt").exists()
+
+    # Once the site is deleted after all, both folders go.
+    assert restarted.delete(code, "test")
+    assert list((service.home / "deleted-sites").iterdir()) == []
+
+
+def test_a_new_site_with_a_deleted_sites_name_doesnt_keep_its_old_files(tmp_path: Path) -> None:
+    apps, _, service = served_plain(tmp_path)
+    service.sites.delete("a", "test")
+    # Files a failed removal left aside, moved before the new site of that name was made.
+    aside = service.home / "deleted-sites" / f"a-{time.time_ns()}"
+    aside.mkdir(parents=True)
+    (aside / "old.txt").write_text("Ann's", encoding="utf-8")
+    service.sites.add("a", "bob@example.com")
+    assert service.sites.purge_deleted() == []
+    assert not aside.exists() and not (site_home("a", service.home) / "old.txt").exists()

@@ -625,7 +625,19 @@ class SiteDirectory:
             kept = self._codes_kept
             if site.get("trial") and name not in kept:
                 kept = [*kept, name]
-            self._write(sites, kept=kept)
+            try:
+                self._write(sites, kept=kept)
+            except OSError as e:
+                # The record stays, so its folder goes back (Codex's review of PR #300). A crash
+                # here instead is put right by `purge_deleted`, which never removes a listed
+                # site's folder.
+                if aside.exists():
+                    os.replace(aside, folder)
+                logger.error(
+                    "Site not deleted",
+                    extra={"site": name, "why": "sites file not written", "error": str(e)},
+                )
+                return False
             host = str(site.get("host", ""))
             if host and self._hosts.site_of(host) == name:
                 self._hosts.set_site(host, NO_SITE)
@@ -648,10 +660,45 @@ class SiteDirectory:
 
     def purge_deleted(self) -> list[Path]:
         """Remove the folders of deleted sites, moved aside as each was deleted (R69a): the ones
-        that couldn't be removed, logged, and tried again at the next sweep."""
+        that couldn't be removed, logged, and tried again at the next sweep.
+
+        A folder moved aside for a site still listed in sites.json, as when the server stopped
+        between the move and writing the file, is never removed: it goes back to the site, or,
+        when the site has a folder again, is kept and logged (Codex's review of PR #300). A
+        site added since with the same name is a new one, made after the folder was moved."""
         aside = self.home / DELETED_FOLDER
-        left = []
-        for folder in sorted(aside.iterdir()) if aside.is_dir() else []:
+        left: list[Path] = []
+        removable = []
+        with self._lock:
+            sites = self._load()
+            for folder in sorted(aside.iterdir()) if aside.is_dir() else []:
+                name, _, moved_ns = folder.name.rpartition("-")
+                site = sites.get(name)
+                made = site.get("created_at", 0) if site else None
+                if (
+                    site is None
+                    or not moved_ns.isdigit()
+                    or not isinstance(made, int | float)
+                    or made * 1e9 > int(moved_ns)
+                ):
+                    removable.append(folder)
+                    continue
+                home = site_home(name, self.home)
+                if home.exists():
+                    logger.error(
+                        "Deleted site's files kept: the site is still listed",
+                        extra={"site": name, "path": str(folder)},
+                    )
+                    left.append(folder)
+                    continue
+                try:
+                    os.replace(folder, home)
+                except OSError as e:
+                    logger.error("Site's files not restored", extra={"site": name, "error": str(e)})
+                    left.append(folder)
+                else:
+                    logger.warning("Site's files restored", extra={"site": name})
+        for folder in removable:
             try:
                 shutil.rmtree(folder)
             except OSError as e:
