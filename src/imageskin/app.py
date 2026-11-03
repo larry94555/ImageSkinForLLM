@@ -1093,8 +1093,14 @@ def create_app(
                     # One Stripe still keeps, `unpaid` after failed renewals, is ended first, so
                     # the host never pays for two.
                     payments.cancel_now(host_site, old)
+                # One a resume made before, whose answer was lost, is recorded, never made
+                # twice; and the same resume tried again has the same idempotency key, named
+                # by the subscription it follows, so a later resume after a new cancellation
+                # has a new one (Codex's review of PR #301).
                 try:
-                    made = payments.resume(host_site, customer, card)
+                    made = payments.live_subscription(host_site, customer) or payments.resume(
+                        host_site, customer, card, old or "first"
+                    )
                 except CardNeeded:
                     url = payments.checkout(host_site, host.email, back, back, customer)
                     logger.info(

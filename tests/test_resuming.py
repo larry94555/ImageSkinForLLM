@@ -47,19 +47,33 @@ class FakeStripe:
         self.deleted: list[str] = []
         self.refuse: Exception | None = None  # how making the new subscription fails
         self.card: str | None = "pm_card"
-        self.made = 0
+        self.made: dict[str, dict[str, Any]] = {}  # by idempotency key, as Stripe keeps them
+        self.lose_answer = False  # Stripe makes the subscription, but its answer is lost
+        self.keys: list[str | None] = []
 
-    def post(self, url: str, form: dict[str, str], key: str) -> dict[str, Any]:
+    def post(
+        self, url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, Any]:
         self.posted.append((url, form))
         if url.endswith("/v1/subscriptions"):
+            self.keys.append(idempotency)
             if self.refuse is not None:
                 raise self.refuse
-            self.made += 1
-            return {"id": f"sub_new{self.made}", "status": "active"}
+            if idempotency not in self.made:
+                self.made[str(idempotency)] = {
+                    "id": f"sub_new{len(self.made) + 1}",
+                    "status": "active",
+                    "metadata": {"site": form["metadata[site]"]},
+                }
+            if self.lose_answer:
+                raise OSError("the answer was lost")
+            return self.made[str(idempotency)]
         return {"id": "cs_1", "url": CHECKOUT}
 
     def get(self, url: str, key: str) -> dict[str, Any]:
         self.got.append(url)
+        if "?" in url:
+            return {"data": list(self.made.values())}
         return {"id": url.rsplit("/", 1)[1], "default_payment_method": self.card}
 
     def delete(self, url: str, key: str) -> dict[str, Any]:
@@ -102,8 +116,13 @@ def test_resume_subscription_brings_the_paused_site_back_with_the_card_on_file(
     with caplog.at_level(logging.INFO):
         answer = dan.post(f"{site}/api/site/subscription/resume")
     assert answer.status_code == 200 and answer.json() == {"resumed": True}
-    # The card the last subscription was paid with, for the same customer: nothing typed.
-    assert fake.got == ["https://api.stripe.com/v1/subscriptions/sub_1"]
+    # The card the last subscription was paid with, for the same customer: nothing typed. Stripe
+    # had no subscription for it in force already.
+    assert fake.got == [
+        "https://api.stripe.com/v1/subscriptions/sub_1",
+        "https://api.stripe.com/v1/subscriptions?customer=cus_1&status=all&limit=100",
+    ]
+    assert fake.keys == [f"resume-{code}-sub_1"]
     url, form = fake.posted[-1]
     assert url == "https://api.stripe.com/v1/subscriptions"
     assert form == {
@@ -126,7 +145,7 @@ def test_resume_subscription_brings_the_paused_site_back_with_the_card_on_file(
     assert shown["resumable"] is False and shown["subscribed"] is True
     # Clicking again makes no second subscription.
     again = dan.post(f"{site}/api/site/subscription/resume")
-    assert again.status_code == 409 and fake.made == 1
+    assert again.status_code == 409 and len(fake.made) == 1
     # Stripe's own event for the new subscription changes nothing more.
     assert send(TestClient(sites, base_url=MAIN), completed(code, "sub_new1")).is_success
     assert service.sites.subscription(code)["id"] == "sub_new1"
@@ -163,6 +182,40 @@ def test_with_no_card_stripe_can_charge_stripes_page_is_asked_for(
     assert form["client_reference_id"] == code
     assert service.sites.paused(code) == "subscription ended"
     assert any(r.message == "Resume goes to Stripe" for r in caplog.records)
+
+
+def test_a_lost_answer_then_a_retry_or_restart_makes_one_subscription(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Stripe made and charged the subscription, but its answer never came back: trying again,
+    even after a restart, records that one and makes no second (Codex's review of PR #301)."""
+    fake, sites, service, dan, site, code = paused(tmp_path)
+    fake.lose_answer = True
+    lost = dan.post(f"{site}/api/site/subscription/resume")
+    assert lost.status_code == 502 and service.sites.paused(code) == "subscription ended"
+    assert len(fake.made) == 1
+    fake.lose_answer = False
+    with caplog.at_level(logging.WARNING):
+        assert dan.post(f"{site}/api/site/subscription/resume").json() == {"resumed": True}
+    assert len(fake.made) == 1 and service.sites.subscription(code)["id"] == "sub_new1"
+    assert any(r.message == "Subscription already made at Stripe" for r in caplog.records)
+    # Its key is the same however often it is tried, so Stripe itself makes one too.
+    assert fake.keys == [f"resume-{code}-sub_1"]
+
+
+def test_a_later_resume_after_a_new_cancellation_has_a_new_key(tmp_path: Path) -> None:
+    fake, sites, service, dan, site, code = paused(tmp_path)
+    assert dan.post(f"{site}/api/site/subscription/resume").json() == {"resumed": True}
+    # The resumed subscription ends too, and the host resumes again.
+    main = TestClient(sites, base_url=MAIN)
+    event = ended()
+    event["data"]["object"]["id"] = "sub_new1"
+    event["created"] += 1
+    assert send(main, event).is_success
+    fake.made["resume-old"] = {**fake.made.pop(f"resume-{code}-sub_1"), "status": "canceled"}
+    assert dan.post(f"{site}/api/site/subscription/resume").json() == {"resumed": True}
+    assert fake.keys == [f"resume-{code}-sub_1", f"resume-{code}-sub_new1"]
+    assert service.sites.subscription(code)["id"] == "sub_new2"
 
 
 def test_an_unpaid_subscription_is_ended_first_so_nothing_is_paid_twice(tmp_path: Path) -> None:
@@ -239,13 +292,15 @@ def test_the_card_of_a_subscription_stripe_lost_or_cant_read(tmp_path: Path) -> 
     for broken in (down, unreachable):
         with pytest.raises(PaymentError):
             Stripe("sk", SECRET, "p", get=broken).card_of("a", "sub_1")
+        with pytest.raises(PaymentError):
+            Stripe("sk", SECRET, "p", get=broken).live_subscription("a", "cus_1")
     assert issubclass(CardNeeded, PaymentError)
 
 
 def test_the_real_get_request_sends_a_get(monkeypatch: pytest.MonkeyPatch) -> None:
     from imageskin import payments
 
-    seen: list[tuple[str, str | None]] = []
+    seen: list[tuple[str, str | None, str | None]] = []
 
     class Answer(io.BytesIO):
         def __enter__(self) -> "Answer":
@@ -255,11 +310,20 @@ def test_the_real_get_request_sends_a_get(monkeypatch: pytest.MonkeyPatch) -> No
             pass
 
     def opened(request: Any, timeout: float) -> Answer:
-        seen.append((request.get_method(), request.get_header("Authorization")))
+        seen.append(
+            (
+                request.get_method(),
+                request.get_header("Authorization"),
+                request.get_header("Idempotency-key"),
+            )
+        )
         return Answer(b'{"id": "sub_1"}')
 
     monkeypatch.setattr("imageskin.payments.urllib.request.urlopen", opened)
     assert payments.get_request("https://api.stripe.com/v1/subscriptions/sub_1", "sk") == {
         "id": "sub_1"
     }
-    assert seen == [("GET", "Bearer sk")]
+    assert payments.post_form("https://api.stripe.com/v1/subscriptions", {}, "sk", "k1") == {
+        "id": "sub_1"
+    }
+    assert seen == [("GET", "Bearer sk", None), ("POST", "Bearer sk", "k1")]
