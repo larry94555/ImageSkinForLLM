@@ -109,7 +109,7 @@ from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.email_change import email_router
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
-from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of
+from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of, site_address
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import SERVICE as SERVICE_FILES
 from imageskin.host_disk import count as count_disk
@@ -168,7 +168,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import Service, make_service, site_home
+from imageskin.sites import Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -860,6 +860,7 @@ def create_app(
         trial_used=service.sites.trial_used,
         paused=service.sites.paused,
         subscribed=service.sites.subscribed,
+        subdomain=service.sites.subdomain,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -882,12 +883,44 @@ def create_app(
         """What Settings shows of subscribing (R67): whether it is set up here, what is sold, and
         the site's subscription's status, if it has one."""
         found = service.sites.subscription(host_site)
+        subscribed = service.sites.subscribed(host_site)
         return {
             "available": service.payments is not None and host_site != DEFAULT_SITE,
             "price": SUBSCRIPTION,
             "status": found and found.get("status"),
-            "subscribed": service.sites.subscribed(host_site),
+            "subscribed": subscribed,
+            # The site's subdomain, or, once a trial is paid for, that its host picks one (R63).
+            "subdomain": service.sites.subdomain(host_site),
+            "pick_subdomain": subscribed and service.sites.is_trial(host_site),
         }
+
+    @app.get("/api/site/subdomain/check")
+    def check_subdomain(name: str, host: SignedInHost) -> dict[str, object]:
+        """Whether a subdomain can be had, checked as its host types it (R63): the name as it
+        would be kept, and why not, or None when it can."""
+        name = name.strip().lower()
+        return {"name": name, "problem": service.sites.name_problem(name)}
+
+    @app.post("/api/site/subdomain")
+    def pick_subdomain(
+        request: Request, host: SignedInHost, name: Annotated[str, Body(embed=True)]
+    ) -> dict[str, object]:
+        """Pick the subscribed trial site's subdomain (R63): its address, and a one-time link
+        that signs the host in there (R255), as the trial path's cookie isn't sent to it. The
+        administrator acting as the host gets the address only, and acts as them again there."""
+        try:
+            picked = service.sites.pick_subdomain(host_site, name)
+        except SiteError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        # The trial path is at the main address, so the subdomain is worked out from there.
+        address = site_address(
+            request, DEFAULT_SITE, host_site, service.sites.is_trial, service.sites.subdomain
+        )
+        answer: dict[str, object] = {"subdomain": picked, "address": address}
+        if not host.acting:
+            link = host_accounts.sign_in_link(host.email)
+            answer["sign_in_at"] = f"{address}/api/host/sign-in/{link}"
+        return answer
 
     @app.post("/api/site/subscribe")
     def subscribe(request: Request, host: SignedInHost) -> dict[str, str]:
@@ -964,6 +997,7 @@ def create_app(
             host_site,
             service.sites.is_trial,
             app.state.require_admin,
+            service.sites.subdomain,
         )
         app.include_router(act_admin)
         app.include_router(act_host)

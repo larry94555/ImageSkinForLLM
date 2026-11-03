@@ -29,6 +29,7 @@ from imageskin.sites import (
     make_service,
     site_home,
     site_matcher,
+    trial_mover,
 )
 from imageskin.uploads import PhotoResult
 
@@ -158,7 +159,10 @@ def served(
         )
         return made[site]
 
-    return SiteApps(make, site_matcher(service.sites, "me0.ai")), made, service
+    apps = SiteApps(
+        make, site_matcher(service.sites, "me0.ai"), trial_mover(service.sites, "me0.ai")
+    )
+    return apps, made, service
 
 
 def sign_in(client: TestClient, email: str) -> int:
