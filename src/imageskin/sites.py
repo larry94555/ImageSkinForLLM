@@ -179,6 +179,9 @@ class SiteDirectory:
         # The codes of trial sites since deleted (R69a): a trial path is never given again, so a
         # link to a deleted trial can't open another's site (R63).
         self._codes_kept: list[str] = []
+        # Whether the last read of sites.json found it and read it whole: only then may
+        # `purge_deleted` remove anything (Codex's review of PR #300).
+        self._read_whole = False
         # Called with each deleted site's name, so the server forgets its app (R69a).
         self.on_deleted: list[Callable[[str], None]] = []
 
@@ -192,7 +195,9 @@ class SiteDirectory:
             seen = None
         except OSError as e:
             logger.error("Could not read the sites file", extra={"error": str(e)})
+            self._read_whole = False
             return {}
+        self._read_whole = seen is not None
         if seen != self._seen:
             sites: dict[str, dict[str, Any]] = {}
             used: list[str] = []
@@ -213,6 +218,7 @@ class SiteDirectory:
                         "Could not read the sites file",
                         extra={"path": str(self.path), "error": str(e)},
                     )
+                    self._read_whole = False
                     return {}
             self._sites, self._trials_used, self._seen = sites, used, seen
             self._codes_kept = kept
@@ -665,12 +671,22 @@ class SiteDirectory:
         A folder moved aside for a site still listed in sites.json, as when the server stopped
         between the move and writing the file, is never removed: it goes back to the site, or,
         when the site has a folder again, is kept and logged (Codex's review of PR #300). A
-        site added since with the same name is a new one, made after the folder was moved."""
+        site added since with the same name is a new one, made after the folder was moved. While
+        sites.json is missing or can't be read, nothing is removed or moved."""
         aside = self.home / DELETED_FOLDER
         left: list[Path] = []
         removable = []
         with self._lock:
             sites = self._load()
+            if not self._read_whole and aside.is_dir() and any(aside.iterdir()):
+                # A sites file that is missing or can't be read says nothing about which sites
+                # are listed, so nothing is removed until it is read again (Codex's review).
+                left = sorted(aside.iterdir())
+                logger.error(
+                    "Deleted sites' files kept: the sites file could not be read",
+                    extra={"folders": len(left)},
+                )
+                return left
             for folder in sorted(aside.iterdir()) if aside.is_dir() else []:
                 name, _, moved_ns = folder.name.rpartition("-")
                 site = sites.get(name)

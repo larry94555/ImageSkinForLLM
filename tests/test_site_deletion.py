@@ -14,6 +14,7 @@ import urllib.error
 from email.message import Message
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -515,6 +516,47 @@ def test_a_folder_moved_aside_for_a_listed_site_is_restored_never_removed(
     # Once the site is deleted after all, both folders go.
     assert restarted.delete(code, "test")
     assert list((service.home / "deleted-sites").iterdir()) == []
+
+
+@pytest.mark.parametrize("broken", ["corrupt", "unreadable", "missing"])
+def test_a_sites_file_that_cant_be_read_removes_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, broken: str
+) -> None:
+    """A crash moved a listed site's folder aside, and on restart sites.json is corrupt, can't
+    be read or is gone: the sweep keeps the folder, and restores it once the file reads again
+    (Codex's review of PR #300)."""
+    fake, sites, service, dan, site, code = subscribed(tmp_path, pay=False)
+    import os
+
+    folder = site_home(code, service.home)
+    aside = service.home / "deleted-sites" / f"{code}-{time.time_ns()}"
+    aside.parent.mkdir()
+    os.replace(folder, aside)
+    path = service.home / "sites.json"
+    good = path.read_bytes()
+    if broken == "corrupt":
+        path.write_text("{not json", encoding="utf-8")
+    elif broken == "missing":
+        path.unlink()
+    restarted = SiteDirectory(service.home, service.host_accounts)
+    with caplog.at_level(logging.ERROR):
+        if broken == "unreadable":
+            real, unreadable = restarted.path, MagicMock()
+            unreadable.stat.side_effect = PermissionError("denied")
+            restarted.path = unreadable
+            assert delete_paused(restarted, None, time.time) == []
+            restarted.path = real
+        else:
+            assert delete_paused(restarted, None, time.time) == []
+    assert (aside / "person.txt").read_text() == "Dan's person"
+    assert any(
+        r.message == "Deleted sites' files kept: the sites file could not be read"
+        for r in caplog.records
+    )
+
+    path.write_bytes(good)
+    assert delete_paused(restarted, None, time.time) == []
+    assert (folder / "person.txt").read_text() == "Dan's person" and not aside.exists()
 
 
 def test_a_new_site_with_a_deleted_sites_name_doesnt_keep_its_old_files(tmp_path: Path) -> None:
