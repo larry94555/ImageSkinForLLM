@@ -159,13 +159,17 @@ class AdminSettingsStore:
     @property
     def current(self) -> AdminSettings:
         """The settings now: read from the file again first if it changed since last read."""
+        if self._file_stamp() != self._stamp:
+            with self._lock:
+                self._refresh()
+        return self._current
+
+    def _refresh(self) -> None:
+        """Read the file again if it changed since last read. Called holding `_lock`."""
         stamp = self._file_stamp()
         if stamp != self._stamp:
-            with self._lock:
-                if stamp != self._stamp:
-                    self._stamp = stamp
-                    self._current = self._load(fallback=self._current)
-        return self._current
+            self._stamp = stamp
+            self._current = self._load(fallback=self._current)
 
     def _file_stamp(self) -> tuple[int, int] | None:
         try:
@@ -224,8 +228,11 @@ class AdminSettingsStore:
 
     def change(self, changes: dict[str, Any]) -> AdminSettings:
         """The settings with `changes` saved; the test email in the file is kept as it is."""
-        before = self.current  # read again first, so a test email just added is kept
         with self._lock:
+            # Read again first, so a test email just added is kept; all under the one lock, so
+            # two changes at once each start from the other's result (Codex's review).
+            self._refresh()
+            before = self._current
             after = checked(before, changes)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             part = self.path.with_suffix(".part")

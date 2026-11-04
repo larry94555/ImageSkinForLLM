@@ -3,12 +3,14 @@
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import admin_settings
 from imageskin.admin_settings import (
     DEFAULTS,
     FILE_ONLY,
@@ -255,3 +257,36 @@ def test_the_api_shows_the_test_email_but_never_changes_it(tmp_path: Path) -> No
     assert browser.get("/api/admin/settings").json()["test_email"] == "me@example.com"
     stranger = TestClient(create_app(tmp_path))
     assert stranger.get("/api/admin/settings").status_code == 401
+
+
+def test_two_changes_at_once_both_survive(tmp_path: Path) -> None:
+    """A change reads the settings and saves them under one lock (Codex's review of PR #315):
+    the second of two overlapping changes starts from the first's result."""
+    store = AdminSettingsStore(tmp_path)
+    first_checked = threading.Event()
+    second_started = threading.Event()
+    real_checked = admin_settings.checked
+
+    def slow_checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
+        if "timeout_minutes" in changes:
+            first_checked.set()
+            second_started.wait(2)  # the other change is waiting for the lock now
+        return real_checked(settings, changes)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(admin_settings, "checked", slow_checked)
+        first = threading.Thread(target=store.change, args=({"timeout_minutes": 10},))
+        first.start()
+        first_checked.wait(2)
+
+        def second_change() -> None:
+            second_started.set()
+            store.change({"days_before_deleting": 20})
+
+        second = threading.Thread(target=second_change)
+        second.start()
+        first.join(5)
+        second.join(5)
+    assert (store.current.timeout_minutes, store.current.days_before_deleting) == (10, 20)
+    again = AdminSettingsStore(tmp_path).current
+    assert (again.timeout_minutes, again.days_before_deleting) == (10, 20)
