@@ -28,7 +28,14 @@ Plan on about two hours for all of it. Each part can be done on its own once Par
 
 **What has to be in place first:**
 
-1. The server runs `main` at PR #312 or later. On the server: `cd ~/ImageSkinForLLM && git log --oneline -1`. If it is older, `git pull`, then in `deploy`, `docker compose up -d --build`.
+1. The server runs code that includes PR #312, the last of the features this guide tries. On the server (not your laptop), run:
+
+   ```
+   cd ~/ImageSkinForLLM
+   git merge-base --is-ancestor 125f007 HEAD && echo "Ready" || echo "Too old"
+   ```
+
+   `125f007` is the commit that merged PR #312. **Ready** means the server's code includes it, whatever was merged after it. **Too old** (or `fatal: Not a valid commit name 125f007`) means it doesn't: run `git pull`, then `cd deploy` and `docker compose up -d --build`, and check again. You can also look at `git log --oneline -1`: a line such as `125f007 (HEAD -> main, origin/main) Merge pull request #312 from larry94555/r262-not-active`, or any later `Merge pull request #3xx` with a higher number, means the same.
 2. The administrator's password is set in `deploy/admin/admin.toml` (the [Admin password guide](Admin-Password-Guide.pdf)), and, if you use `admin-laptops.toml`, your laptop is listed.
 3. Subscribing is turned on in **test mode**: [the deployment guide](../../deploy/README.md), step 9, steps 1 to 7, with the `sk_test_` key, the test webhook's `whsec_` secret and the test price's `price_` ID in `deploy/.env`. The webhook must have the three events `checkout.session.completed`, `customer.subscription.updated` and `customer.subscription.deleted`. Without this, Parts 5, 6 (Add a site), 9 and 10 can't be done; Parts 2 to 4, 7 and 8 still can, using the command in Part 6 for a second site.
 4. Every subdomain works over HTTPS: `https://nosuchsite.me0.ai` shows the app's **Site not found** page with a padlock ([Subdomain setup guide](Subdomain-Setup-Guide.md)).
