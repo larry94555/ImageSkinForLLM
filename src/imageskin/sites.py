@@ -786,29 +786,43 @@ class SiteDirectory:
             raise SiteError("Only a host whose site was deleted can start it again.")
         old = deleted.get("subdomain")
         letters = string.ascii_lowercase + string.digits
+        host = normal_email(email)
         with self._lock:
             sites = self._load()
+            # One started before, whose host's account wasn't given it (the server stopped
+            # between the two files): finished now, never made twice (Codex's review of PR #302).
+            made = next(
+                (
+                    n
+                    for n, s in sites.items()
+                    if s.get("host") == host and s.get("paused") == RESTARTED
+                ),
+                None,
+            )
+            if made is not None:
+                self._hosts.set_site(email, made)
+                logger.warning("Site started again, finished", extra={"site": made, "host": host})
+                return made
             taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
             name = str(old) if old else ""
             if not name or _name_problem(sites, name, self._codes_kept) is not None:
                 name = ""
                 while not name or name in taken or name in self._codes_kept:
                     name = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
-        self._add(name, email, trial=False)
-        with self._lock:
-            sites = dict(self._load())
-            site = {**sites[name], "paused": RESTARTED, "paused_at": time.time()}
-            if deleted.get("customer"):
-                # Resume subscription then uses the deleted site's customer and card (R69b).
-                site["subscription"] = {
-                    "id": deleted.get("subscription"),
-                    "customer": deleted["customer"],
-                    "status": "canceled",
-                }
-                if deleted.get("subscription"):
-                    site[SUBSCRIPTIONS_HAD] = [deleted["subscription"]]
-            sites[name] = site
-            self._write(sites)
+        # Made paused, with the deleted site's customer, in the one write that adds it, so it is
+        # never served unpaid; the host's account keeps what the deleted site was until it is
+        # given this one (Codex's review of PR #302).
+        record: dict[str, Any] = {"paused": RESTARTED, "paused_at": time.time()}
+        if deleted.get("customer"):
+            # Resume subscription then uses the deleted site's customer and card (R69b).
+            record["subscription"] = {
+                "id": deleted.get("subscription"),
+                "customer": deleted["customer"],
+                "status": "canceled",
+            }
+            if deleted.get("subscription"):
+                record[SUBSCRIPTIONS_HAD] = [deleted["subscription"]]
+        self._add(name, email, trial=False, record=record)
         logger.info(
             "Site started again",
             extra={"site": name, "host": email, "old_subdomain": old, "same": name == old},
@@ -851,7 +865,9 @@ class SiteDirectory:
         the name can't be a subdomain or is taken, or the host isn't one or has a site."""
         return self._add(name.strip().lower(), email, trial=False)
 
-    def _add(self, name: str, email: str, trial: bool) -> Path:
+    def _add(
+        self, name: str, email: str, trial: bool, record: dict[str, Any] | None = None
+    ) -> Path:
         if not SITE_NAME.fullmatch(name):
             raise SiteError(NAME_LETTERS)
         if name in RESERVED:
@@ -872,7 +888,11 @@ class SiteDirectory:
                     logger.warning("Trial refused: email already used", extra={"email": email})
                     raise TrialUsed(TRIAL_USED)
                 used = [*used, email_key(email)]
-            sites[name] = {"host": email.strip().lower(), "created_at": time.time()}
+            sites[name] = {
+                "host": email.strip().lower(),
+                "created_at": time.time(),
+                **(record or {}),
+            }
             if trial:
                 sites[name]["trial"] = True
             self._write(sites, used)

@@ -170,3 +170,51 @@ def test_a_host_whose_site_was_deleted_breaks_nothing_else(tmp_path: Path) -> No
     assert acting.status_code == 409
     disk = boss.get("/api/host/disk", params={"email": "ann@example.com"})
     assert disk.status_code == 404 and disk.json()["detail"] == "This host's site was deleted."
+
+
+def test_a_sites_file_that_cant_be_written_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The new site is added paused, with its customer, in one write: when it fails, nothing is
+    added and the host keeps what the deleted site was (Codex's review of PR #302)."""
+    fake, sites, service = deleted(tmp_path)
+
+    def full(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    real = service.sites._write  # noqa: SLF001
+    monkeypatch.setattr(service.sites, "_write", full)
+    with pytest.raises(OSError):
+        service.sites.restart(DAN)
+    assert "dans" not in service.sites.names()
+    assert service.host_accounts.site_of(DAN) == NO_SITE
+    assert service.host_accounts.deleted_site(DAN) is not None
+    monkeypatch.setattr(service.sites, "_write", real)
+    assert service.sites.restart(DAN) == "dans"
+    assert service.sites.subscription("dans")["customer"] == "cus_1"
+
+
+def test_a_restart_stopped_between_the_two_files_is_finished_never_made_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The server stopped after sites.json had the new site and before the host's account was
+    given it: the site was never served unpaid, and starting again finishes that one."""
+    fake, sites, service = deleted(tmp_path)
+    real = service.host_accounts.set_site
+
+    def stopped(email: str, site: str) -> bool:
+        raise OSError("the server stopped")
+
+    monkeypatch.setattr(service.host_accounts, "set_site", stopped)
+    with pytest.raises(OSError):
+        service.sites.restart(DAN)
+    # Added paused, with the deleted site's customer: visitors see it paused.
+    assert service.sites.paused("dans") == RESTARTED
+    assert service.sites.subscription("dans")["customer"] == "cus_1"
+    assert service.host_accounts.deleted_site(DAN) is not None
+    monkeypatch.setattr(service.host_accounts, "set_site", real)
+    main = TestClient(sites, base_url=MAIN)
+    started = main.post("/api/host/restart", json={"email": DAN, "password": PASSWORD})
+    assert started.json()["site"] == "dans" and service.sites.names().count("dans") == 1
+    assert len([n for n in service.sites.names() if service.sites.host(n) == DAN]) == 1
+    assert service.host_accounts.site_of(DAN) == "dans"
