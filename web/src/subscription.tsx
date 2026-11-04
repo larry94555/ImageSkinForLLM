@@ -143,8 +143,9 @@ export function SubscriptionSection() {
       ) : subscription.resumable ? (
         <div className="switch">
           <p role="status">
-            Your site is paused: visitors see that it is paused. Resume your subscription to bring
-            it back as it was.
+            {subscription.restarted
+              ? "Your site is started again, empty, and paused until it is paid for. Resume your subscription to open it."
+              : "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."}
           </p>
           <button
             type="button"
@@ -174,7 +175,10 @@ export function SubscriptionSection() {
             >
               <p>
                 Your subscription, {subscription.price}, starts again now and is charged to the
-                card Stripe keeps for you. Your site comes back at once, with everything on it.
+                card Stripe keeps for you.{" "}
+                {subscription.restarted
+                  ? "Your site opens at once."
+                  : "Your site comes back at once, with everything on it."}
               </p>
               <p>If Stripe needs a card, its secure page opens for you to give one.</p>
             </ConfirmDialog>

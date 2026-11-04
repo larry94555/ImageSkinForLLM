@@ -25,6 +25,7 @@ from imageskin.hosts import (
     HostElsewhere,
     HostRefused,
     HostsUnreadable,
+    SiteDeleted,
     normal_email,
     refuse_if_disabled,
     trial_cookie,
@@ -102,6 +103,7 @@ def host_router(
     paused: Callable[[str], str | None] = lambda _: None,
     subscribed: Callable[[str], bool] = lambda _: False,
     subdomain: Callable[[str], str | None] = lambda site: site,
+    restart: Callable[[str], str] | None = None,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -111,7 +113,8 @@ def host_router(
     returns the site's trial code. The customer then confirms their email from a link sent with
     `send_email` before managing it (R62b). `trial_used` says whether an email address has had
     its one free trial, and `paused` why a site is paused (R66); `subscribed` whether it is paid
-    for (R67)."""
+    for (R67). With `restart`, a host whose site was deleted starts it again (R69c): it is given
+    their email and returns the new site's name."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -328,11 +331,53 @@ def host_router(
                     "sign_in_at": f"{to}/api/host/sign-in/{link}",
                 }
             )
+        except SiteDeleted as e:
+            # The page then offers to start it again (R69c).
+            return JSONResponse({"detail": str(e), "deleted": restart is not None}, status_code=401)
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         return signed_in(request, token, email)
+
+    @router.post("/restart")
+    def restart_site(request: Request, email: Email, password: Password) -> JSONResponse:
+        """Start my site again (R69c), for a host whose site was deleted, with their password:
+        a new, empty site, paused until paid for, at its old subdomain if still free. The
+        browser goes there with a one-time link that signs them in (R255), where Resume
+        subscription brings it live (R69b)."""
+        start = time.perf_counter()
+        try:
+            accounts.sign_in(email, password, address(request), site)
+        except SiteDeleted:
+            pass  # the right password, and the site was deleted: started again below
+        except HostRefused as e:
+            if not isinstance(e, HostElsewhere):
+                return JSONResponse({"detail": str(e)}, status_code=401)
+            return JSONResponse({"detail": "Your site wasn't deleted."}, status_code=409)
+        except HostsUnreadable as e:
+            return JSONResponse({"detail": str(e)}, status_code=503)
+        else:
+            return JSONResponse({"detail": "Your site wasn't deleted."}, status_code=409)
+        if restart is None:
+            return JSONResponse({"detail": NO_SITE_MADE}, status_code=503)
+        try:
+            name = restart(normal_email(email))
+        except Exception:
+            logger.exception("Site not started again", extra={"email": normal_email(email)})
+            return JSONResponse({"detail": NO_SITE_MADE}, status_code=503)
+        link = accounts.sign_in_link(email)
+        to = site_address(request, site, name, is_trial, subdomain)
+        logger.info(
+            "Host sent to their site started again",
+            extra={
+                "email": normal_email(email),
+                "site": name,
+                "to": to,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return JSONResponse({"site": name, "sign_in_at": f"{to}/api/host/sign-in/{link}"})
 
     @router.get("/sign-in/{link}", response_model=None)
     def open_sign_in_link(request: Request, link: str) -> RedirectResponse:

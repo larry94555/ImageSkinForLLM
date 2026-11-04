@@ -145,6 +145,7 @@ def changing_routes(app: FastAPI) -> list[tuple[str, str]]:
 # purpose (Codex's review of PR #287: a 422 for a missing body proves nothing).
 VISITORS = {
     "POST /api/host/sign-up",  # signing up for an account of one's own
+    "POST /api/host/restart",  # a deleted site's host, signed in nowhere, starting it (R69c)
     "POST /api/host/page",  # the log's note that a page opened
     "POST /api/chat",
     "POST /api/chat/ahead",

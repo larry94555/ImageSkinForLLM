@@ -15,7 +15,8 @@ function server({
   resumable = true,
   answer = { resumed: true } as object,
   status = 200,
-}: { resumable?: boolean; answer?: object; status?: number } = {}) {
+  restarted = false,
+}: { resumable?: boolean; answer?: object; status?: number; restarted?: boolean } = {}) {
   const asked: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -42,6 +43,7 @@ function server({
           days_before_deleting: 30,
           deletes_at: null,
           resumable,
+          restarted,
         });
       }
       if (url === "/api/site/subscription/resume") {
@@ -138,4 +140,13 @@ test("Every page but Settings shows the paused bar, with Resume subscription", a
   const bar = await screen.findByText(/Your site is paused: visitors see that it is paused/);
   const link = within(bar).getByRole("link", { name: "Resume subscription" });
   expect(link.getAttribute("href")).toBe("#/settings");
+});
+
+test("A site started again after it was deleted says it opens once paid for (R69c)", async () => {
+  server({ restarted: true });
+  const section = await panel();
+  expect(section.getByText(/Your site is started again, empty, and paused/)).toBeTruthy();
+  fireEvent.click(section.getByRole("button", { name: "Resume subscription" }));
+  const dialog = within(await screen.findByRole("alertdialog"));
+  expect(dialog.getByText(/Your site opens at once\./)).toBeTruthy();
 });

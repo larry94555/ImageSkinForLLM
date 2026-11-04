@@ -39,6 +39,9 @@ SITE = "site"  # the host's site, kept with the host; none for the main address'
 # (R69b), but no site is theirs. Never a site's name, which has letters or digits only.
 NO_SITE = "-"
 SITE_DELETED = "Your site was deleted. Your account is kept, so you can start it again."
+# What a host's deleted site was (R69c): its subdomain, and Stripe's customer and last
+# subscription, so starting it again uses the card Stripe keeps for them.
+DELETED = "deleted_site"
 # A host who signs in at another site's address goes to their own with a one-time link (R255),
 # good for this long *(default)*; at most this many are kept, the oldest dropped first.
 SIGN_IN_LINK_S = 60.0
@@ -113,6 +116,14 @@ class HostRefused(Exception):
     def __init__(self, message: str, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class SiteDeleted(HostRefused):
+    """The right password, but the host's site was deleted (R69a): they can start it again
+    (R69c). Told only once the password is checked."""
+
+    def __init__(self) -> None:
+        super().__init__(SITE_DELETED, "site deleted")
 
 
 class HostElsewhere(HostRefused):
@@ -327,8 +338,13 @@ class HostAccounts:
             reason = "wrong password" if account else "no such host"
             self._refuse(WRONG, reason, "sign-in", email, address)
         if account and account.get(SITE) == NO_SITE:
-            # Told only once the password is checked, as for another site's host.
-            self._refuse(SITE_DELETED, "site deleted", "sign-in", email, address)
+            # Told only once the password is checked, as for another site's host; they can
+            # start their site again (R69c).
+            logger.warning(
+                "Host sign-in failed",
+                extra={"reason": "site deleted", "email": email, "address": address},
+            )
+            raise SiteDeleted()
         if account and account.get(SITE, DEFAULT_SITE) != site:
             elsewhere = str(account.get(SITE, DEFAULT_SITE))
             logger.warning(
@@ -675,6 +691,8 @@ class HostAccounts:
                 return False
             account = {**data["hosts"][email]}
             old = account.get(SITE, DEFAULT_SITE)
+            if site != NO_SITE:
+                account.pop(DELETED, None)  # a site of their own again (R69c)
             if site == DEFAULT_SITE:
                 account.pop(SITE, None)
             else:
@@ -683,6 +701,27 @@ class HostAccounts:
             self._save({**data, "hosts": {**data["hosts"], email: account}, "sessions": sessions})
         logger.info("Host site set", extra={"email": email, "site": site, "old_site": old})
         return True
+
+    def site_deleted(self, email: str, deleted: dict[str, Any]) -> bool:
+        """The host's site was deleted (R69a): their sign-ins end, their account is kept with
+        no site, and what the site was is kept with it, so they can start it again (R69c)."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            if email not in data["hosts"]:
+                return False
+            account = {**data["hosts"][email], SITE: NO_SITE, DELETED: deleted}
+            sessions = {k: v for k, v in data["sessions"].items() if v["email"] != email}
+            self._save({**data, "hosts": {**data["hosts"], email: account}, "sessions": sessions})
+        logger.info("Host's site deleted", extra={"email": email, **deleted})
+        return True
+
+    def deleted_site(self, email: str) -> dict[str, Any] | None:
+        """What the host's deleted site was (R69c), or None while they have a site."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email)) or {}
+        found = account.get(DELETED) if account.get(SITE) == NO_SITE else None
+        return dict(found) if isinstance(found, dict) else None
 
     def is_disabled(self, email: str) -> bool:
         """Whether the administrator disabled the host (R44c); False for no such host."""

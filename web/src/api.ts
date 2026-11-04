@@ -1378,6 +1378,8 @@ export interface Subscription {
   payment_failed?: boolean;
   // True for a paused site paid for before: Resume subscription uses the card Stripe keeps (R69b).
   resumable?: boolean;
+  // True for a site started again after it was deleted, empty until paid for (R69c).
+  restarted?: boolean;
 }
 
 // Cancels the subscription at the end of the period paid for, or keeps it after all (R69):
@@ -1507,14 +1509,35 @@ export async function getCustomUse(): Promise<CustomUse> {
 
 // Throws a ServerRefusal with the server's plain message when a field is wrong, the email is
 // taken or the sign-in fails.
+// Signing in to a site that was deleted (R69a): the host can start it again (R69c).
+export class SiteWasDeleted extends ServerRefusal {}
+
 async function hostAccount(route: "sign-up" | "sign-in", email: string, password: string) {
   const response = await fetch(`/api/host/${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok) {
+    const body = (await response.clone().json().catch(() => ({}))) as { deleted?: boolean };
+    const words = await refusal(response);
+    throw body.deleted === true
+      ? new SiteWasDeleted(words, response.status)
+      : new ServerRefusal(words, response.status);
+  }
   return (await response.json()) as HostSession;
+}
+
+// Start my site again (R69c): a new, empty site, paused until paid for. The one-time link the
+// browser goes to, which signs the host in there. Throws a ServerRefusal saying why not.
+export async function restartSite(email: string, password: string): Promise<string> {
+  const response = await fetch("/api/host/restart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { sign_in_at: string }).sign_in_at;
 }
 
 export function signUpAsHost(email: string, password: string): Promise<HostSession> {

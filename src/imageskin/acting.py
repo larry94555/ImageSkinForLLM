@@ -22,7 +22,14 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from imageskin.admin import AdminSignIns
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
-from imageskin.hosts import ACT_PREFIX, DEFAULT_SITE, HOST_COOKIE, HostAccounts, normal_email
+from imageskin.hosts import (
+    ACT_PREFIX,
+    DEFAULT_SITE,
+    HOST_COOKIE,
+    NO_SITE,
+    HostAccounts,
+    normal_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +174,9 @@ def acting_routes(
         target = accounts.site_of(email)
         if target is None or admin_token is None:
             raise HTTPException(status_code=404, detail=NO_SUCH_HOST)
+        if target == NO_SITE:
+            # Nothing to act on until they start their site again (R69a, R69c).
+            raise HTTPException(status_code=409, detail="This host's site was deleted.")
         link = acting.link(admin_token, email, site_address(request, DEFAULT_SITE, is_trial))
         where = site_address(request, target, is_trial, subdomain)
         return {"link": f"{where}/api/host/act-as/{link}"}

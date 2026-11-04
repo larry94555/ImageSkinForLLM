@@ -695,6 +695,7 @@ async function getCustomUse() {
 		voice: me.custom_voice
 	};
 }
+var SiteWasDeleted = class extends ServerRefusal {};
 async function hostAccount(route, email, password) {
 	const response = await fetch(`/api/host/${route}`, {
 		method: "POST",
@@ -704,8 +705,24 @@ async function hostAccount(route, email, password) {
 			password
 		})
 	});
-	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	if (!response.ok) {
+		const body = await response.clone().json().catch(() => ({}));
+		const words = await refusal(response);
+		throw body.deleted === true ? new SiteWasDeleted(words, response.status) : new ServerRefusal(words, response.status);
+	}
 	return await response.json();
+}
+async function restartSite(email, password) {
+	const response = await fetch("/api/host/restart", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			email,
+			password
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).sign_in_at;
 }
 function signUpAsHost(email, password) {
 	return hostAccount("sign-up", email, password);
@@ -2484,7 +2501,7 @@ function SubscriptionSection() {
 					children: [
 						/* @__PURE__ */ u("p", {
 							role: "status",
-							children: "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."
+							children: subscription.restarted ? "Your site is started again, empty, and paused until it is paid for. Resume your subscription to open it." : "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."
 						}),
 						/* @__PURE__ */ u("button", {
 							type: "button",
@@ -2516,7 +2533,9 @@ function SubscriptionSection() {
 							children: [/* @__PURE__ */ u("p", { children: [
 								"Your subscription, ",
 								subscription.price,
-								", starts again now and is charged to the card Stripe keeps for you. Your site comes back at once, with everything on it."
+								", starts again now and is charged to the card Stripe keeps for you.",
+								" ",
+								subscription.restarted ? "Your site opens at once." : "Your site comes back at once, with everything on it."
 							] }), /* @__PURE__ */ u("p", { children: "If Stripe needs a card, its secure page opens for you to give one." })]
 						})
 					]
@@ -3577,6 +3596,7 @@ function HostAccountPage({ kind }) {
 	const [again, setAgain] = d("");
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
+	const [deleted, setDeleted] = d(false);
 	const up = kind === "up";
 	h(() => {
 		setError(null);
@@ -3594,12 +3614,27 @@ function HostAccountPage({ kind }) {
 		setError(found);
 		if (found) return;
 		setBusy(true);
+		setDeleted(false);
 		try {
 			if (!await (up ? signUp : signIn)(email, password)) window.location.hash = "#/";
 		} catch (err) {
 			console.error(`Could not sign ${kind} as host`, err);
 			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+			setDeleted(err instanceof SiteWasDeleted);
 		} finally {
+			setBusy(false);
+		}
+	}
+	async function startAgain() {
+		setBusy(true);
+		try {
+			const link = await restartSite(email, password);
+			console.info("Site started again: going there");
+			navigation.goTo(link);
+		} catch (err) {
+			console.error("Could not start the site again", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+			setDeleted(false);
 			setBusy(false);
 		}
 	}
@@ -3654,6 +3689,18 @@ function HostAccountPage({ kind }) {
 						className: "error",
 						role: "alert",
 						children: error
+					}),
+					deleted && /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: busy,
+							onClick: () => void startAgain(),
+							children: "Start my site again"
+						}), /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "A new, empty site, at your old address if it is still free. It starts once you resume your subscription there."
+						})]
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",

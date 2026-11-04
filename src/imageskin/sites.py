@@ -152,6 +152,8 @@ SUBSCRIPTIONS_HAD = "subscriptions_had"
 # Why a site is paused once its host asked to delete it (R69a): its content is deleted after
 # the days in the admin settings, as any paused site's is.
 DELETING = "deleted by its host"
+# Why a site its host started again after it was deleted is paused, until paid for (R69c).
+RESTARTED = "started again, not yet paid for"
 
 
 class TrialUsed(SiteError):
@@ -646,7 +648,16 @@ class SiteDirectory:
                 return False
             host = str(site.get("host", ""))
             if host and self._hosts.site_of(host) == name:
-                self._hosts.set_site(host, NO_SITE)
+                # Kept with the host's account, so they can start it again (R69c).
+                paid = site.get("subscription") or {}
+                self._hosts.site_deleted(
+                    host,
+                    {
+                        "subdomain": _subdomain(name, site),
+                        "customer": paid.get("customer") or None,
+                        "subscription": paid.get("id") or None,
+                    },
+                )
         for forget in self.on_deleted:
             forget(name)
         left = self.purge_deleted()
@@ -762,6 +773,47 @@ class SiteDirectory:
                 if s.get("paused") and isinstance(s.get("paused_at"), int | float)
             ]
         return [n for at, n in sorted(paused) if at < before]
+
+    def restart(self, email: str) -> str:
+        """Start again the site of a host whose site was deleted (R69c): the new site's name.
+        It is empty, at its old subdomain if that is still free, or else at a new random one
+        its host can change (R64). It is paused until paid for, which is what Resume
+        subscription (R69b) does, with the card Stripe keeps for the customer the deleted site
+        had; one never paid for subscribes on Stripe's page. Left unpaid, it is deleted as any
+        paused site is (R69a). SiteError when the host's site wasn't deleted."""
+        deleted = self._hosts.deleted_site(email)
+        if deleted is None:
+            raise SiteError("Only a host whose site was deleted can start it again.")
+        old = deleted.get("subdomain")
+        letters = string.ascii_lowercase + string.digits
+        with self._lock:
+            sites = self._load()
+            taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
+            name = str(old) if old else ""
+            if not name or _name_problem(sites, name, self._codes_kept) is not None:
+                name = ""
+                while not name or name in taken or name in self._codes_kept:
+                    name = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
+        self._add(name, email, trial=False)
+        with self._lock:
+            sites = dict(self._load())
+            site = {**sites[name], "paused": RESTARTED, "paused_at": time.time()}
+            if deleted.get("customer"):
+                # Resume subscription then uses the deleted site's customer and card (R69b).
+                site["subscription"] = {
+                    "id": deleted.get("subscription"),
+                    "customer": deleted["customer"],
+                    "status": "canceled",
+                }
+                if deleted.get("subscription"):
+                    site[SUBSCRIPTIONS_HAD] = [deleted["subscription"]]
+            sites[name] = site
+            self._write(sites)
+        logger.info(
+            "Site started again",
+            extra={"site": name, "host": email, "old_subdomain": old, "same": name == old},
+        )
+        return name
 
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
