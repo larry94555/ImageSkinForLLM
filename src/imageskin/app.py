@@ -146,6 +146,12 @@ from imageskin.llm_choice import (
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.participant_api import give_cookie, participant_router
+from imageskin.participant_policy import (
+    ParticipantPolicies,
+    PolicyUnreadable,
+    landing_site,
+    participant_policy_router,
+)
 from imageskin.participants import COOKIE as PARTICIPANT_COOKIE
 from imageskin.participants import ParticipantAccounts, move_site_participants
 from imageskin.password_reset import reset_router
@@ -1375,7 +1381,50 @@ def create_app(
 
     custom_kind = [Depends(allowed_kind)]
     app.include_router(host_routes)
-    app.include_router(participant_router(participants, participant_cookie_domain))
+
+    def site_at(request: Request, name: str) -> str:
+        return site_address(
+            request, host_site, name, service.sites.is_trial, service.sites.subdomain
+        )
+
+    def participant_landing(request: Request, email: str) -> str | None:
+        """The address of the host's site a participant signing in here is sent to (R261), or
+        None to stay: at a site with no host, or when it is this one."""
+        host_email = None if participant_home is None else service.sites.host(host_site)
+        if participant_home is None or not host_email:
+            return None
+        try:
+            rule = ParticipantPolicies(participant_home).read().rule_for(email)
+        except PolicyUnreadable:
+            return None  # logged; they stay where they signed in
+        to = landing_site(rule, host_accounts.sites_in_order(host_email))
+        return None if to in (None, host_site) else f"{site_at(request, str(to))}/"
+
+    app.include_router(
+        participant_router(participants, participant_cookie_domain, participant_landing)
+    )
+
+    def host_folder(email: str) -> Path | None:
+        key = host_accounts.library_of(email)
+        return library_home(service.home, key) if key else None
+
+    def policies_of(email: str) -> ParticipantPolicies | None:
+        folder = host_folder(email)
+        return ParticipantPolicies(folder) if folder else None
+
+    def participants_of(email: str) -> set[str]:
+        folder = host_folder(email)
+        return ParticipantAccounts(folder, host_site, accounts=folder).emails() if folder else set()
+
+    app.include_router(
+        participant_policy_router(
+            app.state.require_host,
+            policies_of,
+            host_accounts.sites_in_order,
+            participants_of,
+            site_at,
+        )
+    )
     # Forgot password (R62a).
     app.include_router(reset_router(host_accounts, service.mailer.send))
     # The administrator acting as a host (R44a): the link made at the main address only.

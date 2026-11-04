@@ -1392,6 +1392,8 @@ export interface HostSession {
 export interface ParticipantSession {
   signed_in: boolean;
   email: string | null;
+  // After signing in: another of the host's sites the host sends them to (R261).
+  go_to?: string;
 }
 
 export async function getParticipantSession(): Promise<ParticipantSession> {
@@ -1430,6 +1432,41 @@ export async function putParticipantProgress(kept: Record<string, unknown>): Pro
     body: JSON.stringify(kept),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+// Where each participant may go (R261): the host's sites in order, their participants, and the
+// policy. A rule's `sites` null means every site; `landing` null means the first one allowed.
+export interface ParticipantRule {
+  sites: string[] | null;
+  landing: string | null;
+}
+
+export interface ParticipantPolicy {
+  every: ParticipantRule;
+  participants: Record<string, ParticipantRule>;
+}
+
+export interface ParticipantPolicyView {
+  sites: { site: string; address: string }[];
+  participants: string[];
+  policy: ParticipantPolicy;
+}
+
+export async function getParticipantPolicy(): Promise<ParticipantPolicyView> {
+  return json<ParticipantPolicyView>(await fetch("/api/host/participant-policy"));
+}
+
+// Throws a ServerRefusal with the server's plain words when a rule can't be kept.
+export async function putParticipantPolicy(
+  policy: ParticipantPolicy,
+): Promise<ParticipantPolicyView> {
+  const response = await fetch("/api/host/participant-policy", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as ParticipantPolicyView;
 }
 
 export async function signOutAsParticipant(): Promise<void> {

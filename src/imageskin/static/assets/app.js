@@ -669,6 +669,18 @@ async function putParticipantProgress(kept) {
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
+async function getParticipantPolicy() {
+	return json(await fetch("/api/host/participant-policy"));
+}
+async function putParticipantPolicy(policy) {
+	const response = await fetch("/api/host/participant-policy", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(policy)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function signOutAsParticipant() {
 	const response = await fetch("/api/participant/sign-out", { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
@@ -2010,6 +2022,189 @@ function AddSite() {
 				className: "error",
 				role: "alert",
 				children: failed
+			})
+		]
+	});
+}
+//#endregion
+//#region src/participant-policy.tsx
+var FIRST$1 = "";
+function siteName(view, site) {
+	const found = view.sites.find((s) => s.site === site);
+	return found ? found.address.replace(/^https?:\/\//, "") : site;
+}
+function RuleEditor({ view, label, rule, change, remove }) {
+	const all = view.sites.map((s) => s.site);
+	const open = rule.sites ?? all;
+	function toggle(site, on) {
+		const now = all.filter((s) => s === site ? on : open.includes(s));
+		const landing = rule.landing && now.includes(rule.landing) ? rule.landing : null;
+		change({
+			sites: now.length === all.length ? null : now,
+			landing
+		});
+	}
+	return /* @__PURE__ */ u("fieldset", {
+		className: "participant-rule",
+		children: [
+			/* @__PURE__ */ u("legend", { children: label }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "May open:"
+			}),
+			view.sites.map((s) => /* @__PURE__ */ u("label", {
+				className: "check",
+				children: [/* @__PURE__ */ u("input", {
+					type: "checkbox",
+					checked: open.includes(s.site),
+					onChange: (e) => toggle(s.site, e.currentTarget.checked)
+				}), siteName(view, s.site)]
+			}, s.site)),
+			/* @__PURE__ */ u("label", { children: ["Sent to after signing in", /* @__PURE__ */ u("select", {
+				value: rule.landing ?? FIRST$1,
+				onChange: (e) => change({
+					...rule,
+					landing: e.currentTarget.value || null
+				}),
+				children: [/* @__PURE__ */ u("option", {
+					value: FIRST$1,
+					children: "The first site they may open"
+				}), open.map((site) => /* @__PURE__ */ u("option", {
+					value: site,
+					children: siteName(view, site)
+				}, site))]
+			})] }),
+			remove && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: remove,
+				children: "Use the rule for every participant"
+			})
+		]
+	});
+}
+function ParticipantPolicyPanel() {
+	const [view, setView] = d(null);
+	const [policy, setPolicy] = d(null);
+	const [adding, setAdding] = d("");
+	const [busy, setBusy] = d(false);
+	const [saved, setSaved] = d(false);
+	const [error, setError] = d(null);
+	h(() => {
+		getParticipantPolicy().then((found) => {
+			setView(found);
+			setPolicy(found.policy);
+		}, (e) => {
+			console.error("Could not read where participants may go", e);
+			setError("Where participants may go can't be read just now.");
+		});
+	}, []);
+	if (!view || !policy) return error ? /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Reading where participants may go…"
+	});
+	function edit(next) {
+		setPolicy(next);
+		setSaved(false);
+		setError(null);
+	}
+	function setOwn(email, rule) {
+		const participants = { ...policy.participants };
+		if (rule) participants[email] = rule;
+		else delete participants[email];
+		edit({
+			...policy,
+			participants
+		});
+	}
+	async function save(e) {
+		e.preventDefault();
+		setBusy(true);
+		setError(null);
+		const started = performance.now();
+		try {
+			const kept = await putParticipantPolicy(policy);
+			setView(kept);
+			setPolicy(kept.policy);
+			setSaved(true);
+			console.info(`Participant policy saved (${Math.round(performance.now() - started)} ms)`);
+		} catch (err) {
+			console.error("Could not save where participants may go", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	const without = view.participants.filter((p) => !(p in policy.participants));
+	return /* @__PURE__ */ u("form", {
+		className: "participant-policy",
+		"aria-labelledby": "participant-policy",
+		onSubmit: (e) => void save(e),
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "participant-policy",
+				children: "Where participants may go"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Which of your sites your participants may open, and the site they are sent to after signing in. A participant can be given a rule of their own in place of the one for every participant."
+			}),
+			/* @__PURE__ */ u(RuleEditor, {
+				view,
+				label: "Every participant",
+				rule: policy.every,
+				change: (every) => edit({
+					...policy,
+					every
+				})
+			}),
+			Object.entries(policy.participants).map(([email, rule]) => /* @__PURE__ */ u(RuleEditor, {
+				view,
+				label: email,
+				rule,
+				change: (r) => setOwn(email, r),
+				remove: () => setOwn(email, null)
+			}, email)),
+			without.length > 0 && /* @__PURE__ */ u("div", {
+				className: "participant-add",
+				children: [/* @__PURE__ */ u("label", { children: ["A participant", /* @__PURE__ */ u("select", {
+					value: adding,
+					onChange: (e) => setAdding(e.currentTarget.value),
+					children: [/* @__PURE__ */ u("option", {
+						value: "",
+						children: "Choose…"
+					}), without.map((p) => /* @__PURE__ */ u("option", {
+						value: p,
+						children: p
+					}, p))]
+				})] }), /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: !adding,
+					onClick: () => {
+						setOwn(adding, { ...policy.every });
+						setAdding("");
+					},
+					children: "Give them a rule of their own"
+				})]
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy,
+				children: "Save"
+			}),
+			saved && /* @__PURE__ */ u("p", {
+				className: "muted",
+				role: "status",
+				children: "Saved. It applies the next time a participant signs in."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
 			})
 		]
 	});
@@ -4386,6 +4581,7 @@ function AccountPage() {
 			}),
 			/* @__PURE__ */ u(DisplayName, {}),
 			/* @__PURE__ */ u(YourSites, {}),
+			/* @__PURE__ */ u(ParticipantPolicyPanel, {}),
 			/* @__PURE__ */ u("h2", { children: "Change email" }),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => void submit(e),
@@ -11211,15 +11407,18 @@ async function followProgress() {
 	});
 	console.info(`Participant progress followed (${Object.keys(kept).join(", ") || "none kept"}, ${Math.round(performance.now() - started)} ms)`);
 }
-var reloading = { reload: () => window.location.reload() };
+var reloading = {
+	reload: () => window.location.reload(),
+	goTo: (url) => window.location.assign(url)
+};
 var SIGNED_OUT = {
 	signed_in: false,
 	email: null
 };
 var ParticipantContext = X({
 	session: SIGNED_OUT,
-	signUp: async () => {},
-	signIn: async () => {},
+	signUp: async () => SIGNED_OUT,
+	signIn: async () => SIGNED_OUT,
 	signOut: async () => {}
 });
 function useParticipant() {
@@ -11246,6 +11445,7 @@ function ParticipantProvider({ children }) {
 			if (Object.keys(here).length > 0) await putParticipantProgress(here).catch((e) => console.error("Could not keep the lesson for the new account", e));
 		}
 		setSession(signedIn);
+		return signedIn;
 	}
 	const shared = {
 		session,
@@ -11330,7 +11530,12 @@ function ParticipantAccountPage({ kind }) {
 		if (found) return;
 		setBusy(true);
 		try {
-			await (up ? signUp : signIn)(email, password);
+			const signedIn = await (up ? signUp : signIn)(email, password);
+			if (signedIn.go_to) {
+				console.info(`Participant sent to ${signedIn.go_to}`);
+				reloading.goTo(signedIn.go_to);
+				return;
+			}
 			window.location.hash = "#/chat";
 			reloading.reload();
 		} catch (err) {

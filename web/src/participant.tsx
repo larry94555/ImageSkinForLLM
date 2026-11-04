@@ -46,20 +46,23 @@ async function followProgress(): Promise<void> {
 
 interface Shared {
   session: ParticipantSession | null; // null until the server has answered
-  signUp: (email: string, password: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<ParticipantSession>;
+  signIn: (email: string, password: string) => Promise<ParticipantSession>;
   signOut: () => Promise<void>;
 }
 
-// Reads the page again; a function of its own so tests can see it.
-export const reloading = { reload: () => window.location.reload() };
+// Reads the page again, or opens another site's; functions of their own so tests can see them.
+export const reloading = {
+  reload: () => window.location.reload(),
+  goTo: (url: string) => window.location.assign(url),
+};
 
 const SIGNED_OUT: ParticipantSession = { signed_in: false, email: null };
 
 const ParticipantContext = createContext<Shared>({
   session: SIGNED_OUT,
-  signUp: async () => {},
-  signIn: async () => {},
+  signUp: async () => SIGNED_OUT,
+  signIn: async () => SIGNED_OUT,
   signOut: async () => {},
 });
 
@@ -112,6 +115,7 @@ export function ParticipantProvider({
       }
     }
     setSession(signedIn);
+    return signedIn;
   }
 
   const shared: Shared = {
@@ -216,7 +220,13 @@ export function ParticipantAccountPage({ kind }: { kind: "up" | "in" }) {
     if (found) return;
     setBusy(true);
     try {
-      await (up ? signUp : signIn)(email, password);
+      const signedIn = await (up ? signUp : signIn)(email, password);
+      if (signedIn.go_to) {
+        // The host sends them to another of their sites (R261), where they are signed in too.
+        console.info(`Participant sent to ${signedIn.go_to}`);
+        reloading.goTo(signedIn.go_to);
+        return;
+      }
       // The chat is read again, as the account's conversation.
       window.location.hash = "#/chat";
       reloading.reload();

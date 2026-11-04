@@ -47,9 +47,11 @@ def give_cookie(
 def participant_router(
     accounts: ParticipantAccounts,
     cookie_domain: Callable[[Request], str | None] = lambda _: None,
+    landing: Callable[[Request, str], str | None] = lambda request, email: None,
 ) -> APIRouter:
     """The routes. The cookie is `accounts.cookie`, set for `cookie_domain` when it gives one, so
-    a host's participant is signed in on each of their sites (R260)."""
+    a host's participant is signed in on each of their sites (R260). `landing` gives the address
+    of another of the host's sites a participant signing in is sent to (R261), as `go_to`."""
     router = APIRouter(prefix="/api/participant")
 
     def token_of(request: Request) -> str | None:
@@ -57,7 +59,12 @@ def participant_router(
         return accounts.token_in(request.cookies)[0]
 
     def signed_in(request: Request, token: str, email: str) -> JSONResponse:
-        response = JSONResponse({"signed_in": True, "email": email})
+        body: dict[str, object] = {"signed_in": True, "email": email}
+        go_to = landing(request, email)
+        if go_to:
+            body["go_to"] = go_to
+            logger.info("Participant sent to their site", extra={"email": email, "to": go_to})
+        response = JSONResponse(body)
         give_cookie(response, request, accounts, token, cookie_domain(request))
         return response
 
