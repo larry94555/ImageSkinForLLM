@@ -20,7 +20,7 @@ from test_subscribing import (  # noqa: F401 (the fixture)
     served,
 )
 
-from imageskin.payments import Stripe
+from imageskin.payments import PaymentError, Stripe
 from imageskin.sites import ADDED, PICKED, SiteError, site_home
 
 pytestmark = pytest.mark.real_hosts
@@ -250,7 +250,7 @@ def test_a_refund_reads_an_invoice_by_its_id_and_refunds_nothing_unpaid() -> Non
 
     def get(url: str, key: str) -> dict[str, object]:
         if "/invoices/" in url:
-            return dict(invoices[url.rsplit("/", 1)[1]])
+            return dict(invoices[url.rsplit("/", 1)[1].split("?")[0]])
         sub = url.rsplit("/", 1)[1].split("?")[0]
         return {"latest_invoice": "in_paid" if sub == "sub_paid" else "in_free"}
 
@@ -270,3 +270,59 @@ def test_a_refund_reads_an_invoice_by_its_id_and_refunds_nothing_unpaid() -> Non
         )
     ]
     assert stripe.refund_first_payment("a", "sub_free") is None and len(posted) == 1
+
+
+def test_a_refund_finds_the_payment_in_the_invoice_payments_of_newer_stripe_apis() -> None:
+    """Codex's review of PR #304: from Stripe's API 2025-03-31.basil on, an invoice names its
+    payment only in its invoice payments, here listed by `/v1/invoice_payments` as the invoice
+    read by its id has none expanded; a paid invoice naming no payment is never taken for
+    refunded."""
+    posted: list[dict[str, str]] = []
+    listed: dict[str, dict[str, object]] = {
+        "in_new": {
+            "data": [
+                {"status": "canceled", "payment": {"payment_intent": "pi_failed"}},
+                {"status": "paid", "payment": {"type": "charge", "charge": {"id": "ch_new"}}},
+            ]
+        },
+        "in_lost": {"data": []},
+    }
+
+    def get(url: str, key: str) -> dict[str, object]:
+        if "/invoice_payments?invoice=" in url:
+            return dict(listed[url.rsplit("=", 1)[1]])
+        if "/invoices/" in url:
+            invoice = url.rsplit("/", 1)[1].split("?")[0]
+            return {"id": invoice, "amount_paid": 199}
+        sub = url.rsplit("/", 1)[1].split("?")[0]
+        return {"latest_invoice": "in_new" if sub == "sub_new" else "in_lost"}
+
+    def post(
+        url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, object]:
+        posted.append(form)
+        return {"id": "re_new"}
+
+    stripe = Stripe("sk_test", SECRET, "price_5gb", post, get=get)
+    assert stripe.refund_first_payment("a", "sub_new") == "re_new"
+    assert posted == [{"charge": "ch_new", "reason": "duplicate", "metadata[site]": "a"}]
+    with pytest.raises(PaymentError):
+        stripe.refund_first_payment("a", "sub_lost")
+    assert len(posted) == 1
+
+
+def test_a_second_payment_whose_refund_cant_be_found_is_never_acknowledged(
+    tmp_path: Path,
+) -> None:
+    fake, sites, service, dan, site, code = subscribed_trial(tmp_path)
+
+    def no_payment_named(url: str, key: str) -> dict[str, object]:
+        if "/invoice_payments" in url:
+            return {"data": []}
+        return {"latest_invoice": {"id": "in_1", "amount_paid": 199}}
+
+    object.__setattr__(service.payments, "get", no_payment_named)
+    main = TestClient(sites, base_url=MAIN)
+    # Not cancelled as if refunded: answered 503, so Stripe sends it again.
+    assert send(main, completed(code, "sub_2")).status_code == 503
+    assert fake.refunds == {} and fake.deleted == []

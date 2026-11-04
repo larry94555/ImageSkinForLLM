@@ -93,10 +93,16 @@ class FakeStripe:
         return {"id": url.rsplit("/", 1)[1], "status": "canceled"}
 
     def get(self, url: str, key: str) -> dict[str, Any]:
-        """A subscription, with the invoice its first payment paid, $1.99."""
+        """A subscription, with the invoice its first payment paid, $1.99, as Stripe's API
+        from 2025-03-31.basil on gives it: its payments, with no `payment_intent` of its own."""
         self.got.append(url)
         sub = url.rsplit("/", 1)[1].split("?")[0]
-        return {"id": sub, "latest_invoice": {"payment_intent": f"pi_{sub}", "amount_paid": 199}}
+        paid = {
+            "status": "paid",
+            "payment": {"type": "payment_intent", "payment_intent": f"pi_{sub}"},
+        }
+        invoice = {"id": f"in_{sub}", "amount_paid": 199, "payments": {"data": [paid]}}
+        return {"id": sub, "latest_invoice": invoice}
 
 
 # The service last served, whose sites' tokens a completed checkout carries, as Stripe sends back

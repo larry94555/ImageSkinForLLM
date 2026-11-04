@@ -248,30 +248,42 @@ class Stripe:
         subscription for a site already paid for (Codex's review of PR #304). The refund's id,
         or None when nothing was paid. Asked again, as when Stripe resends the event, Stripe
         answers the same refund, by its idempotency key, so the payment is never refunded
-        twice. PaymentError when Stripe can't be reached or refuses."""
+        twice. The payment is found in the invoice's payments (`payments`, or
+        `/v1/invoice_payments`, Stripe's API from 2025-03-31.basil on), or else its older
+        `payment_intent` or `charge`. PaymentError when Stripe can't be reached or refuses, or
+        when an invoice that was paid names no payment to refund, so the duplicate is never
+        taken for refunded (Codex's review of PR #304)."""
         start = time.perf_counter()
         try:
             found = self.get(
-                f"{API}/subscriptions/{subscription_id}?expand[]=latest_invoice", self.secret_key
+                f"{API}/subscriptions/{subscription_id}"
+                "?expand[]=latest_invoice&expand[]=latest_invoice.payments",
+                self.secret_key,
             )
             invoice = found.get("latest_invoice") or {}
             if isinstance(invoice, str):
-                invoice = self.get(f"{API}/invoices/{invoice}", self.secret_key)
-            paid = {
-                key: str(invoice[key])
-                for key in ("payment_intent", "charge")
-                if invoice.get(key) and isinstance(invoice[key], str)
-            }
-            if not paid or not invoice.get("amount_paid"):
+                invoice = self.get(f"{API}/invoices/{invoice}?expand[]=payments", self.secret_key)
+            if not invoice.get("amount_paid"):
                 logger.warning(
                     "Nothing to refund", extra={"site": site, "subscription": subscription_id}
                 )
                 return None
-            how = (
-                {"payment_intent": paid["payment_intent"]}
-                if "payment_intent" in paid
-                else {"charge": paid["charge"]}
-            )
+            how = _payment_of(invoice)
+            if how is None and invoice.get("id"):
+                listed = self.get(
+                    f"{API}/invoice_payments?invoice={invoice['id']}", self.secret_key
+                )
+                how = _payment_of({"payments": listed})
+            if how is None:
+                logger.error(
+                    "Paid invoice with no payment found",
+                    extra={
+                        "site": site,
+                        "subscription": subscription_id,
+                        "invoice": invoice.get("id"),
+                    },
+                )
+                raise PaymentError(UNAVAILABLE)
             refund = self.post(
                 f"{API}/refunds",
                 {**how, "reason": "duplicate", "metadata[site]": site},
@@ -441,6 +453,30 @@ class Stripe:
         except (ValueError, KeyError, TypeError) as e:
             raise BadEvent("not an event") from e
         return event
+
+
+def _payment_of(invoice: dict[str, Any]) -> dict[str, str] | None:
+    """What paid the invoice, for a refund: its paid invoice payment's PaymentIntent or charge
+    (Stripe's API from 2025-03-31.basil on), or else its own older `payment_intent` or
+    `charge`; None when it names none."""
+    payments = invoice.get("payments") or {}
+    for record in payments.get("data") or [] if isinstance(payments, dict) else []:
+        if not isinstance(record, dict) or record.get("status") not in (None, "paid"):
+            continue
+        payment = record.get("payment") or {}
+        for key in ("payment_intent", "charge"):
+            value = payment.get(key)
+            if isinstance(value, dict):
+                value = value.get("id")
+            if isinstance(value, str) and value:
+                return {key: value}
+    for key in ("payment_intent", "charge"):
+        value = invoice.get(key)
+        if isinstance(value, dict):
+            value = value.get("id")
+        if isinstance(value, str) and value:
+            return {key: value}
+    return None
 
 
 def ends_at(subscription: dict[str, Any]) -> float | None:
