@@ -4,6 +4,7 @@ free, paused until Resume subscription pays for it with the card Stripe keeps (R
 
 import logging
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,7 @@ from test_subscribing import (  # noqa: F401 (the fixture)
 
 from imageskin.hosts import DELETED, NO_SITE, site_deleted_words
 from imageskin.payments import Stripe
-from imageskin.sites import RESTARTED, SiteError, site_home
+from imageskin.sites import RESTARTED, SiteDirectory, SiteError, site_home
 
 pytestmark = pytest.mark.real_hosts
 
@@ -212,9 +213,16 @@ def test_a_restart_stopped_between_the_two_files_is_finished_never_made_twice(
     assert service.sites.paused("dans") == RESTARTED
     assert service.sites.subscription("dans")["customer"] == "cus_1"
     assert service.host_accounts.deleted_site(DAN) is not None
+    assert not site_home("dans", service.home).exists()
     monkeypatch.setattr(service.host_accounts, "set_site", real)
+    # Its folder can't be made at first: the host is left as they were, to try again.
+    restarted = SiteDirectory(service.home, service.host_accounts)
+    with patch.object(Path, "mkdir", side_effect=OSError("disk full")), pytest.raises(OSError):
+        restarted.restart(DAN)
+    assert service.host_accounts.site_of(DAN) == NO_SITE
     main = TestClient(sites, base_url=MAIN)
     started = main.post("/api/host/restart", json={"email": DAN, "password": PASSWORD})
     assert started.json()["site"] == "dans" and service.sites.names().count("dans") == 1
     assert len([n for n in service.sites.names() if service.sites.host(n) == DAN]) == 1
     assert service.host_accounts.site_of(DAN) == "dans"
+    assert site_home("dans", service.home).is_dir()

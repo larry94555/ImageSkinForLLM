@@ -800,6 +800,9 @@ class SiteDirectory:
                 None,
             )
             if made is not None:
+                # Its folder first: a failure leaves the host as they were, to try again
+                # (Codex's review of PR #302).
+                site_home(made, self.home).mkdir(parents=True, exist_ok=True)
                 self._hosts.set_site(email, made)
                 logger.warning("Site started again, finished", extra={"site": made, "host": host})
                 return made
