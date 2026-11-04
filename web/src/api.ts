@@ -1387,6 +1387,56 @@ export interface HostSession {
   display_name?: string | null;
 }
 
+// A participant's account on this site (R46): sign up, sign in and sign out. The cookie that keeps
+// them signed in is set by the server and can't be read here.
+export interface ParticipantSession {
+  signed_in: boolean;
+  email: string | null;
+}
+
+export async function getParticipantSession(): Promise<ParticipantSession> {
+  return json<ParticipantSession>(await fetch("/api/participant/session"));
+}
+
+// Throws a ServerRefusal with the server's plain message when a field is wrong, the email has an
+// account here already or the sign-in fails.
+async function participantAccount(route: "sign-up" | "sign-in", email: string, password: string) {
+  const response = await fetch(`/api/participant/${route}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as ParticipantSession;
+}
+
+export function signUpAsParticipant(email: string, password: string): Promise<ParticipantSession> {
+  return participantAccount("sign-up", email, password);
+}
+
+export function signInAsParticipant(email: string, password: string): Promise<ParticipantSession> {
+  return participantAccount("sign-in", email, password);
+}
+
+// The signed-in participant's Teach me, Quiz me and assessment under way, kept for their account.
+export async function getParticipantProgress(): Promise<Record<string, unknown>> {
+  return json<Record<string, unknown>>(await fetch("/api/participant/progress"));
+}
+
+export async function putParticipantProgress(kept: Record<string, unknown>): Promise<void> {
+  const response = await fetch("/api/participant/progress", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(kept),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+export async function signOutAsParticipant(): Promise<void> {
+  const response = await fetch("/api/participant/sign-out", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
 // Subscribing (R67): whether it is set up on this server, what is sold, and the site's
 // subscription's status as Stripe's events recorded it.
 export interface Subscription {

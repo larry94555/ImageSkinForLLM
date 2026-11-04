@@ -31,6 +31,12 @@ import {
   useHost,
 } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
+import {
+  ParticipantAccountPage,
+  ParticipantLinks,
+  ParticipantProvider,
+  useParticipant,
+} from "./participant";
 import { StartNowPage } from "./start-now";
 import {
   adminTarget,
@@ -99,9 +105,11 @@ export function App() {
     <SettingsProvider>
       <AdminProvider>
         <HostProvider>
-          <SettingsAccessProvider>
-            <Shell />
-          </SettingsAccessProvider>
+          <ParticipantProvider>
+            <SettingsAccessProvider>
+              <Shell />
+            </SettingsAccessProvider>
+          </ParticipantProvider>
         </HostProvider>
       </AdminProvider>
     </SettingsProvider>
@@ -134,6 +142,7 @@ function Shell() {
 
   // Anyone not signed in as a host has the participant view (R190), and a host page says so.
   const hostSession = useHost().session;
+  const participantSession = useParticipant().session;
   // A customer who hasn't confirmed their email yet is not yet their site's host (R62b): every
   // page says to confirm it.
   const unconfirmed = hostSession?.signed_in === true && hostSession.confirmed === false;
@@ -145,7 +154,13 @@ function Shell() {
     hostSession === null ? undefined : !visitor,
   );
   const route =
-    consented === null || !settingsLoaded || hostSession === null || customUse === null
+    consented === null ||
+    !settingsLoaded ||
+    hostSession === null ||
+    customUse === null ||
+    // A participant's page waits for their sign-in, so their chat opens with their own lesson
+    // (R46).
+    participantSession === null
       ? null
       : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
   useEffect(() => {
@@ -225,6 +240,8 @@ function Shell() {
         />
       ),
       admin: <AdminPage section={adminTarget(hash)} />,
+      "participant-sign-up": <ParticipantAccountPage kind="up" />,
+      "participant-sign-in": <ParticipantAccountPage kind="in" />,
       "host-sign-up": <HostAccountPage kind="up" />,
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
@@ -261,6 +278,7 @@ function Shell() {
         </nav>
         <span className="header-end">
           {settingsLoaded && (participant || visitor) && <HostedBy />}
+          {hostSession?.signed_in !== true && <ParticipantLinks page={route?.page} />}
           <HostLinks page={route?.page} />
           <AdminLink current={route?.page === "admin"} />
           {settingsLoaded && settingsShown && (

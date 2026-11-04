@@ -67,7 +67,7 @@ import { DetailBar } from "./detail-bar";
 import { ExitScreen } from "./exit";
 import { FaceMovementChoice } from "./face-movement";
 import { goWithoutAsking, useLeaveGuard } from "./leave-guard";
-import { ASSESSMENT_KEY, LESSON_KEY, progressKey, QUIZ_KEY } from "./progress";
+import { ASSESSMENT_KEY, LESSON_KEY, progressChanged, progressKey, QUIZ_KEY } from "./progress";
 import { OWN_CONSENT, type SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
@@ -1367,6 +1367,7 @@ function saveAssessment(assessment: Assessment | null) {
   } catch (e) {
     console.error("Could not keep the assessment", e);
   }
+  progressChanged();
 }
 
 function saveQuiz(quiz: Quiz | null) {
@@ -1376,6 +1377,7 @@ function saveQuiz(quiz: Quiz | null) {
   } catch (e) {
     console.error("Could not keep the quiz", e);
   }
+  progressChanged();
 }
 
 function saveLesson(lesson: Lesson | null) {
@@ -1385,6 +1387,7 @@ function saveLesson(lesson: Lesson | null) {
   } catch (e) {
     console.error("Could not keep the lesson", e);
   }
+  progressChanged();
 }
 
 export function loadSound(): Sound {

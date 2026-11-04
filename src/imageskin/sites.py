@@ -65,9 +65,9 @@ from imageskin.hosts import (
     HostAccounts,
     HostsUnreadable,
     normal_email,
-    trial_cookie,
 )
 from imageskin.network import NetworkMonth
+from imageskin.participants import COOKIE as PARTICIPANT_COOKIE
 from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
 
@@ -1159,9 +1159,17 @@ def trial_code(scope: Scope) -> str | None:
     return found.group(1) if found else None
 
 
+# The cookies each site's app sets and reads by one name: the host's (R62) and a participant's
+# (R46). Every trial site is at the same address, so at a trial path each is named for its code
+# and kept for its path, and the main address's never reaches it.
+SITE_COOKIES = (HOST_COOKIE, PARTICIPANT_COOKIE)
+
+
 def trial_cookies_in(headers: list[tuple[bytes, bytes]], code: str) -> list[tuple[bytes, bytes]]:
-    """The request's headers with the trial site's host cookie as the host cookie, and no other."""
-    own, plain = trial_cookie(code).encode(), HOST_COOKIE.encode()
+    """The request's headers with the trial site's own cookies by their plain names, and no
+    other site's."""
+    names = [(f"{c}_{code}".encode(), c.encode()) for c in SITE_COOKIES]
+    plain_names = {plain for _, plain in names}
     kept: list[tuple[bytes, bytes]] = []
     for name, value in headers:
         if name.lower() != b"cookie":
@@ -1170,24 +1178,30 @@ def trial_cookies_in(headers: list[tuple[bytes, bytes]], code: str) -> list[tupl
         pairs = []
         for pair in value.split(b";"):
             key = pair.split(b"=", 1)[0].strip()
-            if key == plain:
+            if key in plain_names:
                 continue
-            pairs.append(plain + pair.strip()[len(own) :] if key == own else pair.strip())
+            own = next(((o, plain) for o, plain in names if key == o), None)
+            pairs.append(own[1] + pair.strip()[len(own[0]) :] if own else pair.strip())
         kept.append((name, b"; ".join(p for p in pairs if p)))
     return kept
 
 
 def trial_cookies_out(send: Send, code: str, path: str) -> Send:
-    """`send`, with the host cookie the site's app sets renamed to its own, for its path."""
-    plain, own = f"{HOST_COOKIE}=".encode(), f"{trial_cookie(code)}=".encode()
+    """`send`, with the cookies the site's app sets renamed to its own, for its path."""
+    names = [(f"{c}=".encode(), f"{c}_{code}=".encode()) for c in SITE_COOKIES]
 
     async def sending(message: Message) -> None:
         if message["type"] == "http.response.start":
             headers = []
             for name, value in message.get("headers", []):
-                if name.lower() == b"set-cookie" and value.startswith(plain):
-                    value = own + value[len(plain) :]
-                    value = re.sub(rb"(?i)(;\s*path=)[^;]*", rb"\g<1>" + path.encode(), value)
+                if name.lower() == b"set-cookie":
+                    for plain, own in names:
+                        if value.startswith(plain):
+                            value = own + value[len(plain) :]
+                            value = re.sub(
+                                rb"(?i)(;\s*path=)[^;]*", rb"\g<1>" + path.encode(), value
+                            )
+                            break
                 headers.append((name, value))
             message = {**message, "headers": headers}
         await send(message)

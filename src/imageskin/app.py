@@ -145,6 +145,9 @@ from imageskin.llm_choice import (
 )
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
+from imageskin.participant_api import participant_router
+from imageskin.participants import COOKIE as PARTICIPANT_COOKIE
+from imageskin.participants import ParticipantAccounts
 from imageskin.password_reset import reset_router
 from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
 from imageskin.payments import (
@@ -746,6 +749,8 @@ def create_app(
     site_name = site or data_home.name
     # Whose host signs in here (R61): the site's, or the main address's for an app made alone.
     host_site = site or DEFAULT_SITE
+    # The site's participants (R46), each signed in by a cookie of their own.
+    participants = ParticipantAccounts(data_home, host_site)
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -794,7 +799,9 @@ def create_app(
         if re.sub(r"^/t/[^/]+", "", request.url.path).startswith("/api/chat") and (
             host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is None
         ):
-            visitor = request.cookies.get(VISITOR_COOKIE)
+            # A signed-in participant's conversation is their account's, on any browser (R46).
+            participant = participants.participant(request.cookies.get(PARTICIPANT_COOKIE))
+            visitor = participant.id if participant else request.cookies.get(VISITOR_COOKIE)
             if not valid_visitor(visitor):
                 visitor = new_visitor = new_visitor_token()
         set_visitor = this_visitor.set(visitor)
@@ -1328,6 +1335,7 @@ def create_app(
 
     custom_kind = [Depends(allowed_kind)]
     app.include_router(host_routes)
+    app.include_router(participant_router(participants))
     # Forgot password (R62a).
     app.include_router(reset_router(host_accounts, service.mailer.send))
     # The administrator acting as a host (R44a): the link made at the main address only.

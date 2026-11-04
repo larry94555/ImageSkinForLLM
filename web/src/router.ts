@@ -16,6 +16,8 @@ export type Page =
   | "wiki-page"
   | "settings"
   | "admin"
+  | "participant-sign-up"
+  | "participant-sign-in"
   | "host-sign-up"
   | "host-sign-in"
   | "host-only"
@@ -46,6 +48,9 @@ const PAGES: Record<string, Page> = {
   "/admin": "admin", // the admin view (R150), apart from the host and participant views
   "/admin/settings": "admin", // its second page, the admin settings (R155)
   "/admin/guidelines": "admin", // its third, the administrator's own guidelines (R244)
+  // A participant's sign up and sign in (R46), for anyone not signed in as a host.
+  "/sign-up": "participant-sign-up",
+  "/sign-in": "participant-sign-in",
   // Host sign up and sign in (R189), in both views, as anyone not signed in may become a host.
   "/host/sign-up": "host-sign-up",
   "/host/sign-in": "host-sign-in",

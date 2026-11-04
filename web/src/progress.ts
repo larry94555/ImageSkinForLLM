@@ -25,3 +25,59 @@ export function clearProgress(): void {
     }
   }
 }
+
+// A signed-in participant's progress is kept for their account (roadmap R46), so it follows them
+// to another browser: what this browser keeps is sent to the server a moment after each change,
+// and what the server kept is put here when they sign in or the page opens.
+export type Kept = Partial<Record<"lesson" | "quiz" | "assessment", unknown>>;
+const KEPT: [keyof Kept, string][] = [
+  ["lesson", LESSON_KEY],
+  ["quiz", QUIZ_KEY],
+  ["assessment", ASSESSMENT_KEY],
+];
+export const SYNC_DELAY_MS = 500;
+
+let send: ((kept: Kept) => void) | null = null;
+let waiting: ReturnType<typeof setTimeout> | null = null;
+
+export function readProgress(): Kept {
+  const kept: Kept = {};
+  for (const [name, key] of KEPT) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey(key)) ?? "null") as unknown;
+      if (saved !== null) kept[name] = saved;
+    } catch {
+      // storage blocked, or something else saved there
+    }
+  }
+  return kept;
+}
+
+export function writeProgress(kept: Kept): void {
+  for (const [name, key] of KEPT) {
+    try {
+      const value = kept[name];
+      if (value === undefined || value === null) localStorage.removeItem(progressKey(key));
+      else localStorage.setItem(progressKey(key), JSON.stringify(value));
+    } catch (e) {
+      console.error(`Could not keep ${key}`, e);
+    }
+  }
+}
+
+// Called by each save of the lesson, quiz or assessment: sends them once the changes settle.
+export function progressChanged(): void {
+  if (!send) return;
+  if (waiting) clearTimeout(waiting);
+  waiting = setTimeout(() => {
+    waiting = null;
+    send?.(readProgress());
+  }, SYNC_DELAY_MS);
+}
+
+// Starts sending this browser's progress for the signed-in participant, or stops (null).
+export function syncProgress(to: ((kept: Kept) => void) | null): void {
+  if (waiting) clearTimeout(waiting);
+  waiting = null;
+  send = to;
+}
