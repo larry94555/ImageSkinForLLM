@@ -30,7 +30,7 @@ def subscribed_trial(tmp_path: Path, fake: FakeStripe | None = None):  # type: i
     """Dan's trial site, paid for by Stripe customer cus_1: Stripe, his browser, the site's path
     and code."""
     fake = fake or FakeStripe()
-    stripe = Stripe("sk_test", SECRET, "price_5gb", fake)
+    stripe = Stripe("sk_test", SECRET, "price_5gb", fake, delete=fake.delete)
     sites, _, service = served(tmp_path, stripe)
     dan, site = a_trial(sites, tmp_path / "home")
     code = site.removeprefix("/t/")
@@ -176,3 +176,46 @@ def test_a_name_a_site_changed_away_from_is_given_to_the_new_site_as_its_subdoma
     with pytest.raises(SiteError, match="site of their own"):
         service.sites.add_paid("cy@example.com", "cys")
     assert PICKED == "subdomain"
+
+
+def test_a_checkout_asked_for_again_is_the_same_one_and_a_second_payment_is_cancelled(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #304: Stripe makes the checkout but its answer is lost, and the host
+    tries again. Stripe answers the same checkout, by its idempotency key; and were two
+    checkouts for one site both paid, the second subscription is cancelled at once, so the host
+    is never charged twice for one site."""
+    fake, sites, service, dan, site, code = subscribed_trial(tmp_path)
+    fake.lose_answer = True
+    assert dan.post(f"{site}/api/host/sites", json={"name": "dans-two"}).status_code == 502
+    fake.lose_answer = False
+    again = dan.post(f"{site}/api/host/sites", json={"name": "dans-two"})
+    assert again.status_code == 200
+    token = service.sites.token_of("dans-two")
+    assert fake.keys[-2:] == [f"add-{token}", f"add-{token}"]
+    assert len(fake.made) == 1  # one checkout at Stripe, answered twice
+    assert again.json()["url"] == fake.made[f"add-{token}"]["url"]
+    # Two paid checkouts for the one site all the same: the first is kept, the second ended.
+    main = TestClient(sites, base_url=MAIN)
+    assert send(main, completed("dans-two", "sub_a")).is_success
+    with caplog.at_level(logging.INFO):
+        assert send(main, completed("dans-two", "sub_b")).is_success
+    assert "Second subscription for a site" in caplog.messages
+    assert fake.deleted == ["https://api.stripe.com/v1/subscriptions/sub_b"]
+    assert (service.sites.subscription("dans-two") or {})["id"] == "sub_a"
+    # The same event again (Stripe resends it) changes nothing more.
+    assert send(main, completed("dans-two", "sub_a")).is_success
+    assert (service.sites.subscription("dans-two") or {})["id"] == "sub_a"
+
+
+def test_a_second_payment_stripe_cant_cancel_yet_is_tried_again(tmp_path: Path) -> None:
+    fake, sites, service, dan, site, code = subscribed_trial(tmp_path)
+    main = TestClient(sites, base_url=MAIN)
+
+    def unreachable(url: str, key: str) -> dict[str, object]:
+        raise OSError("Stripe not reached")
+
+    object.__setattr__(service.payments, "delete", unreachable)
+    # Stripe sends the event again until it is answered 2xx.
+    assert send(main, completed(code, "sub_2")).status_code == 503
+    assert (service.sites.subscription(code) or {})["id"] == "sub_1"

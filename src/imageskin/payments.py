@@ -120,12 +120,15 @@ class Stripe:
         cancel_url: str,
         customer: str | None = None,
         token: str | None = None,
+        idempotency: str | None = None,
     ) -> str:
         """Start subscribing the site on Stripe's page: the page's address. The site is the
         session's reference, so its completion names the site it paid for, with the site's own
         `token` (R257), so a site of that name made since isn't taken for it. With the
         `customer` the site had (R69b), Stripe's page is for them, filled in, and no new
-        customer is made."""
+        customer is made. With `idempotency`, the same checkout asked for again, as after an
+        answer that was lost, is the one Stripe made the first time, never a second one that
+        could be paid as well (Codex's review of PR #304)."""
         start = time.perf_counter()
         form = {
             "mode": "subscription",
@@ -140,7 +143,12 @@ class Stripe:
             "cancel_url": cancel_url,
         }
         try:
-            session = self.post(f"{API}/checkout/sessions", form, self.secret_key)
+            session = self.post(
+                f"{API}/checkout/sessions",
+                form,
+                self.secret_key,
+                *([idempotency] if idempotency else []),
+            )
         except urllib.error.HTTPError as e:
             logger.error(
                 "Stripe refused the checkout",

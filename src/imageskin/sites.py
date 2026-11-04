@@ -171,6 +171,11 @@ TOKEN = "token"
 ADDED = "added, not yet paid for"
 
 
+class PaidTwice(Exception):
+    """A paid checkout for a site already paid for by another subscription in force: a second
+    charge for one site, which Stripe must cancel (Codex's review of PR #304)."""
+
+
 class TrialUsed(SiteError):
     """The email address has had its free trial (R66)."""
 
@@ -451,8 +456,9 @@ class SiteDirectory:
 
         A paid checkout gives the token it was started with (`checkout`, empty when it had
         none): one that isn't this site's paid for a site of the same name since deleted, and
-        subscribes nothing (`Payment for another site of that name`; Codex's review of PR
-        #304)."""
+        subscribes nothing (`Payment for another site of that name`), and one paid while the
+        site already has another subscription in force raises PaidTwice, for the caller to
+        cancel it at Stripe (Codex's review of PR #304)."""
         with self._lock:
             sites = dict(self._load())
             site = sites.get(name)
@@ -478,6 +484,19 @@ class SiteDirectory:
                         },
                     )
                 return True
+            if checkout is not None and kept.get("id") and kept.get("status") in ACTIVE:
+                # Two checkouts for one site, both paid: the one in force stays, and the new
+                # one is the caller's to cancel, so the host is never charged twice.
+                logger.error(
+                    "Second subscription for a site",
+                    extra={
+                        "site": name,
+                        "subscription": subscription_id,
+                        "kept": kept.get("id"),
+                        "customer": customer,
+                    },
+                )
+                raise PaidTwice(subscription_id)
             was_paused = "paused" in site
             site = {k: v for k, v in site.items() if k not in ("paused", "paused_at")}
             site["subscription"] = {

@@ -55,12 +55,33 @@ class FakeStripe:
     def __init__(self, fail: Exception | None = None) -> None:
         self.posted: list[tuple[str, dict[str, str], str]] = []
         self.fail = fail
+        # Stripe keeps what an idempotency key made, and answers it again (R257).
+        self.made: dict[str, dict[str, Any]] = {}
+        self.keys: list[str | None] = []
+        self.lose_answer = False  # Stripe makes the checkout, but its answer is lost
+        self.deleted: list[str] = []
 
-    def __call__(self, url: str, form: dict[str, str], key: str) -> dict[str, Any]:
+    def __call__(
+        self, url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, Any]:
         self.posted.append((url, form, key))
+        self.keys.append(idempotency)
         if self.fail is not None:
             raise self.fail
-        return {"id": "cs_test_1", "url": "https://checkout.stripe.com/c/pay/cs_test_1"}
+        number = len(self.made) + 1
+        session = {
+            "id": f"cs_test_{number}",
+            "url": f"https://checkout.stripe.com/c/pay/cs_test_{number}",
+        }
+        if idempotency is not None:
+            session = self.made.setdefault(idempotency, session)
+        if self.lose_answer:
+            raise OSError("the answer was lost")
+        return session
+
+    def delete(self, url: str, key: str) -> dict[str, Any]:
+        self.deleted.append(url)
+        return {"id": url.rsplit("/", 1)[1], "status": "canceled"}
 
 
 # The service last served, whose sites' tokens a completed checkout carries, as Stripe sends back

@@ -180,6 +180,7 @@ from imageskin.sites import (
     ADDED,
     FINAL,
     RESTARTED,
+    PaidTwice,
     Service,
     SiteError,
     make_service,
@@ -1117,8 +1118,11 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(e)) from e
         back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/host/account"
         try:
+            token = service.sites.token_of(made)
+            # Asked again for the same unpaid site, as after an answer that was lost, Stripe
+            # answers the checkout it made the first time (Codex's review of PR #304).
             url = service.payments.checkout(
-                made, host.email, back, back, customer, token=service.sites.token_of(made)
+                made, host.email, back, back, customer, token=token, idempotency=f"add-{token}"
             )
         except PaymentError as e:
             # Stripe may have made the checkout all the same, its answer lost, so the new site
@@ -1243,13 +1247,21 @@ def create_app(
                 paid = thing.get("payment_status") in ("paid", "no_payment_required")
                 if site and paid and thing.get("subscription"):
                     token = (thing.get("metadata") or {}).get("site_token")
-                    if not service.sites.subscribe(
-                        site,
-                        str(thing["subscription"]),
-                        str(thing.get("customer") or ""),
-                        checkout=str(token or ""),
-                    ):
-                        logger.error("Subscription for no site", extra={"site": site})
+                    try:
+                        if not service.sites.subscribe(
+                            site,
+                            str(thing["subscription"]),
+                            str(thing.get("customer") or ""),
+                            checkout=str(token or ""),
+                        ):
+                            logger.error("Subscription for no site", extra={"site": site})
+                    except PaidTwice:
+                        # Ended at once, so the host pays for one; Stripe sends the event
+                        # again until this works (Codex's review of PR #304).
+                        try:
+                            service.payments.cancel_now(site, str(thing["subscription"]))
+                        except PaymentError as e:
+                            raise HTTPException(status_code=503, detail=str(e)) from e
             elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
                 # A deleted subscription has ended, whatever end it was set to (R69).
                 ends = None if kind.endswith("deleted") else ends_at(thing)
