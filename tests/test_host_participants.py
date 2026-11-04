@@ -212,3 +212,19 @@ def test_bobs_participants_are_his_own(tmp_path: Path) -> None:
     for email in (ANN, BOB):
         kept = json.loads((s.library(email) / FILENAME).read_text())
         assert list(kept["participants"]) == [PAT]
+
+
+def test_the_old_cookie_is_read_only_for_a_sign_in_moved_from_the_site(tmp_path: Path) -> None:
+    host = tmp_path / "host"
+    on_a = ParticipantAccounts(tmp_path / "a", "a", accounts=host, cookie=f"{COOKIE}_k")
+    made_here = on_a.sign_up(PAT, PASSWORD)  # made with the host's cookie, never the old one
+    assert on_a.token_in({f"{COOKIE}_k": made_here}) == (made_here, False)
+    assert on_a.token_in({COOKIE: made_here}) == (None, False)
+    moved = ParticipantAccounts(tmp_path / "b", "b").sign_up("sam@example.com", PASSWORD)
+    on_b = ParticipantAccounts(tmp_path / "b", "b", accounts=host, cookie=f"{COOKIE}_k")
+    assert move_site_participants(tmp_path / "b", on_b) == 1
+    assert on_b.token_in({COOKIE: moved}) == (moved, True)
+    assert on_a.token_in({COOKIE: moved}) == (None, False)
+    # The main address's own cookie is its only one.
+    main = ParticipantAccounts(tmp_path / "main", "main")
+    assert main.token_in({COOKIE: "x"}) == ("x", False)
