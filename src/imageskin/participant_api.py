@@ -48,10 +48,12 @@ def participant_router(
     accounts: ParticipantAccounts,
     cookie_domain: Callable[[Request], str | None] = lambda _: None,
     landing: Callable[[Request, str], str | None] = lambda request, email: None,
+    allowed: Callable[[Request, str], bool] = lambda request, email: True,
 ) -> APIRouter:
     """The routes. The cookie is `accounts.cookie`, set for `cookie_domain` when it gives one, so
     a host's participant is signed in on each of their sites (R260). `landing` gives the address
-    of another of the host's sites a participant signing in is sent to (R261), as `go_to`."""
+    of another of the host's sites a participant signing in is sent to (R261), as `go_to`, and
+    `allowed` whether the host's policy lets them open this site (R262)."""
     router = APIRouter(prefix="/api/participant")
 
     def token_of(request: Request) -> str | None:
@@ -83,7 +85,10 @@ def participant_router(
     def session(request: Request) -> dict[str, object]:
         """Whether this browser is signed in as a participant of this site, and as whom."""
         found = accounts.participant(token_of(request))
-        return {"signed_in": found is not None, "email": found and found.email}
+        answer: dict[str, object] = {"signed_in": found is not None, "email": found and found.email}
+        if found is not None and not allowed(request, found.email):
+            answer["allowed"] = False  # the page says only that the site is not yet active
+        return answer
 
     @router.post("/sign-up")
     def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:

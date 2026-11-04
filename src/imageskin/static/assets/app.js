@@ -11428,7 +11428,7 @@ function ParticipantProvider({ children }) {
 	const [session, setSession] = d(null);
 	h(() => {
 		getParticipantSession().then(async (found) => {
-			if (found.signed_in) await followProgress().catch((e) => console.error("Could not read the progress for the account", e));
+			if (found.signed_in && found.allowed !== false) await followProgress().catch((e) => console.error("Could not read the progress for the account", e));
 			setSession(found);
 		}).catch((e) => {
 			console.error("Could not read the participant sign-in", e);
@@ -11503,6 +11503,17 @@ function ParticipantLinks({ page }) {
 	return /* @__PURE__ */ u("span", {
 		className: "host-links participant-links",
 		children: [link("participant-sign-up", "#/sign-up", "Sign up"), link("participant-sign-in", "#/sign-in", "Sign in")]
+	});
+}
+var NOT_ACTIVE = "This subdomain is not yet active -- check with the host on its status.";
+function NotActivePage() {
+	h(() => console.info("Not active page shown"), []);
+	return /* @__PURE__ */ u("div", {
+		className: "not-active",
+		children: /* @__PURE__ */ u("p", {
+			className: "lead",
+			children: NOT_ACTIVE
+		})
 	});
 }
 function ParticipantAccountPage({ kind }) {
@@ -14216,6 +14227,21 @@ function Shell() {
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
+	if (participantSession?.signed_in === true && participantSession.allowed === false && hostSession?.signed_in !== true) return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("header", {
+			ref: header,
+			children: [/* @__PURE__ */ u("a", {
+				className: "brand",
+				href: "#/",
+				children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
+			}), /* @__PURE__ */ u("span", {
+				className: "header-end",
+				children: /* @__PURE__ */ u(ParticipantLinks, {})
+			})]
+		}),
+		/* @__PURE__ */ u("main", { children: /* @__PURE__ */ u(NotActivePage, {}) }),
+		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
+	] });
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (hostSession?.paused && visitor && !PAUSED_OPEN.includes(pageFor(hash))) content = /* @__PURE__ */ u(PausedPage, {});
 	else if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {

@@ -80,7 +80,7 @@ export function ParticipantProvider({
   useEffect(() => {
     getParticipantSession()
       .then(async (found) => {
-        if (found.signed_in) {
+        if (found.signed_in && found.allowed !== false) {
           // Before the pages open, so the chat starts from the account's lesson.
           await followProgress().catch((e: unknown) =>
             console.error("Could not read the progress for the account", e),
@@ -185,6 +185,21 @@ export function ParticipantLinks({ page }: { page?: string }) {
       {link("participant-sign-up", "#/sign-up", "Sign up")}
       {link("participant-sign-in", "#/sign-in", "Sign in")}
     </span>
+  );
+}
+
+// What a signed-in participant sees on one of the host's sites the host doesn't let them open
+// (R262): one sentence, naming neither the host nor anything of the site, as the site's calls
+// refuse them.
+export const NOT_ACTIVE =
+  "This subdomain is not yet active -- check with the host on its status.";
+
+export function NotActivePage() {
+  useEffect(() => console.info("Not active page shown"), []);
+  return (
+    <div className="not-active">
+      <p className="lead">{NOT_ACTIVE}</p>
+    </div>
   );
 }
 
