@@ -35,6 +35,21 @@ HOST_COOKIE = "imageskin_host"  # the cookie that keeps a host signed in (R188)
 # The site at the main address (R61): every host's until they are given a site of their own.
 DEFAULT_SITE = "default"
 SITE = "site"  # the host's site, kept with the host; none for the main address's
+# Every site of a host with several (R256): `site` is then the one they used last, which a
+# sign-in at another address goes to (R255). A host from before has none: their one `site`.
+SITES = "sites"
+
+
+def sites_in(account: dict[str, Any]) -> list[str]:
+    """The host's sites (R256): the list kept with them, which always has their `site`, or, for
+    a host from before, their one site. None once their site was deleted (R69a)."""
+    site = str(account.get(SITE, DEFAULT_SITE))
+    if site == NO_SITE:
+        return []
+    listed = [s for s in account.get(SITES) or [] if isinstance(s, str) and s != NO_SITE]
+    return listed if site in listed else [site, *listed]
+
+
 # The host's site was deleted (R69a): their account is kept, so they can sign in and resume
 # (R69b), but no site is theirs. Never a site's name, which has letters or digits only.
 NO_SITE = "-"
@@ -110,6 +125,7 @@ STILL_OPEN = (
     "/api/host/reset",
     "/api/host/confirm",
     "/api/host/act-as/",
+    "/api/host/sites/",  # opening another of their sites changes nothing (R256)
     "/api/admin/",
     "/api/settings/access",
 )
@@ -358,7 +374,8 @@ class HostAccounts:
                 extra={"reason": "site deleted", "email": email, "address": address},
             )
             raise SiteDeleted()
-        if account and account.get(SITE, DEFAULT_SITE) != site:
+        if account and site not in sites_in(account):
+            # Sent to the one they used last (R255, R256).
             elsewhere = str(account.get(SITE, DEFAULT_SITE))
             logger.warning(
                 "Host sign-in failed",
@@ -378,6 +395,7 @@ class HostAccounts:
             if now is None or now["password_hash"] != secret.value:  # type: ignore[union-attr]
                 self._refuse(WRONG, "password changed while signing in", "sign-in", email, address)
             data = {**data, "sessions": {**data["sessions"]}}
+            data = self._used(data, email, site)
             token = self._new_sign_in(data, email)
             self._save(data)
         logger.info(
@@ -389,6 +407,15 @@ class HostAccounts:
             },
         )
         return token
+
+    def _used(self, data: dict[str, Any], email: str, site: str) -> dict[str, Any]:
+        """`data` with `site` as the host's site used last (R256), which a sign-in at another
+        address then goes to (R255). Unchanged for a host with one site."""
+        account = data["hosts"][email]
+        if account.get(SITE, DEFAULT_SITE) == site or len(sites_in(account)) < 2:
+            return data
+        account = {**account, SITES: sites_in(account), SITE: site}
+        return {**data, "hosts": {**data["hosts"], email: account}}
 
     def sign_in_link(self, email: str) -> str:
         """A one-time link token that signs the host in at their own site (R255), made once their
@@ -424,10 +451,11 @@ class HostAccounts:
                     why = "no such host"
                 elif account.get("password_hash") != found[2]:
                     why = "password changed"
-                elif account.get(SITE, DEFAULT_SITE) != site:
+                elif site not in sites_in(account):
                     why = "another site's host"
                 else:
                     data = {**data, "sessions": {**data["sessions"]}}
+                    data = self._used(data, found[0], site)
                     token = self._new_sign_in(data, found[0])
                     self._save(data)
         if why is not None or found is None:
@@ -478,15 +506,17 @@ class HostAccounts:
             account = session and data["hosts"].get(session["email"])
         if not account:
             return None
+        # Signed in on each of their sites (R256): here, the one at this address.
+        theirs = sites_in(account)
         host = Host(
             session["email"],
             account["created_at"],
-            account.get(SITE, DEFAULT_SITE),
+            site if site in theirs else account.get(SITE, DEFAULT_SITE),
             acting or bool(account.get(CONFIRMED, True)),
             acting,
             account.get(DISABLED) is True,
         )
-        if site is not None and host.site != site:
+        if site is not None and site not in theirs:
             logger.warning(
                 "Host sign-in refused: another site",
                 extra={"email": host.email, "site": site, "host_site": host.site},
@@ -683,12 +713,16 @@ class HostAccounts:
         with self._lock:
             hosts = self._load()["hosts"]
         return {
-            email: {k: v for k, v in account.items() if k in ("created_at", SITE)}
+            email: {
+                **{k: v for k, v in account.items() if k in ("created_at", SITE)},
+                SITES: sites_in(account),
+            }
             for email, account in hosts.items()
         }
 
     def site_of(self, email: str) -> str | None:
-        """The host's site (R61), or None when there is no such host."""
+        """The host's site (R61), the one used last of several (R256), or None when there is no
+        such host."""
         with self._lock:
             account = self._load()["hosts"].get(normal_email(email))
         return None if account is None else str(account.get(SITE, DEFAULT_SITE))
@@ -704,6 +738,7 @@ class HostAccounts:
                 return False
             account = {**data["hosts"][email]}
             old = account.get(SITE, DEFAULT_SITE)
+            account.pop(SITES, None)  # their one site from now on (R256)
             if site != NO_SITE:
                 account.pop(DELETED, None)  # a site of their own again (R69c)
             if site == DEFAULT_SITE:
@@ -715,6 +750,61 @@ class HostAccounts:
         logger.info("Host site set", extra={"email": email, "site": site, "old_site": old})
         return True
 
+    def sites_of(self, email: str) -> list[str]:
+        """Every site of the host (R256), the one used last first; none for no such host or
+        once their site was deleted (R69a)."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email))
+        if account is None:
+            return []
+        theirs = sites_in(account)
+        last = str(account.get(SITE, DEFAULT_SITE))
+        return [last, *[s for s in theirs if s != last]] if last in theirs else theirs
+
+    def add_site(self, email: str, site: str) -> bool:
+        """Give the host another site (R256): their sign-ins are good on it at once, and the
+        site they used last stays so. A host whose only site is the main address's, or whose
+        site was deleted, is given this one in its place, as `set_site` does. False when there
+        is no such host."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if account is None:
+                logger.warning("Host site not added", extra={"email": email, "why": "no host"})
+                return False
+            if account.get(SITE, DEFAULT_SITE) in (DEFAULT_SITE, NO_SITE):
+                theirs = None
+            else:
+                theirs = sites_in(account)
+                if site not in theirs:
+                    account = {**account, SITES: [*theirs, site]}
+                    self._save({**data, "hosts": {**data["hosts"], email: account}})
+        if theirs is None:
+            return self.set_site(email, site)
+        logger.info(
+            "Host site added", extra={"email": email, "site": site, "sites": len(theirs) + 1}
+        )
+        return True
+
+    def remove_site(self, email: str, site: str) -> bool:
+        """Take one of a host's several sites from them, as it is deleted (R256): whether they
+        keep another, which becomes the one used last if it was this one. Their sign-ins stay
+        good on the others. False, with nothing changed, when it was their only site."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            theirs = [] if account is None else sites_in(account)
+            left = [s for s in theirs if s != site]
+            if account is None or not left or len(left) == len(theirs):
+                return False
+            last = account.get(SITE, DEFAULT_SITE)
+            account = {**account, SITES: left, SITE: left[0] if last == site else last}
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        logger.info("Host site removed", extra={"email": email, "site": site, "left": len(left)})
+        return True
+
     def site_deleted(self, email: str, deleted: dict[str, Any]) -> bool:
         """The host's site was deleted (R69a): their sign-ins end, their account is kept with
         no site, and what the site was is kept with it, so they can start it again (R69c)."""
@@ -724,6 +814,7 @@ class HostAccounts:
             if email not in data["hosts"]:
                 return False
             account = {**data["hosts"][email], SITE: NO_SITE, DELETED: deleted}
+            account.pop(SITES, None)
             sessions = {k: v for k, v in data["sessions"].items() if v["email"] != email}
             self._save({**data, "hosts": {**data["hosts"], email: account}, "sessions": sessions})
         logger.info("Host's site deleted", extra={"email": email, **deleted})

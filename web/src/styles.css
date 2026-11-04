@@ -1273,6 +1273,7 @@ ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }
 .host-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .host-pick.picked { font-weight: 600; color: var(--accent); }
 .host-state { display: block; font-size: 0.85em; color: #b45309; }
+.host-sites { display: block; font-size: 0.85em; color: var(--muted); }
 .host-choices { display: grid; gap: 8px; margin-top: 10px; }
 .host-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .host-choice .choice { background: var(--surface, transparent); color: inherit; border: 1px solid var(--line); }

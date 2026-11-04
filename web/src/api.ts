@@ -1211,12 +1211,19 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 
 // Admin settings' Host properties (R241): every host's email, sorted, or those containing `q`
 // anywhere in them, ignoring capitals. The server does the matching, so a long list isn't all sent.
-// With the hosts the administrator disabled (R44d), to say so beside their emails.
-export async function getAdminHosts(q = ""): Promise<{ hosts: string[]; disabled: string[] }> {
+// With the hosts the administrator disabled (R44d), to say so beside their emails, and each host's
+// sites (R256), by where each is, the one they used last first.
+export interface AdminHosts {
+  hosts: string[];
+  disabled: string[];
+  sites: Record<string, string[]>;
+}
+
+export async function getAdminHosts(q = ""): Promise<AdminHosts> {
   const response = await fetch(q ? `/api/admin/hosts?q=${encodeURIComponent(q)}` : "/api/admin/hosts");
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-  const found = (await response.json()) as { hosts: string[]; disabled?: string[] };
-  return { hosts: found.hosts, disabled: found.disabled ?? [] };
+  const found = (await response.json()) as Partial<AdminHosts> & { hosts: string[] };
+  return { hosts: found.hosts, disabled: found.disabled ?? [], sites: found.sites ?? {} };
 }
 
 // One host's own Allow or Deny of a custom image and a custom sound (R242), null when they follow

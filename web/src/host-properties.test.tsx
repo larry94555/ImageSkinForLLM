@@ -45,6 +45,26 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+test("each host's sites are listed beside their email (R256)", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        hosts: ["ann@example.com", "bob@ann.net"],
+        disabled: [],
+        sites: { "ann@example.com": ["ann-two", "ann", "/t/k3x9"], "bob@ann.net": ["main address"] },
+      }),
+    ),
+  );
+  render(<HostProperties />);
+  await waitFor(() =>
+    expect(listed()).toEqual([
+      "ann@example.comSites: ann-two, ann, /t/k3x9",
+      "bob@ann.netSites: main address",
+    ]),
+  );
+});
+
 test("every host is listed, and the list narrows as the search is typed", async () => {
   const fetchMock = server();
   render(<HostProperties />);

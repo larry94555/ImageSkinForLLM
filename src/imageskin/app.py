@@ -871,6 +871,7 @@ def create_app(
         subdomain=service.sites.subdomain,
         restart=service.sites.restart,
         days_before_deleting=lambda: admin_settings.current.days_before_deleting,
+        acting_link=service.acting.again if service.acting else lambda _: None,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -1315,12 +1316,15 @@ def create_app(
     @app.get("/api/admin/hosts", dependencies=[Depends(app.state.require_admin)])
     def get_admin_hosts(q: Annotated[str, Query(max_length=320)] = "") -> dict[str, Any]:
         """Admin settings' Host properties (R241): every host's email, or those containing `q`
-        anywhere in them, ignoring capitals, with those disabled (R44d) to say so beside them.
-        The text searched for isn't logged, as it may be part of an email."""
+        anywhere in them, ignoring capitals, with those disabled (R44d) to say so beside them,
+        and each host's sites (R256), the one they used last first, by where each is: its
+        subdomain, its trial path, or the main address. The text searched for isn't logged, as
+        it may be part of an email."""
         start = time.perf_counter()
         try:
             hosts = host_accounts.emails(q)
             disabled = [e for e in hosts if host_accounts.is_disabled(e)]  # R44d
+            sites = {e: [where_site(s) for s in host_accounts.sites_of(e)] for e in hosts}
         except HostsUnreadable as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
         logger.info(
@@ -1331,7 +1335,13 @@ def create_app(
                 "duration_ms": ms_since(start),
             },
         )
-        return {"hosts": hosts, "disabled": disabled}
+        return {"hosts": hosts, "disabled": disabled, "sites": sites}
+
+    def where_site(site: str) -> str:
+        """Where a site is, for the administrator's host list (R256)."""
+        if site == DEFAULT_SITE:
+            return "main address"
+        return service.sites.subdomain(site) or f"/t/{site}"
 
     def host_properties(email: str, choices: tuple[HostChoice, HostChoice]) -> dict[str, Any]:
         """One host's own choices, and what they follow with none ("enabled" or "disabled")."""

@@ -169,7 +169,9 @@ def build_parser() -> argparse.ArgumentParser:
     site = commands.add_parser("site", help="add a site or list the sites (R61)")
     site_commands = site.add_subparsers(dest="site_command", required=True)
     site_add = site_commands.add_parser(
-        "add", help="add a site at name.localhost (name.me0.ai hosted), with its one host"
+        "add",
+        help="add a site at name.localhost (name.me0.ai hosted), with its one host, who may"
+        " have others",
     )
     site_add.add_argument("name", help="the site's name: its subdomain")
     site_add.add_argument("--host", required=True, help="the email of the host who runs it")
@@ -673,7 +675,8 @@ def manage_sites(command: str, name: str, host: str) -> int:
     from imageskin.sites import SiteDirectory, SiteError
 
     home = default_home()
-    sites = SiteDirectory(home, HostAccounts(home))
+    accounts = HostAccounts(home)
+    sites = SiteDirectory(home, accounts)
     if command == "list":
         for site in sites.names():
             where = f"/t/{site}" if sites.is_trial(site) else f"{sites.subdomain(site)}.localhost"
@@ -691,6 +694,15 @@ def manage_sites(command: str, name: str, host: str) -> int:
     except (SiteError, HostsUnreadable) as e:
         print(f"{e} Nothing changed.", file=sys.stderr)
         return 1
+    theirs = accounts.sites_of(host)
+    if len(theirs) > 1:
+        # Another site of theirs (R256): their sign-in works on each.
+        print(
+            f"Added the site {name}, run by {host}, at {name}.localhost locally. Its files are"
+            f" kept in {folder}. {host} now has {len(theirs)} sites, {', '.join(sorted(theirs))},"
+            " and signs in once for all of them."
+        )
+        return 0
     print(
         f"Added the site {name}, run by {host}, at {name}.localhost locally. Its files are kept"
         f" in {folder}. {host} now signs in there, and their sign-ins elsewhere have ended."
