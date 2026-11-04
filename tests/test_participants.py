@@ -4,6 +4,7 @@ progress is kept for the account."""
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 import pytest
@@ -198,3 +199,27 @@ def test_progress_that_cant_be_read_is_none(
     assert "Could not read a participant's progress" in caplog.text
     path.write_text('["not an object"]')
     assert accounts.progress(pat) == {}
+
+
+def test_progress_saved_at_once_by_two_browsers_is_all_kept(tmp_path: Path) -> None:
+    """Codex's review of PR #308: saves at the same moment never trip over each other's file."""
+    accounts = ParticipantAccounts(tmp_path, "a")
+    pat = accounts.participant(accounts.sign_up(PAT, PASSWORD))
+    assert pat is not None
+    errors: list[BaseException] = []
+
+    def save(n: int) -> None:
+        try:
+            for i in range(20):
+                accounts.save_progress(pat, {"lesson": {"topic": f"T{n}", "part": i}})
+        except BaseException as e:  # noqa: BLE001 - every failure is the finding
+            errors.append(e)
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert accounts.progress(pat)["lesson"]["part"] == 19
+    assert list((tmp_path / "participant_progress").glob("*.part")) == []

@@ -75,6 +75,7 @@ class ParticipantAccounts:
         self.site = site
         self.clock = clock
         self._lock = threading.Lock()
+        self._progress_lock = threading.Lock()
 
     def _load(self) -> dict[str, Any]:
         try:
@@ -229,10 +230,17 @@ class ParticipantAccounts:
         if set(progress) - PROGRESS_KEYS or len(text.encode()) > MAX_PROGRESS_BYTES:
             raise self._refuse(BAD_PROGRESS, "progress not kept", "progress", participant.email)
         folder = self.path.parent / PROGRESS_FOLDER
-        folder.mkdir(parents=True, exist_ok=True)
-        part = folder / f"{participant.id}.part"
-        part.write_text(text, encoding="utf-8")
-        os.replace(part, folder / f"{participant.id}.json")
+        # A file of its own for each save, and one save at a time, so two browsers of the same
+        # account saving at once never trip over each other; the last one kept wins (Codex's
+        # review of PR #308).
+        part = folder / f"{participant.id}.{secrets.token_hex(6)}.part"
+        with self._progress_lock:
+            folder.mkdir(parents=True, exist_ok=True)
+            try:
+                part.write_text(text, encoding="utf-8")
+                os.replace(part, folder / f"{participant.id}.json")
+            finally:
+                part.unlink(missing_ok=True)
         logger.debug(
             "Participant progress kept",
             extra={"email": participant.email, "site": self.site, "kept": sorted(progress)},
