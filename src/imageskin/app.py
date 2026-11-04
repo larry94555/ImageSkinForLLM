@@ -145,7 +145,7 @@ from imageskin.llm_choice import (
 )
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
-from imageskin.participant_api import participant_router
+from imageskin.participant_api import give_cookie, participant_router
 from imageskin.participants import COOKIE as PARTICIPANT_COOKIE
 from imageskin.participants import ParticipantAccounts, move_site_participants
 from imageskin.password_reset import reset_router
@@ -805,6 +805,9 @@ def create_app(
         # gets one.
         new_visitor = None
         visitor = None
+        # A browser still signed in with the site's own cookie from before R260 is given the
+        # host's in its place, keeping the same sign-in.
+        token, old_cookie = participants.token_in(request.cookies)
         # A paused site (R66, R69) answers its visitors with a notice; its host still uses it.
         refused = paused_refusal(request)
         if refused is not None:
@@ -813,7 +816,7 @@ def create_app(
             host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is None
         ):
             # A signed-in participant's conversation is their account's, on any browser (R46).
-            participant = participants.participant(request.cookies.get(participants.cookie))
+            participant = participants.participant(token)
             visitor = participant.id if participant else request.cookies.get(VISITOR_COOKIE)
             if not valid_visitor(visitor):
                 visitor = new_visitor = new_visitor_token()
@@ -828,6 +831,17 @@ def create_app(
             raise
         finally:
             this_visitor.reset(set_visitor)
+        if old_cookie and token:
+            response.delete_cookie(PARTICIPANT_COOKIE, path="/")
+            given = f"{participants.cookie}="
+            # Unless the request signed in, up or out, which gave or took the cookie itself.
+            if not any(
+                c.startswith(given) for c in response.headers.getlist("set-cookie")
+            ) and participants.participant(token, moved_here=True):
+                give_cookie(
+                    response, request, participants, token, participant_cookie_domain(request)
+                )
+                logger.info("Participant cookie moved to the host", extra={"site": host_site})
         if new_visitor is not None:
             https = (
                 request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"

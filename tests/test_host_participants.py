@@ -19,6 +19,7 @@ from imageskin.participants import (
     move_site_participants,
 )
 from imageskin.sites import site_home
+from imageskin.visitor_chat import key as conversation_key
 
 pytestmark = pytest.mark.real_hosts
 __all__ = ["quick_hashes"]  # the fixture, used by name
@@ -98,6 +99,59 @@ def test_a_sites_own_participants_join_the_hosts(
     assert on_b.participant(on_b.sign_in("sam@example.com", PASSWORD))
     # Opened again, there is nothing more to move.
     assert move_site_participants(a_home, host) == 0
+
+
+def test_a_browser_signed_in_before_r260_stays_signed_in(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #309: a browser with the site's own cookie from before R260 is still
+    signed in once the accounts move, keeps its conversation, and is given the host's cookie."""
+    s = Served(tmp_path)
+    a_home = site_home("a", s.home)
+    token = ParticipantAccounts(a_home, "a").sign_up(PAT, PASSWORD)
+    old = ParticipantAccounts(a_home, "a").participant(token)
+    assert old
+    browser = TestClient(s.apps, base_url=A, cookies={COOKIE: token})
+    with caplog.at_level(logging.INFO):
+        answer = browser.get(f"{A}/api/participant/session")
+    assert answer.json() == {"signed_in": True, "email": PAT}
+    assert "Participant cookie moved to the host" in caplog.text
+    given = answer.headers.get_list("set-cookie")
+    name = f"{COOKIE}_{s.library(ANN).name}"
+    assert any(c.startswith(f'{COOKIE}=""') and "Max-Age=0" in c for c in given), given
+    assert any(c.startswith(f"{name}={token}") and "Domain=me0.ai" in c for c in given), given
+    browser.cookies.delete(COOKIE)  # as a browser does for the cookie taken away
+    assert session(browser, A)["signed_in"] is True
+    # The chat is the account's conversation from before, on this site.
+    s.host(A, ANN)  # who consented, as setup asks
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        assert browser.get(f"{A}/api/chat").status_code == 200
+    opened = [r for r in caplog.records if r.getMessage() == "Visitor conversation started"]
+    assert [getattr(r, "visitor", None) for r in opened] == [conversation_key(old.id)[:8]]
+    assert session(browser, B)["signed_in"] is True
+    # The old cookie is taken only on the site it was made on, and never on another host's.
+    for address in (B, C):
+        elsewhere = TestClient(s.apps, base_url=address, cookies={COOKIE: token})
+        assert session(elsewhere, address)["signed_in"] is False
+
+
+def test_signing_in_with_an_old_cookie_keeps_the_new_sign_in(tmp_path: Path) -> None:
+    s = Served(tmp_path)
+    a_home = site_home("a", s.home)
+    token = ParticipantAccounts(a_home, "a").sign_up(PAT, PASSWORD)
+    ParticipantAccounts(a_home, "a").sign_up("sam@example.com", PASSWORD)
+    browser = TestClient(s.apps, base_url=A, cookies={COOKIE: token})
+    answer = browser.post(
+        "/api/participant/sign-in", json={"email": "sam@example.com", "password": PASSWORD}
+    )
+    assert answer.status_code == 200
+    assert session(browser, A)["email"] == "sam@example.com"
+    # Signing out with the old cookie signs out, and takes both cookies.
+    other = TestClient(s.apps, base_url=A, cookies={COOKIE: token})
+    other.post("/api/participant/sign-out")
+    assert session(other, A)["signed_in"] is False
+    assert session(TestClient(s.apps, base_url=A, cookies={COOKIE: token}), A)["signed_in"] is False
 
 
 def test_an_unreadable_hosts_file_moves_nothing(

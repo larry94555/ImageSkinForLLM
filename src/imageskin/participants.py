@@ -18,7 +18,7 @@ import os
 import secrets
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -208,9 +208,23 @@ class ParticipantAccounts:
         logger.info("Participant signed in", extra={"email": email, "site": self.site})
         return token
 
-    def participant(self, token: str | None) -> Participant | None:
+    def token_in(self, cookies: Mapping[str, str]) -> tuple[str | None, bool]:
+        """The browser's sign-in token, and whether it came in the site's own cookie from before
+        R260, which then is to be swapped for the host's. That old cookie is taken only for a
+        sign-in made on this very site and moved to the host's file, so it never signs anyone
+        in across sites."""
+        token = cookies.get(self.cookie)
+        if token or self.cookie == COOKIE:
+            return token, False
+        old = cookies.get(COOKIE)
+        if old and self.participant(old, moved_here=True):
+            return old, True
+        return None, False
+
+    def participant(self, token: str | None, moved_here: bool = False) -> Participant | None:
         """Who the token is signed in as on this site, or None (also while the file can't be
-        read, so no one is signed in until it can)."""
+        read, so no one is signed in until it can). `moved_here` takes only a sign-in moved
+        from this site's own file (R260)."""
         if not token:
             return None
         try:
@@ -220,6 +234,8 @@ class ParticipantAccounts:
             return None
         session = data["sessions"].get(_token_key(token))
         if not session or self.clock() - float(session.get("at", 0)) >= SESSIONS_KEPT_S:
+            return None
+        if moved_here and session.get("moved_from") != self.site:
             return None
         account = data["participants"].get(session["email"])
         if not account:
@@ -324,7 +340,9 @@ def move_site_participants(site_home: Path, accounts: ParticipantAccounts) -> in
                     ids.setdefault(accounts.site, account["id"])
                     people[email] = {**here, "site_ids": ids}
                     joined += 1
-            sessions = {**theirs["sessions"], **data["sessions"]}
+            # Each sign-in says where it came from, so the site's old cookie is read only there.
+            moved = {k: {**v, "moved_from": accounts.site} for k, v in theirs["sessions"].items()}
+            sessions = {**moved, **data["sessions"]}
             accounts._save({**data, "participants": people, "sessions": sessions})
     except (ParticipantsUnreadable, OSError) as e:
         logger.error(

@@ -22,6 +22,28 @@ Password = Annotated[str, Body(embed=True)]
 NOT_SIGNED_IN = "Sign in to do this."
 
 
+def give_cookie(
+    response: Response,
+    request: Request,
+    accounts: ParticipantAccounts,
+    token: str,
+    domain: str | None,
+) -> None:
+    """Keep the browser signed in: the participant cookie, for `domain` when there is one."""
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    # A trial site's own name and path are given it on the way out (R61a).
+    response.set_cookie(
+        accounts.cookie,
+        token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=https,
+        path="/",
+        domain=domain,
+    )
+
+
 def participant_router(
     accounts: ParticipantAccounts,
     cookie_domain: Callable[[Request], str | None] = lambda _: None,
@@ -31,22 +53,12 @@ def participant_router(
     router = APIRouter(prefix="/api/participant")
 
     def token_of(request: Request) -> str | None:
-        return request.cookies.get(accounts.cookie)
+        # A sign-in from before R260 is still good here; the app swaps its cookie on the way out.
+        return accounts.token_in(request.cookies)[0]
 
     def signed_in(request: Request, token: str, email: str) -> JSONResponse:
         response = JSONResponse({"signed_in": True, "email": email})
-        https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-        # A trial site's own name and path are given it on the way out (R61a).
-        response.set_cookie(
-            accounts.cookie,
-            token,
-            max_age=COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=https,
-            path="/",
-            domain=cookie_domain(request),
-        )
+        give_cookie(response, request, accounts, token, cookie_domain(request))
         return response
 
     def account(request: Request, up: bool, email: str, password: str) -> JSONResponse:
