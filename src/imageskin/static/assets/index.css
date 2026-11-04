@@ -1284,3 +1284,13 @@ ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }
 .acting-bar.ended { justify-content: flex-start; }
 .read-only-bar, .paused-bar { margin: 0 0 16px; padding: 10px 14px; border: 1px solid #94a3b8; border-radius: 10px; background: #f1f5f9; color: #334155; }
 fieldset.read-only { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* Several sites for one host (R257): the top bar's switcher and the account page's list. */
+.site-switcher { display: inline-flex; align-items: center; gap: 0.5rem; }
+.site-switcher select { max-width: 14rem; }
+.your-sites { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.5rem; }
+.your-sites li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; }
+.your-sites .site-address { font-weight: 600; overflow-wrap: anywhere; }
+.add-site { margin-top: 1rem; }
+.add-site h2 { margin-bottom: 0.25rem; }
+.add-site label { display: grid; gap: 0.35rem; }

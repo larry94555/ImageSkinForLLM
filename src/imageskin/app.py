@@ -176,7 +176,16 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import FINAL, RESTARTED, Service, SiteError, make_service, site_home
+from imageskin.sites import (
+    ADDED,
+    FINAL,
+    RESTARTED,
+    PaidTwice,
+    Service,
+    SiteError,
+    make_service,
+    site_home,
+)
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -917,6 +926,8 @@ def create_app(
             "resumable": resumable(),
             # Started again after it was deleted, empty, and paid for by resuming (R69c).
             "restarted": service.sites.paused(host_site) == RESTARTED,
+            # Added by its host beside their others, and not paid for yet (R257).
+            "added": service.sites.paused(host_site) == ADDED,
         }
 
     def resumable() -> bool:
@@ -936,7 +947,8 @@ def create_app(
         """Whether a subdomain can be had, checked as its host types it (R63): the name as it
         would be kept, and why not, or None when it can."""
         name = name.strip().lower()
-        return {"name": name, "problem": service.sites.name_problem(name)}
+        # The host's own new site, not paid for yet, can be tried again (R257).
+        return {"name": name, "problem": service.sites.name_problem_for(host.email, name)}
 
     @app.post("/api/site/subdomain")
     def set_subdomain(
@@ -1065,10 +1077,70 @@ def create_app(
             raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
         back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/settings"
         try:
-            url = service.payments.checkout(host_site, host.email, back, back)
+            url = service.payments.checkout(
+                host_site, host.email, back, back, token=service.sites.token_of(host_site)
+            )
         except PaymentError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
         return {"url": url}
+
+    @app.post("/api/host/sites")
+    def add_site(
+        request: Request,
+        host: SignedInHost,
+        name: Annotated[str, Body(embed=True, max_length=100)],
+    ) -> dict[str, str]:
+        """Add a site (R257): another of the host's, at the subdomain they picked, checked as
+        R63's are, paused until it is paid for. The answer is Stripe's page, which the browser
+        goes to, for the Stripe customer of the host's other sites when they have one, so their
+        card is filled in; Stripe's event then unpauses the new site (R67), and the browser
+        comes back to the account page, which lists it."""
+        start = time.perf_counter()
+        if host.acting:
+            # A new site is paid for with the host's own card.
+            raise HTTPException(status_code=403, detail="Only the host can add a site.")
+        if service.payments is None:
+            logger.warning("Site not added", extra={"email": host.email, "why": "no payments"})
+            raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+        theirs = host_accounts.sites_of(host.email)
+        customer = next(
+            (
+                str(found["customer"])
+                for found in map(service.sites.subscription, theirs)
+                if found and found.get("customer")
+            ),
+            None,
+        )
+        try:
+            made = service.sites.add_paid(host.email, name)
+        except (SiteError, HostsUnreadable) as e:
+            logger.warning("Site not added", extra={"email": host.email, "why": str(e)})
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/host/account"
+        try:
+            token = service.sites.token_of(made)
+            # Asked again for the same unpaid site, as after an answer that was lost, Stripe
+            # answers the checkout it made the first time (Codex's review of PR #304).
+            url = service.payments.checkout(
+                made, host.email, back, back, customer, token=token, idempotency=f"add-{token}"
+            )
+        except PaymentError as e:
+            # Stripe may have made the checkout all the same, its answer lost, so the new site
+            # is kept, paused, and its name isn't given to anyone else: trying again goes on with
+            # it, and left unpaid it is deleted as any paused site is (Codex's review of PR #304).
+            logger.warning("Site added, its checkout not started", extra={"site": made})
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        logger.info(
+            "Site added, to be paid for",
+            extra={
+                "email": host.email,
+                "site": made,
+                "sites": len(theirs) + 1,
+                "customer_kept": customer is not None,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return {"site": made, "url": url}
 
     # One resume at a time on this site, so a second click never makes a second subscription.
     resuming = threading.Lock()
@@ -1098,7 +1170,9 @@ def create_app(
             old = str(found["id"]) if found.get("id") else None
             try:
                 if not customer:
-                    url = payments.checkout(host_site, host.email, back, back)
+                    url = payments.checkout(
+                        host_site, host.email, back, back, token=service.sites.token_of(host_site)
+                    )
                     logger.info("Resume goes to Stripe", extra={"site": host_site, "why": "new"})
                     return {"resumed": False, "url": url}
                 card = payments.card_of(host_site, old)
@@ -1119,7 +1193,14 @@ def create_app(
                 try:
                     made = made or payments.resume(host_site, customer, card, old or "first")
                 except CardNeeded:
-                    url = payments.checkout(host_site, host.email, back, back, customer)
+                    url = payments.checkout(
+                        host_site,
+                        host.email,
+                        back,
+                        back,
+                        customer,
+                        token=service.sites.token_of(host_site),
+                    )
                     logger.info(
                         "Resume goes to Stripe", extra={"site": host_site, "why": "card needed"}
                     )
@@ -1165,10 +1246,27 @@ def create_app(
                 site = thing.get("client_reference_id")
                 paid = thing.get("payment_status") in ("paid", "no_payment_required")
                 if site and paid and thing.get("subscription"):
-                    if not service.sites.subscribe(
-                        site, str(thing["subscription"]), str(thing.get("customer") or "")
-                    ):
-                        logger.error("Subscription for no site", extra={"site": site})
+                    token = (thing.get("metadata") or {}).get("site_token")
+                    try:
+                        if not service.sites.subscribe(
+                            site,
+                            str(thing["subscription"]),
+                            str(thing.get("customer") or ""),
+                            checkout=str(token or ""),
+                        ):
+                            logger.error("Subscription for no site", extra={"site": site})
+                    except PaidTwice:
+                        # Its first payment refunded and it ended at once, so the host pays for
+                        # one; Stripe sends the event again until both work, and each is
+                        # asked for so that doing it twice is doing it once (Codex's review
+                        # of PR #304).
+                        try:
+                            # Refunded first: a subscription that is already cancelled can
+                            # still be read, and its refund asked for again.
+                            service.payments.refund_first_payment(site, str(thing["subscription"]))
+                            service.payments.cancel_now(site, str(thing["subscription"]))
+                        except PaymentError as e:
+                            raise HTTPException(status_code=503, detail=str(e)) from e
             elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
                 # A deleted subscription has ended, whatever end it was set to (R69).
                 ends = None if kind.endswith("deleted") else ends_at(thing)

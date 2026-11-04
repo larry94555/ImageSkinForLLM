@@ -191,7 +191,12 @@ export function SubscriptionSection() {
           </button>
           <p className="muted">
             {subscription.price}, paid on Stripe's secure page; your card details never reach this
-            site.{session?.paused ? " Subscribing brings your paused site back." : ""}
+            site.
+            {subscription.added
+              ? " Your new site opens once it is paid for."
+              : session?.paused
+                ? " Subscribing brings your paused site back."
+                : ""}
           </p>
           {starting && <p className="muted busy">Opening Stripe…</p>}
         </div>

@@ -161,6 +161,19 @@ SUBSCRIPTIONS_HAD = "subscriptions_had"
 DELETING = "deleted by its host"
 # Why a site its host started again after it was deleted is paused, until paid for (R69c).
 RESTARTED = "started again, not yet paid for"
+# Kept with each site made since R257: a token of its own, never the same for two sites, sent
+# with each of its Stripe checkouts and checked when one is paid, so a checkout started for a
+# site that was deleted since, its name given again, never pays for the new site of that name
+# (Codex's review of PR #304).
+TOKEN = "token"
+# Why a site a host added to their others (R257) is paused until its first payment, which
+# Stripe's event records (R67), unpausing it; left unpaid, it is deleted as any paused site is.
+ADDED = "added, not yet paid for"
+
+
+class PaidTwice(Exception):
+    """A paid checkout for a site already paid for by another subscription in force: a second
+    charge for one site, which Stripe must cancel (Codex's review of PR #304)."""
 
 
 class TrialUsed(SiteError):
@@ -423,17 +436,39 @@ class SiteDirectory:
         found = self.subscription(name)
         return found is not None and found.get("status") in ACTIVE
 
-    def subscribe(self, name: str, subscription_id: str, customer: str) -> bool:
+    def token_of(self, name: str) -> str | None:
+        """The site's own token (`TOKEN`), for its Stripe checkouts; None for a site from before
+        R257, which has none."""
+        with self._lock:
+            site = self._load().get(name) or {}
+        found = site.get(TOKEN)
+        return str(found) if found else None
+
+    def subscribe(
+        self, name: str, subscription_id: str, customer: str, checkout: str | None = None
+    ) -> bool:
         """Record the site's paid subscription from Stripe's event (R67), and unpause it: whether
         the site is there. A checkout for a subscription the site has had before changes nothing,
         whatever its status now: Stripe sends an event again, or late, so a replayed checkout
         mustn't bring back a subscription cancelled since (Codex's review of PR #293). Only a new
         subscription does; the ids the site has had are kept in sites.json, so this holds across
-        restarts."""
+        restarts.
+
+        A paid checkout gives the token it was started with (`checkout`, empty when it had
+        none): one that isn't this site's paid for a site of the same name since deleted, and
+        subscribes nothing (`Payment for another site of that name`), and one paid while the
+        site already has another subscription in force raises PaidTwice, for the caller to
+        cancel it at Stripe (Codex's review of PR #304)."""
         with self._lock:
             sites = dict(self._load())
             site = sites.get(name)
             if site is None:
+                return False
+            if checkout is not None and site.get(TOKEN) and checkout != site.get(TOKEN):
+                logger.error(
+                    "Payment for another site of that name",
+                    extra={"site": name, "subscription": subscription_id, "customer": customer},
+                )
                 return False
             kept = site.get("subscription") or {}
             had = list(site.get(SUBSCRIPTIONS_HAD, []))
@@ -449,6 +484,19 @@ class SiteDirectory:
                         },
                     )
                 return True
+            if checkout is not None and kept.get("id") and kept.get("status") in ACTIVE:
+                # Two checkouts for one site, both paid: the one in force stays, and the new
+                # one is the caller's to cancel, so the host is never charged twice.
+                logger.error(
+                    "Second subscription for a site",
+                    extra={
+                        "site": name,
+                        "subscription": subscription_id,
+                        "kept": kept.get("id"),
+                        "customer": customer,
+                    },
+                )
+                raise PaidTwice(subscription_id)
             was_paused = "paused" in site
             site = {k: v for k, v in site.items() if k not in ("paused", "paused_at")}
             site["subscription"] = {
@@ -851,6 +899,49 @@ class SiteDirectory:
         )
         return name
 
+    def add_paid(self, email: str, subdomain: str) -> str:
+        """Add another site for a host who has one (R257), at the subdomain they picked, with
+        R63's checks: its name inside. It is paused until its first payment (`ADDED`), never a
+        free trial (R66). A name a site changed away from (R64) is free as a subdomain but still
+        that site's name inside, so the new site is then named inside by a new random code.
+        The host's own site added at that subdomain and not paid for yet is that site again,
+        so trying again after a checkout that couldn't start makes no second site (Codex's
+        review of PR #304). SiteError when the name can't be had, or the host has no site of
+        their own."""
+        name = subdomain.strip().lower()
+        theirs = self._hosts.sites_of(email)
+        if not theirs or theirs[0] in (DEFAULT_SITE, NO_SITE):
+            raise SiteError("Only a host with a site of their own can add another.")
+        letters = string.ascii_lowercase + string.digits
+        with self._lock:
+            sites = self._load()
+            again = _unpaid_added(sites, email, name)
+            if again is not None:
+                logger.info("Site added by its host, again", extra={"site": again})
+                return again
+            problem = _name_problem(sites, name, self._codes_kept)
+            if problem is not None:
+                raise SiteError(problem)
+            inside = name
+            taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
+            while inside in taken or inside in self._codes_kept:
+                inside = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
+        record: dict[str, Any] = {"paused": ADDED, "paused_at": time.time()}
+        if inside != name:
+            record[PICKED] = name
+        self._add(inside, email, trial=False, record=record)
+        logger.info("Site added by its host", extra={"site": inside, "subdomain": name})
+        return inside
+
+    def name_problem_for(self, email: str, name: str) -> str | None:
+        """Why the host can't have `name` as a subdomain, as `name_problem`, except that their
+        own site added there and not paid for yet is theirs to try paying for again (R257)."""
+        with self._lock:
+            sites = self._load()
+            if _unpaid_added(sites, email, name) is not None:
+                return None
+            return _name_problem(sites, name, self._codes_kept)
+
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
         host: its code and folder. SiteError as for `add`.
@@ -899,6 +990,9 @@ class SiteDirectory:
             sites = dict(self._load())
             if name in sites or _site_at(sites, name) is not None or name in self._codes_kept:
                 raise SiteError(f"There is already a site called {name}.")
+            picked = (record or {}).get(PICKED)
+            if picked and _name_problem(sites, str(picked), self._codes_kept) is not None:
+                raise SiteError(f"{picked} is taken. Choose another name.")
             host_site = self._hosts.site_of(email)
             if host_site is None:
                 raise SiteError(f"No host has signed up as {email}.")
@@ -926,6 +1020,7 @@ class SiteDirectory:
             sites[name] = {
                 "host": email.strip().lower(),
                 "created_at": time.time(),
+                TOKEN: secrets.token_hex(16),
                 **(record or {}),
             }
             if trial:
@@ -956,6 +1051,17 @@ def _subdomain(site: str, found: dict[str, Any]) -> str | None:
     if found.get(PICKED):
         return str(found[PICKED])
     return None if found.get("trial") else site
+
+
+def _unpaid_added(sites: dict[str, dict[str, Any]], email: str, name: str) -> str | None:
+    """The host's own site at the subdomain `name`, added and not paid for yet (R257)."""
+    found = _site_at(sites, name)
+    if found is None:
+        return None
+    site = sites[found]
+    return (
+        found if site.get("host") == normal_email(email) and site.get("paused") == ADDED else None
+    )
 
 
 def _site_at(sites: dict[str, dict[str, Any]], name: str) -> str | None:

@@ -55,17 +55,76 @@ class FakeStripe:
     def __init__(self, fail: Exception | None = None) -> None:
         self.posted: list[tuple[str, dict[str, str], str]] = []
         self.fail = fail
+        # Stripe keeps what an idempotency key made, and answers it again (R257).
+        self.made: dict[str, dict[str, Any]] = {}
+        self.keys: list[str | None] = []
+        self.lose_answer = False  # Stripe makes the checkout, but its answer is lost
+        self.deleted: list[str] = []
+        self.got: list[str] = []
+        # Refunds by idempotency key, as Stripe keeps them, and a failure to make one.
+        self.refunds: dict[str, dict[str, Any]] = {}
+        self.refund_fails: Exception | None = None
+        # Refunds that fail by their idempotency key, and invoices paid otherwise than the usual
+        # one payment of $1.99, by subscription.
+        self.refund_fails_for: set[str] = set()
+        self.invoices: dict[str, dict[str, Any]] = {}
 
-    def __call__(self, url: str, form: dict[str, str], key: str) -> dict[str, Any]:
+    def __call__(
+        self, url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, Any]:
         self.posted.append((url, form, key))
+        if url.endswith("/v1/refunds"):
+            if self.refund_fails is not None:
+                raise self.refund_fails
+            if idempotency in self.refund_fails_for:
+                raise OSError("Stripe not reached")
+            refund = {"id": f"re_{len(self.refunds) + 1}", **form}
+            return self.refunds.setdefault(str(idempotency), refund)
+        self.keys.append(idempotency)
         if self.fail is not None:
             raise self.fail
-        return {"id": "cs_test_1", "url": "https://checkout.stripe.com/c/pay/cs_test_1"}
+        number = len(self.made) + 1
+        session = {
+            "id": f"cs_test_{number}",
+            "url": f"https://checkout.stripe.com/c/pay/cs_test_{number}",
+        }
+        if idempotency is not None:
+            session = self.made.setdefault(idempotency, session)
+        if self.lose_answer:
+            raise OSError("the answer was lost")
+        return session
+
+    def delete(self, url: str, key: str) -> dict[str, Any]:
+        self.deleted.append(url)
+        return {"id": url.rsplit("/", 1)[1], "status": "canceled"}
+
+    def get(self, url: str, key: str) -> dict[str, Any]:
+        """A subscription, with the invoice its first payment paid, $1.99, as Stripe's API
+        from 2025-03-31.basil on gives it: its payments, with no `payment_intent` of its own."""
+        self.got.append(url)
+        sub = url.rsplit("/", 1)[1].split("?")[0]
+        paid = {
+            "status": "paid",
+            "amount_paid": 199,
+            "payment": {"type": "payment_intent", "payment_intent": f"pi_{sub}"},
+        }
+        invoice = self.invoices.get(sub) or {
+            "id": f"in_{sub}",
+            "amount_paid": 199,
+            "payments": {"data": [paid]},
+        }
+        return {"id": sub, "latest_invoice": invoice}
+
+
+# The service last served, whose sites' tokens a completed checkout carries, as Stripe sends back
+# the metadata each checkout was started with (R257).
+SERVED: list[Service] = []
 
 
 def served(tmp_path: Path, stripe: Stripe | None) -> tuple[SiteApps, dict[str, FastAPI], Service]:
     home = tmp_path / "home"
     service = dataclasses.replace(with_hosts(home), payments=stripe)
+    SERVED[:] = [service]
     made: dict[str, FastAPI] = {}
 
     def make(site: str) -> FastAPI:
@@ -111,7 +170,11 @@ def send(browser: TestClient, event: dict[str, Any], **kw: Any) -> Any:
     )
 
 
-def completed(code: str, subscription: str = "sub_1") -> dict[str, Any]:
+def completed(code: str, subscription: str = "sub_1", token: str | None = None) -> dict[str, Any]:
+    """Stripe's event for a paid checkout of the site `code`, with the token its checkout was
+    started with: the site's own, unless another is given."""
+    if token is None and SERVED:
+        token = SERVED[0].sites.token_of(code)
     return {
         "id": "evt_1",
         "type": "checkout.session.completed",
@@ -122,6 +185,7 @@ def completed(code: str, subscription: str = "sub_1") -> dict[str, Any]:
                 "payment_status": "paid",
                 "subscription": subscription,
                 "customer": "cus_1",
+                "metadata": {"site": code, **({"site_token": token} if token else {})},
             }
         },
     }
@@ -149,6 +213,7 @@ def test_a_host_subscribes_on_stripes_page_and_the_event_records_it(
         "deletes_at": None,
         "resumable": False,
         "restarted": False,
+        "added": False,
     }
     # Cancelled first, so the payment brings the paused site back (R69's subscribe again).
     assert dan.post(f"{site}/api/site/cancel").is_success

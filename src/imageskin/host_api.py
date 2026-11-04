@@ -424,6 +424,8 @@ def host_router(
                     "site": each,
                     "address": site_address(request, site, each, is_trial, subdomain),
                     "here": each == site,
+                    # Paused, such as one added and not yet paid for (R257).
+                    "paused": paused(each) is not None,
                 }
                 for each in accounts.sites_of(host.email)
             ]
