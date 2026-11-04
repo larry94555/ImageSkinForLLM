@@ -67,6 +67,22 @@ class Policy:
     def rule_for(self, email: str) -> Rule:
         return dict(self.participants).get(normal_email(email), self.every)
 
+    def pruned(self, host_sites: list[str], participants: set[str]) -> "Policy":
+        """The policy without the sites the host no longer has and the participants no longer
+        theirs, so the host can edit and save it again (Codex's review of PR #311). A rule left
+        with no site keeps none, so the host sees it and picks one; a landing site gone is the
+        first one allowed again."""
+
+        def kept(rule: Rule) -> Rule:
+            sites = None if rule.sites is None else tuple(s for s in rule.sites if s in host_sites)
+            allowed = host_sites if sites is None else sites
+            return Rule(sites, rule.landing if rule.landing in allowed else None)
+
+        return Policy(
+            kept(self.every),
+            tuple((e, kept(r)) for e, r in self.participants if e in participants),
+        )
+
     def as_json(self) -> dict[str, Any]:
         return {
             EVERY: self.every.as_json(),
@@ -175,10 +191,17 @@ def participant_policy_router(
 
     def answer(request: Request, email: str, policy: Policy) -> dict[str, Any]:
         sites = sites_of(email)
+        people = participants_of(email)
+        shown = policy.pruned(sites, people)
+        if shown != policy:
+            logger.info(
+                "Participant policy shown without sites or participants now gone",
+                extra={"email": email},
+            )
         return {
             "sites": [{"site": s, "address": address_of(request, s)} for s in sites],
-            "participants": sorted(participants_of(email)),
-            "policy": policy.as_json(),
+            "participants": sorted(people),
+            "policy": shown.as_json(),
         }
 
     @router.get("")

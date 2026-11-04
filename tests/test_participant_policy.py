@@ -140,6 +140,35 @@ def test_a_policy_that_cant_be_read_sends_no_one_anywhere(
     assert s.host(A, ANN).get(POLICY).status_code == 503
 
 
+def test_a_policy_naming_a_site_and_a_participant_now_gone_can_be_edited_again(
+    tmp_path: Path,
+) -> None:
+    """Codex's review of PR #311: the host sees the policy without them, and saves it."""
+    s = with_participants(tmp_path)
+    ann = s.host(A, ANN)
+    kept = {
+        "every": {"sites": ["a", "gone"], "landing": "gone"},
+        "participants": {
+            "left@example.com": {"sites": None, "landing": "a"},
+            PAT: {"sites": ["gone"], "landing": "gone"},
+        },
+    }
+    # As saved before the site was deleted and the account removed.
+    (s.library(ANN) / FILENAME).write_text(json.dumps(kept))
+    shown = ann.get(POLICY).json()["policy"]
+    assert shown == {
+        "every": {"sites": ["a"], "landing": None},
+        "participants": {PAT: {"sites": [], "landing": None}},
+    }
+    # Pat's rule has no site left: the host is asked to pick one, and then it saves.
+    assert ann.put(POLICY, json=shown).json()["detail"] == NONE_ALLOWED
+    shown["participants"][PAT] = {"sites": ["b"], "landing": None}
+    saved = ann.put(POLICY, json=shown)
+    assert saved.status_code == 200, saved.text
+    assert sign_in(s, A)["go_to"] == f"{B}/"
+    assert sign_in(s, B, SAM)["go_to"] == f"{A}/"  # the rule for every participant: only a
+
+
 def test_a_site_the_host_no_longer_has_never_counts() -> None:
     rule = Rule(("gone", "b"), "gone")
     assert allowed_sites(rule, ["a", "b"]) == ["b"]
