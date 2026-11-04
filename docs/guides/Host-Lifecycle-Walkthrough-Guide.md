@@ -1,6 +1,6 @@
-# Milestone 20 walkthrough guide
+# Host Lifecycle walkthrough guide
 
-Step by step: every use case Milestone 20 (many customers on me0.ai) added, tried by hand on the hosted site, then everything the test changed cleared away again. It covers host sign-up and the free trial, email confirmation, Forgot password, changing the email, signing in from any address, the display name, sites kept apart, subscribing and the site's subdomain, several sites for one host, PDFs shared among them, participants and where each may go, the administrator acting as a host and disabling one, and cancelling, pausing, resuming, deleting and starting a site again (roadmap R214 to R262, with R46 from Milestone 12).
+Step by step: every use case of a host's life on me0.ai, from sign-up to deleting a site, tried by hand on the hosted site, then everything the test changed cleared away again. It covers host sign-up and the free trial, email confirmation, Forgot password, changing the email, signing in from any address, the display name, sites kept apart, subscribing and the site's subdomain, several sites for one host, PDFs shared among them, participants and where each may go, the administrator acting as a host and disabling one, and cancelling, pausing, resuming, deleting and starting a site again (roadmap R214 to R262, with R46).
 
 Plan on about two hours for all of it. Each part can be done on its own once Part 1 and Part 2 are done, and each ends with **What to look for**, the page or the log line that shows it worked. [Part 11](#part-11-clear-away-everything-the-test-changed) puts the site back as it was before you started.
 
@@ -28,7 +28,7 @@ Plan on about two hours for all of it. Each part can be done on its own once Par
 
 **What has to be in place first:**
 
-1. The server runs `main` with Milestone 20 merged (PR #312 or later). On the server: `cd ~/ImageSkinForLLM && git log --oneline -1`. If it is older, `git pull`, then in `deploy`, `docker compose up -d --build`.
+1. The server runs `main` at PR #312 or later. On the server: `cd ~/ImageSkinForLLM && git log --oneline -1`. If it is older, `git pull`, then in `deploy`, `docker compose up -d --build`.
 2. The administrator's password is set in `deploy/admin/admin.toml` (the [Admin password guide](Admin-Password-Guide.pdf)), and, if you use `admin-laptops.toml`, your laptop is listed.
 3. Subscribing is turned on in **test mode**: [the deployment guide](../../deploy/README.md), step 9, steps 1 to 7, with the `sk_test_` key, the test webhook's `whsec_` secret and the test price's `price_` ID in `deploy/.env`. The webhook must have the three events `checkout.session.completed`, `customer.subscription.updated` and `customer.subscription.deleted`. Without this, Parts 5, 6 (Add a site), 9 and 10 can't be done; Parts 2 to 4, 7 and 8 still can, using the command in Part 6 for a second site.
 4. Every subdomain works over HTTPS: `https://nosuchsite.me0.ai` shows the app's **Site not found** page with a padlock ([Subdomain setup guide](Subdomain-Setup-Guide.md)).
@@ -192,7 +192,7 @@ Covers R256 and R257 (several sites for one host), R258 and R258a (a host's PDFs
 
 ## Part 7. Participants and where each may go
 
-Covers R46 (participant sign-up and sign-in, from Milestone 12), R260 (a participant belongs to the host and one sign-in works on the host's sites), R261 (the host's policy for which sites each participant may open and where they land) and R262 (the page for a site a participant may not use). Needs Ann's two sites from Part 6.
+Covers R46 (participant sign-up and sign-in), R260 (a participant belongs to the host and one sign-in works on the host's sites), R261 (the host's policy for which sites each participant may open and where they land) and R262 (the page for a site a participant may not use). Needs Ann's two sites from Part 6.
 
 Browser 3 is the participants' for this part: first sign Bob out there.
 
@@ -352,7 +352,7 @@ docker compose exec app imageskin site list
 | R256, R257 | Several sites for one host | 6, 10 |
 | R258, R258a | A host's PDFs kept once, on several sites | 6 |
 | R259 | The host's display name | 2, 3 |
-| R46 | Participant sign-up and sign-in (Milestone 12) | 7 |
+| R46 | Participant sign-up and sign-in | 7 |
 | R260 | Participants belong to the host | 7 |
 | R261 | Where each participant may go | 7 |
 | R262 | The page for a site a participant may not use | 7 |
