@@ -258,12 +258,6 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-class PdfSitesRequest(BaseModel):
-    """The host's other sites that are to use a PDF too (R258a)."""
-
-    sites: list[str] = Field(max_length=100)
-
-
 class ChatGptAccount(BaseModel):
     account: str  # a registration's client ID, from the ChatGPT status's accounts
 
@@ -1951,20 +1945,26 @@ def create_app(
             raise HTTPException(status_code=404, detail="This site's PDFs are its own.")
         return site_content
 
-    @app.put(content_api + "/{pdf_id}/sites", dependencies=host_only)
-    def give_pdf(pdf_id: str, body: PdfSitesRequest, seen: DeletesSeen) -> dict[str, list[str]]:
+    # One site at a time, so changes made at once never undo each other (Codex's review of
+    # PR #306).
+    @app.put(content_api + "/{pdf_id}/sites/{site}", dependencies=host_only)
+    def give_pdf(pdf_id: str, site: str, seen: DeletesSeen) -> dict[str, list[str]]:
+        return change_pdf_sites(pdf_id, site, True, seen)
+
+    @app.delete(content_api + "/{pdf_id}/sites/{site}", dependencies=host_only)
+    def take_pdf_off(pdf_id: str, site: str, seen: DeletesSeen) -> dict[str, list[str]]:
+        return change_pdf_sites(pdf_id, site, False, seen)
+
+    def change_pdf_sites(pdf_id: str, site: str, use: bool, seen: int) -> dict[str, list[str]]:
         shared = shared_content()
-        theirs = set(host_accounts.sites_of(service.sites.host(host_site) or ""))
-        others = [s for s in body.sites if s != host_site]
-        if not set(others) <= theirs:
+        if site not in host_accounts.sites_of(service.sites.host(host_site) or ""):
             logger.warning(
-                "PDF's sites refused",
-                extra={"site": host_site, "id": pdf_id, "sites": sorted(set(others) - theirs)},
+                "PDF's sites refused", extra={"site": host_site, "id": pdf_id, "to": site}
             )
             raise HTTPException(status_code=400, detail="That isn't one of your sites.")
         with content_write(seen):
             try:
-                return {"sites": shared.give(pdf_id, others)}
+                return {"sites": shared.give(pdf_id, site, use)}
             except UploadError as e:
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
 

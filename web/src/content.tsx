@@ -2,7 +2,7 @@
 // and remove. They are kept apart from the photos and recordings (roadmap R34). Each PDF shows
 // how far the server has got reading it (roadmap R36) and building its wiki pages (roadmap R37).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   deletePdfEverywhere,
@@ -16,7 +16,7 @@ import {
   type Reading,
   removePdf,
   sendPdf,
-  setPdfSites,
+  setPdfSite,
   type WikiBuild,
   wikiHref,
 } from "./api";
@@ -203,17 +203,22 @@ export function ContentPage() {
     }
   }
 
+  // The PDFs whose sites are being changed now: their boxes wait, so each change is made on
+  // what the last one saved (Codex's review of PR #306).
+  const [changingSites, setChangingSites] = useState<string[]>([]);
+  // The same, at once, for a click that comes before the boxes are drawn disabled.
+  const changing = useRef(new Set<string>());
+
   // Gives the PDF to another of the host's sites, or takes it off one (R258a).
   async function toggleSite(pdf: Pdf, site: string, on: boolean) {
-    // The other sites only: this one always keeps it, and its Remove takes it off here.
-    const here = hostSites?.find((s) => s.here)?.site;
-    const others = (pdfSites[pdf.id] ?? []).filter((s) => s !== site && s !== here);
-    const wanted = on ? [...others, site] : others;
+    if (changing.current.has(pdf.id)) return;
+    changing.current.add(pdf.id);
     setRefused([]);
     setDone(null);
+    setChangingSites((current) => [...current, pdf.id]);
     const started = performance.now();
     try {
-      const now = await setPdfSites(pdf.id, wanted);
+      const now = await setPdfSite(pdf.id, site, on);
       console.info(
         `${pdf.name} now on ${now.join(", ")} (${Math.round(performance.now() - started)} ms)`,
       );
@@ -221,6 +226,9 @@ export function ContentPage() {
     } catch (e) {
       console.error(`Could not change the sites of ${pdf.name}`, e);
       setRefused([{ name: pdf.name, reason: (e as Error).message }]);
+    } finally {
+      changing.current.delete(pdf.id);
+      setChangingSites((current) => current.filter((id) => id !== pdf.id));
     }
   }
 
@@ -284,7 +292,7 @@ export function ContentPage() {
                     <input
                       type="checkbox"
                       checked={site.here || pdfSites[pdf.id].includes(site.site)}
-                      disabled={site.here || !ready}
+                      disabled={site.here || !ready || changingSites.includes(pdf.id)}
                       onChange={(e) => toggleSite(pdf, site.site, e.currentTarget.checked)}
                     />
                     {shown(site)}

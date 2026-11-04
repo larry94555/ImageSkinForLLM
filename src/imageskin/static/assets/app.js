@@ -333,12 +333,8 @@ async function removePdf(id) {
 async function getPdfSites() {
 	return json(await fetch("/api/content/sites"));
 }
-async function setPdfSites(id, sites) {
-	const response = await fetch(`${pdfUrl(id)}/sites`, {
-		method: "PUT",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ sites })
-	});
+async function setPdfSite(id, site, use) {
+	const response = await fetch(`${pdfUrl(id)}/sites/${encodeURIComponent(site)}`, { method: use ? "PUT" : "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).sites;
 }
@@ -9661,15 +9657,17 @@ function ContentPage() {
 			}]);
 		}
 	}
+	const [changingSites, setChangingSites] = d([]);
+	const changing = A(/* @__PURE__ */ new Set());
 	async function toggleSite(pdf, site, on) {
-		const here = hostSites?.find((s) => s.here)?.site;
-		const others = (pdfSites[pdf.id] ?? []).filter((s) => s !== site && s !== here);
-		const wanted = on ? [...others, site] : others;
+		if (changing.current.has(pdf.id)) return;
+		changing.current.add(pdf.id);
 		setRefused([]);
 		setDone(null);
+		setChangingSites((current) => [...current, pdf.id]);
 		const started = performance.now();
 		try {
-			const now = await setPdfSites(pdf.id, wanted);
+			const now = await setPdfSite(pdf.id, site, on);
 			console.info(`${pdf.name} now on ${now.join(", ")} (${Math.round(performance.now() - started)} ms)`);
 			setSitesOf((current) => ({
 				...current,
@@ -9681,6 +9679,9 @@ function ContentPage() {
 				name: pdf.name,
 				reason: e.message
 			}]);
+		} finally {
+			changing.current.delete(pdf.id);
+			setChangingSites((current) => current.filter((id) => id !== pdf.id));
 		}
 	}
 	const ready = sending === null && (pdfs !== null || loadFailed);
@@ -9767,7 +9768,7 @@ function ContentPage() {
 							/* @__PURE__ */ u("input", {
 								type: "checkbox",
 								checked: site.here || pdfSites[pdf.id].includes(site.site),
-								disabled: site.here || !ready,
+								disabled: site.here || !ready || changingSites.includes(pdf.id),
 								onChange: (e) => toggleSite(pdf, site.site, e.currentTarget.checked)
 							}),
 							shown(site),

@@ -710,12 +710,11 @@ export async function getPdfSites(): Promise<Record<string, string[]>> {
   return json<Record<string, string[]>>(await fetch("/api/content/sites"));
 }
 
-// Makes `sites`, with this one, the host's sites that use the PDF; the sites now.
-export async function setPdfSites(id: string, sites: string[]): Promise<string[]> {
-  const response = await fetch(`${pdfUrl(id)}/sites`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sites }),
+// Gives the PDF to another of the host's sites, or with `use` false takes it off that site: the
+// sites that use it now. One site at a time, so changes made at once never undo each other.
+export async function setPdfSite(id: string, site: string, use: boolean): Promise<string[]> {
+  const response = await fetch(`${pdfUrl(id)}/sites/${encodeURIComponent(site)}`, {
+    method: use ? "PUT" : "DELETE",
   });
   if (!response.ok) throw new Error(await refusal(response));
   return ((await response.json()) as { sites: string[] }).sites;

@@ -457,20 +457,24 @@ class SiteContent:
             return {}
         return {pdf: sites for pdf, sites in data.items() if self.site in sites}
 
-    def give(self, pdf_id: str, sites: Sites) -> Sites:
-        """Make `sites`, with this one, the sites that use one of this site's PDFs (R258a): the
-        sites now. The host's other sites are checked by the caller. Decided in the record's own
-        change, under its lock, so a PDF its last site took off meanwhile is never given again
-        (UploadError 404). UploadError 500 when the record can't be saved."""
-        wanted = [self.site, *dict.fromkeys(s for s in sites if s != self.site)]
+    def give(self, pdf_id: str, site: str, use: bool = True) -> Sites:
+        """Give one of this site's PDFs to another of the host's sites, or with `use` False take
+        it off that site (R258a): the sites that use it now. One site at a time, each decided in
+        the record's own change, under its lock, so changes made at once all count, whatever
+        order they come in (Codex's review of PR #306), and a PDF its last site took off
+        meanwhile is never given again (UploadError 404). The host's other sites are checked by
+        the caller, and this site is taken off only by `remove`. UploadError 500 when the record
+        can't be saved."""
+        if site == self.site:
+            raise UploadError("Remove takes a PDF off this site.", status=400)
         before: Sites = []
 
-        def given(data: dict[str, list[str]]) -> None:
+        def given(data: dict[str, Sites]) -> None:
             if self.site not in data.get(pdf_id, []):
                 raise KeyError(pdf_id)
             before[:] = data[pdf_id]
-            kept = [s for s in data[pdf_id] if s in wanted]
-            data[pdf_id] = kept + [s for s in wanted if s not in kept]
+            others = [s for s in data[pdf_id] if s != site]
+            data[pdf_id] = [*others, site] if use else others
 
         try:
             now = self._uses.change(given)[pdf_id]

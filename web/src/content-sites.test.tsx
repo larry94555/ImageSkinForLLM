@@ -31,6 +31,7 @@ interface Answers {
   sites?: object[];
   uses?: Record<string, string[]>;
   refuse?: string;
+  hold?: Promise<void>;
 }
 
 function server(answers: Answers = {}) {
@@ -60,12 +61,13 @@ function server(answers: Answers = {}) {
       if (url === "/api/content/sites") return Response.json(uses);
       if (url === "/api/content/readings" || url === "/api/wiki/builds")
         return Response.json({});
-      if (url === "/api/content/a1/sites" && method === "PUT") {
+      const change = /^\/api\/content\/a1\/sites\/(.+)$/.exec(url);
+      if (change) {
         if (answers.refuse)
           return Response.json({ detail: answers.refuse }, { status: 500 });
-        const wanted = (JSON.parse(init?.body as string) as { sites: string[] })
-          .sites;
-        uses = { a1: ["ann", ...wanted] };
+        await answers.hold; // a slow answer, while more boxes are clicked
+        const others = uses.a1.filter((s) => s !== change[1]);
+        uses = { a1: method === "PUT" ? [...others, change[1]] : others };
         return Response.json({ sites: uses.a1 });
       }
       if (method === "DELETE") return Response.json({ removed: true });
@@ -117,12 +119,12 @@ test("each PDF shows the host's sites that use it, and is given to another or ta
     fireEvent.click(site("ann-two.me0.ai"));
   });
   await waitFor(() => expect(site("ann-two.me0.ai").checked).toBe(true));
-  expect(asked).toContain('PUT /api/content/a1/sites {"sites":["ann-two"]}');
+  expect(asked).toContain("PUT /api/content/a1/sites/ann-two");
   await act(async () => {
     fireEvent.click(site("ann-two.me0.ai"));
   });
   await waitFor(() => expect(site("ann-two.me0.ai").checked).toBe(false));
-  expect(asked).toContain('PUT /api/content/a1/sites {"sites":[]}');
+  expect(asked).toContain("DELETE /api/content/a1/sites/ann-two");
 });
 
 test("a change refused says why", async () => {
@@ -187,4 +189,46 @@ test("a host with one site, or a PDF on this site only, is asked as before", asy
     );
   });
   expect(asked).toContain("DELETE /api/content/a1");
+});
+
+test("a box clicked while a change is saved waits, so no change undoes another", async () => {
+  // Codex's review of PR #306: two sites ticked quickly are both kept.
+  const THREE = {
+    site: "ann-three",
+    address: "https://ann-three.me0.ai",
+    here: false,
+  };
+  let release = () => {};
+  const asked = server({
+    sites: [ANN, TWO, THREE],
+    hold: new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  });
+  await content();
+  await waitFor(() => site("ann-two.me0.ai"));
+  await act(async () => {
+    fireEvent.click(site("ann-two.me0.ai"));
+  });
+  // While ann-two's change is saved, the PDF's boxes wait.
+  expect(site("ann-three.me0.ai").disabled).toBe(true);
+  await act(async () => {
+    fireEvent.click(site("ann-three.me0.ai"));
+  });
+  expect(asked.filter((a) => a.startsWith("PUT"))).toEqual([
+    "PUT /api/content/a1/sites/ann-two",
+  ]);
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(site("ann-three.me0.ai").disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(site("ann-three.me0.ai"));
+  });
+  await waitFor(() => expect(site("ann-three.me0.ai").checked).toBe(true));
+  expect(site("ann-two.me0.ai").checked).toBe(true);
+  expect(asked.filter((a) => a.startsWith("PUT"))).toEqual([
+    "PUT /api/content/a1/sites/ann-two",
+    "PUT /api/content/a1/sites/ann-three",
+  ]);
 });
