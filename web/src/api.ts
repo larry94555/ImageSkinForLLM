@@ -704,6 +704,28 @@ export async function removePdf(id: string): Promise<void> {
   if (!response.ok) throw new Error(await refusal(response));
 }
 
+// Which of the host's sites use each of this site's PDFs, by the PDF's id (roadmap R258a): none
+// for a site whose PDFs are its own.
+export async function getPdfSites(): Promise<Record<string, string[]>> {
+  return json<Record<string, string[]>>(await fetch("/api/content/sites"));
+}
+
+// Gives the PDF to another of the host's sites, or with `use` false takes it off that site: the
+// sites that use it now. One site at a time, so changes made at once never undo each other.
+export async function setPdfSite(id: string, site: string, use: boolean): Promise<string[]> {
+  const response = await fetch(`${pdfUrl(id)}/sites/${encodeURIComponent(site)}`, {
+    method: use ? "PUT" : "DELETE",
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return ((await response.json()) as { sites: string[] }).sites;
+}
+
+// Deletes the PDF, with its wiki, from every one of the host's sites.
+export async function deletePdfEverywhere(id: string): Promise<void> {
+  const response = await fetch(`${pdfUrl(id)}/everywhere`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await refusal(response));
+}
+
 // How far the server has got reading a PDF's text, slides and tables (roadmap R36).
 export interface Reading {
   state: "waiting" | "reading" | "done" | "failed";

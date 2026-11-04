@@ -1822,6 +1822,7 @@ def create_app(
     # built by the host's one reading job and wiki job, and seen here only as the PDFs this site
     # uses. The main address keeps its own, as before.
     library_folder = None if at_main else library_folder_of(service, host_site)
+    site_content: SiteContent | None = None
     if library_folder is None:
         readings.on_read = wiki.read
         readings.catch_up()
@@ -1903,6 +1904,12 @@ def create_app(
             raise HTTPException(status_code=404, detail="No wiki pages yet.")
         return built
 
+    # Before /{pdf_id}, which would take "sites" as an id. Which of the host's sites use each
+    # of this site's PDFs (R258a); none for a site whose PDFs are its own.
+    @app.get(content_api + "/sites", dependencies=host_only)
+    def pdf_sites() -> dict[str, list[str]]:
+        return {} if site_content is None else site_content.sites()
+
     @app.get(content_api + "/{pdf_id}")
     def get_pdf(pdf_id: str) -> FileResponse:
         path = content.path(pdf_id)
@@ -1929,6 +1936,48 @@ def create_app(
                 raise HTTPException(status_code=404, detail="No such PDF.")
             readings.forget(pdf_id)
             wiki.forget(pdf_id)
+        return {"removed": True}
+
+    # Which of the host's sites use each PDF (R258a), for a site whose host keeps their PDFs once
+    # (R258); none elsewhere.
+    def shared_content() -> SiteContent:
+        if site_content is None:
+            raise HTTPException(status_code=404, detail="This site's PDFs are its own.")
+        return site_content
+
+    # One site at a time, so changes made at once never undo each other (Codex's review of
+    # PR #306).
+    @app.put(content_api + "/{pdf_id}/sites/{site}", dependencies=host_only)
+    def give_pdf(pdf_id: str, site: str, seen: DeletesSeen) -> dict[str, list[str]]:
+        return change_pdf_sites(pdf_id, site, True, seen)
+
+    @app.delete(content_api + "/{pdf_id}/sites/{site}", dependencies=host_only)
+    def take_pdf_off(pdf_id: str, site: str, seen: DeletesSeen) -> dict[str, list[str]]:
+        return change_pdf_sites(pdf_id, site, False, seen)
+
+    def change_pdf_sites(pdf_id: str, site: str, use: bool, seen: int) -> dict[str, list[str]]:
+        shared = shared_content()
+        if site not in host_accounts.sites_of(service.sites.host(host_site) or ""):
+            logger.warning(
+                "PDF's sites refused", extra={"site": host_site, "id": pdf_id, "to": site}
+            )
+            raise HTTPException(status_code=400, detail="That isn't one of your sites.")
+        with content_write(seen):
+            try:
+                return {"sites": shared.give(pdf_id, site, use)}
+            except UploadError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
+
+    @app.delete(content_api + "/{pdf_id}/everywhere", dependencies=host_only)
+    def delete_pdf_everywhere(pdf_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        shared = shared_content()
+        with content_write(seen):
+            try:
+                deleted = shared.delete_everywhere(pdf_id)
+            except UploadError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
+        if not deleted:
+            raise HTTPException(status_code=404, detail="No such PDF.")
         return {"removed": True}
 
     @app.get("/api/wiki")
