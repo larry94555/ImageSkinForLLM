@@ -5,6 +5,7 @@ and built once, and each site sees only the PDFs it uses; another host's sites n
 import io
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -426,3 +427,64 @@ def test_nothing_is_collected_while_the_record_cant_be_read(tmp_path: Path) -> N
     (s.library() / "content" / "sites.json").write_text("not json")
     assert reopened(s, s.library()).collect() == []
     assert (s.library() / "content" / "pdfs" / f"{pdf}.pdf").is_file()
+
+
+def test_a_move_cut_short_after_the_pdf_moved_is_finished_at_the_next_start(
+    tmp_path: Path,
+) -> None:
+    """Codex's review of PR #305: the server stopped once the PDF's own files had moved but not
+    what was read, its wiki edits and history. The next start finds the PDF by those files and
+    moves them, so the edits and history are kept with it."""
+    s = Served(tmp_path)
+    site_a = site_home("a", s.home)
+    pdf = ContentStore(site_a).add("old.pdf", io.BytesIO(PDF))
+    content = site_a / "content"
+    (content / "read").mkdir()
+    reading = {"pages": 1, "kind": "text", "pieces": [], "pages_without_text": 0}
+    (content / "read" / f"{pdf.id}.json").write_text(json.dumps(reading))
+    (content / "wiki" / f"{pdf.id}.history").mkdir(parents=True)
+    (content / "wiki" / f"{pdf.id}.history" / "v.json").write_text("{}")
+    (content / "wiki" / f"{pdf.id}.edits.json").write_text('{"x": 1}')
+    (content / "wiki" / f"{'f' * 32}.json").write_text("{}")  # of a PDF deleted long ago
+    key = s.service.host_accounts.library_of(ANN)
+    assert key
+    library = library_home(s.home, key)
+    PdfSites(library / "content").add(pdf.id, "a")  # given to the site before its files moved
+    for name in (f"{pdf.id}.pdf", f"{pdf.id}.json"):
+        (library / "content" / "pdfs").mkdir(parents=True, exist_ok=True)
+        (content / "pdfs" / name).replace(library / "content" / "pdfs" / name)
+    ann_a = s.host(A, ANN)
+    s.settle("a")
+    assert seen(ann_a)["pdfs"] == ["old.pdf"]
+    wiki = library / "content" / "wiki"
+    assert (wiki / f"{pdf.id}.edits.json").read_text() == '{"x": 1}'
+    assert (wiki / f"{pdf.id}.history" / "v.json").is_file()
+    assert (library / "content" / "read" / f"{pdf.id}.json").is_file()
+    assert not list(content.rglob(f"{pdf.id}*"))
+    assert (content / "wiki" / f"{'f' * 32}.json").is_file()  # left: no PDF of it anywhere
+
+
+def test_a_pdf_moves_last_so_a_stop_part_way_leaves_it_with_the_site(tmp_path: Path) -> None:
+    s = Served(tmp_path)
+    site_a = site_home("a", s.home)
+    pdf = ContentStore(site_a).add("old.pdf", io.BytesIO(PDF))
+    (site_a / "content" / "wiki").mkdir(parents=True)
+    (site_a / "content" / "wiki" / f"{pdf.id}.edits.json").write_text("{}")
+    key = s.service.host_accounts.library_of(ANN)
+    assert key
+    library = library_home(s.home, key)
+    uses = PdfSites(library / "content")
+    moving = os.replace
+
+    def stops_at_the_pdf(source: Any, target: Any) -> None:
+        if Path(source).parent.name == "pdfs":
+            raise OSError("the server stopped")
+        moving(source, target)
+
+    with patch("imageskin.host_content.os.replace", stops_at_the_pdf):
+        assert move_site_pdfs(site_a, library, "a", uses) == 0
+    assert (site_a / "content" / "pdfs" / f"{pdf.id}.pdf").is_file()
+    assert (library / "content" / "wiki" / f"{pdf.id}.edits.json").is_file()
+    assert move_site_pdfs(site_a, library, "a", uses) == 1  # the next start
+    assert (library / "content" / "pdfs" / f"{pdf.id}.pdf").is_file()
+    assert uses.read() == {pdf.id: ["a"]}

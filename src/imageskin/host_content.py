@@ -42,6 +42,9 @@ LIBRARIES_FOLDER = "hosts"  # beside `sites`, in the service's home
 USES_FILE = "sites.json"  # in the host's content folder
 # Where each PDF's files are, by its id, as R61f moved them (`site_moves`).
 PDF_FOLDERS = ("pdfs", "read", "wiki")
+# The order a site's PDF moves in: the PDF's own file last, so it stays the site's until all
+# made from it has moved.
+MOVE_ORDER = ("read", "wiki", "pdfs")
 NOT_SAVED = "The PDF's sites could not be saved just now. Try again."
 
 
@@ -310,18 +313,30 @@ def delete_files(library: Path, pdf_id: str) -> bool:
 
 def move_site_pdfs(site_folder: Path, library: Path, site: str, uses: PdfSites) -> int:
     """Move the site's PDFs, with everything made from them, into the host's folder, each one
-    used by this site (R258): the PDFs moved. Each moves once all its files have; a file already
-    there is left where it was, as R61f's move does. Run each time the site's app is made, so a
-    move cut short is finished at the next start."""
-    pdfs = site_folder / "content" / "pdfs"
-    # By every file there, so a file a move cut short left behind is seen too.
-    ids = sorted({p.name.split(".", 1)[0] for p in pdfs.iterdir()}) if pdfs.is_dir() else []
-    moved = 0
-    for pdf_id in ids:
-        paths = [
-            path
+    used by this site (R258): the PDFs moved. A file already there is left where it was, as
+    R61f's move does. Run each time the site's app is made, so a move cut short is finished at
+    the next start: each PDF is found by any of its files in any of the folders, and its own
+    file moves last, so the site keeps it until what was made from it has moved too (Codex's
+    review of PR #305). Files of a PDF that is in neither place are left as they are."""
+    content = site_folder / "content"
+    ids = sorted(
+        {
+            path.name.split(".", 1)[0]
             for folder in PDF_FOLDERS
-            for path in sorted((site_folder / "content" / folder).glob(f"{pdf_id}.*"))
+            if (content / folder).is_dir()
+            for path in (content / folder).iterdir()
+        }
+    )
+    moved = 0
+    for pdf_id in [i for i in ids if _is_id(i)]:
+        name = f"{pdf_id}.json"
+        if (
+            not (content / "pdfs" / name).is_file()
+            and not (library / "content" / "pdfs" / name).is_file()
+        ):
+            continue  # what is left of a PDF deleted from the site: not the host's
+        paths = [
+            path for folder in MOVE_ORDER for path in sorted((content / folder).glob(f"{pdf_id}.*"))
         ]
         went = False
         try:
