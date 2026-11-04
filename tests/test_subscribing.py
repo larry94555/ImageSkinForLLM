@@ -63,9 +63,15 @@ class FakeStripe:
         return {"id": "cs_test_1", "url": "https://checkout.stripe.com/c/pay/cs_test_1"}
 
 
+# The service last served, whose sites' tokens a completed checkout carries, as Stripe sends back
+# the metadata each checkout was started with (R257).
+SERVED: list[Service] = []
+
+
 def served(tmp_path: Path, stripe: Stripe | None) -> tuple[SiteApps, dict[str, FastAPI], Service]:
     home = tmp_path / "home"
     service = dataclasses.replace(with_hosts(home), payments=stripe)
+    SERVED[:] = [service]
     made: dict[str, FastAPI] = {}
 
     def make(site: str) -> FastAPI:
@@ -111,7 +117,11 @@ def send(browser: TestClient, event: dict[str, Any], **kw: Any) -> Any:
     )
 
 
-def completed(code: str, subscription: str = "sub_1") -> dict[str, Any]:
+def completed(code: str, subscription: str = "sub_1", token: str | None = None) -> dict[str, Any]:
+    """Stripe's event for a paid checkout of the site `code`, with the token its checkout was
+    started with: the site's own, unless another is given."""
+    if token is None and SERVED:
+        token = SERVED[0].sites.token_of(code)
     return {
         "id": "evt_1",
         "type": "checkout.session.completed",
@@ -122,6 +132,7 @@ def completed(code: str, subscription: str = "sub_1") -> dict[str, Any]:
                 "payment_status": "paid",
                 "subscription": subscription,
                 "customer": "cus_1",
+                "metadata": {"site": code, **({"site_token": token} if token else {})},
             }
         },
     }

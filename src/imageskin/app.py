@@ -946,7 +946,8 @@ def create_app(
         """Whether a subdomain can be had, checked as its host types it (R63): the name as it
         would be kept, and why not, or None when it can."""
         name = name.strip().lower()
-        return {"name": name, "problem": service.sites.name_problem(name)}
+        # The host's own new site, not paid for yet, can be tried again (R257).
+        return {"name": name, "problem": service.sites.name_problem_for(host.email, name)}
 
     @app.post("/api/site/subdomain")
     def set_subdomain(
@@ -1075,7 +1076,9 @@ def create_app(
             raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
         back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/settings"
         try:
-            url = service.payments.checkout(host_site, host.email, back, back)
+            url = service.payments.checkout(
+                host_site, host.email, back, back, token=service.sites.token_of(host_site)
+            )
         except PaymentError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
         return {"url": url}
@@ -1114,10 +1117,14 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(e)) from e
         back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/host/account"
         try:
-            url = service.payments.checkout(made, host.email, back, back, customer)
+            url = service.payments.checkout(
+                made, host.email, back, back, customer, token=service.sites.token_of(made)
+            )
         except PaymentError as e:
-            # Nothing is left behind: the new site goes, and its name is free again.
-            service.sites.delete(made, "its checkout couldn't start")
+            # Stripe may have made the checkout all the same, its answer lost, so the new site
+            # is kept, paused, and its name isn't given to anyone else: trying again goes on with
+            # it, and left unpaid it is deleted as any paused site is (Codex's review of PR #304).
+            logger.warning("Site added, its checkout not started", extra={"site": made})
             raise HTTPException(status_code=502, detail=str(e)) from e
         logger.info(
             "Site added, to be paid for",
@@ -1159,7 +1166,9 @@ def create_app(
             old = str(found["id"]) if found.get("id") else None
             try:
                 if not customer:
-                    url = payments.checkout(host_site, host.email, back, back)
+                    url = payments.checkout(
+                        host_site, host.email, back, back, token=service.sites.token_of(host_site)
+                    )
                     logger.info("Resume goes to Stripe", extra={"site": host_site, "why": "new"})
                     return {"resumed": False, "url": url}
                 card = payments.card_of(host_site, old)
@@ -1180,7 +1189,14 @@ def create_app(
                 try:
                     made = made or payments.resume(host_site, customer, card, old or "first")
                 except CardNeeded:
-                    url = payments.checkout(host_site, host.email, back, back, customer)
+                    url = payments.checkout(
+                        host_site,
+                        host.email,
+                        back,
+                        back,
+                        customer,
+                        token=service.sites.token_of(host_site),
+                    )
                     logger.info(
                         "Resume goes to Stripe", extra={"site": host_site, "why": "card needed"}
                     )
@@ -1226,8 +1242,12 @@ def create_app(
                 site = thing.get("client_reference_id")
                 paid = thing.get("payment_status") in ("paid", "no_payment_required")
                 if site and paid and thing.get("subscription"):
+                    token = (thing.get("metadata") or {}).get("site_token")
                     if not service.sites.subscribe(
-                        site, str(thing["subscription"]), str(thing.get("customer") or "")
+                        site,
+                        str(thing["subscription"]),
+                        str(thing.get("customer") or ""),
+                        checkout=str(token or ""),
                     ):
                         logger.error("Subscription for no site", extra={"site": site})
             elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):

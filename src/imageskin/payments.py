@@ -119,10 +119,13 @@ class Stripe:
         success_url: str,
         cancel_url: str,
         customer: str | None = None,
+        token: str | None = None,
     ) -> str:
         """Start subscribing the site on Stripe's page: the page's address. The site is the
-        session's reference, so its completion names the site it paid for. With the `customer`
-        the site had (R69b), Stripe's page is for them, filled in, and no new customer is made."""
+        session's reference, so its completion names the site it paid for, with the site's own
+        `token` (R257), so a site of that name made since isn't taken for it. With the
+        `customer` the site had (R69b), Stripe's page is for them, filled in, and no new
+        customer is made."""
         start = time.perf_counter()
         form = {
             "mode": "subscription",
@@ -131,6 +134,7 @@ class Stripe:
             "client_reference_id": site,
             **({"customer": customer} if customer else {"customer_email": email}),
             "metadata[site]": site,
+            **({"metadata[site_token]": token} if token else {}),
             "subscription_data[metadata][site]": site,
             "success_url": success_url,
             "cancel_url": cancel_url,
