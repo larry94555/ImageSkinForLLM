@@ -49,6 +49,7 @@ CONFIRM_SUBJECT = "Confirm your email for your me0.ai site"
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 Email = Annotated[str, Body(embed=True)]
 Password = Annotated[str, Body(embed=True)]
+DisplayName = Annotated[str | None, Body(embed=True)]
 # The host pages the browser says it opened (R189); anything else is refused, not logged.
 HostPage = Literal["sign-up", "sign-in"]
 
@@ -108,6 +109,7 @@ def host_router(
     restart: Callable[[str], str] | None = None,
     days_before_deleting: Callable[[], int] = lambda: 30,
     acting_link: Callable[[str], str | None] = lambda _: None,
+    site_host: Callable[[str], str | None] = lambda _: None,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -120,7 +122,8 @@ def host_router(
     for (R67). With `restart`, a host whose site was deleted starts it again (R69c): it is given
     their email and returns the new site's name. A host with several sites (R256) opens each
     signed in, with a one-time link, made with `acting_link` for the administrator acting as
-    them (R44a)."""
+    them (R44a). `site_host` gives a site's host's email, whose display name (R259) is the only
+    way any answer here names the host to someone else."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -140,6 +143,9 @@ def host_router(
         """Signed in, with the cookie that keeps them so; with a trial `code`, signed in to that
         new trial site, whose page the browser goes to (R62)."""
         body: dict[str, object] = {"signed_in": True, "email": normal_email(email)}
+        # Who the top bar names (R259); with a trial `code`, the new site is theirs.
+        body["display_name"] = accounts.display_name_of(email)
+        body["host_name"] = body["display_name"] if code is not None else host_name()
         host = accounts.host(token, unconfirmed=True)
         body["confirmed"] = host is None or host.confirmed
         if host is not None and host.disabled:
@@ -164,16 +170,30 @@ def host_router(
         )
         return response
 
+    def host_name() -> str | None:
+        """The site's host's display name (R259), for everyone who opens it; None when the site
+        has no host, or it can't be read just now."""
+        try:
+            email = site_host(site)
+            return accounts.display_name_of(email) if email else None
+        except Exception:
+            logger.exception("Host's display name not read", extra={"site": site})
+            return None
+
     @router.get("/session")
     def session(token: Token = None) -> dict[str, object]:
-        """Whether this browser is signed in as a host, and as whom."""
+        """Whether this browser is signed in as a host, and as whom; and, for anyone, the site's
+        host by their display name, never their email (R259)."""
         host = accounts.host(token, site, unconfirmed=True)
         answer: dict[str, object] = {
             "signed_in": host is not None,
             "email": host and host.email,
+            "host_name": host_name(),
             # Until they confirm their email, a host's pages only say to (R62b).
             "confirmed": host is None or host.confirmed,
         }
+        if host:
+            answer["display_name"] = accounts.display_name_of(host.email)
         if host and host.acting:
             # The administrator acting as this host (R44a), for the bar that says so (R44b).
             answer["acting_as_admin"] = True
@@ -254,7 +274,9 @@ def host_router(
         return True
 
     @router.post("/sign-up")
-    def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:
+    def sign_up(
+        request: Request, email: Email, password: Password, display_name: DisplayName = None
+    ) -> JSONResponse:
         if site != DEFAULT_SITE:
             logger.info(
                 "Host sign-up refused", extra={"site": site, "why": "the site has its host"}
@@ -269,7 +291,11 @@ def host_router(
             return JSONResponse({"detail": TRIAL_USED}, status_code=409)
         try:
             token = accounts.sign_up(
-                email, password, address(request), confirm=make_site is not None
+                email,
+                password,
+                address(request),
+                confirm=make_site is not None,
+                display_name=display_name,
             )
         except HostRefused as e:
             if e.reason != "email already signed up":
@@ -496,6 +522,24 @@ def host_router(
             "custom_image": use.image,
             "custom_voice": use.voice,
             "disabled": host.disabled,
+            "display_name": accounts.display_name_of(host.email),
         }
+
+    @router.put("/display-name")
+    def set_display_name(
+        host: Annotated[Host, Depends(require_host)],
+        display_name: Annotated[str, Body(embed=True)],
+    ) -> JSONResponse:
+        """Change the name participants and visitors see for the host (R259)."""
+        try:
+            shown = accounts.set_display_name(host.email, display_name)
+        except HostRefused as e:
+            logger.warning("Display name refused", extra={"email": host.email, "reason": e.reason})
+            return JSONResponse({"detail": str(e)}, status_code=400)
+        except HostsUnreadable as e:
+            return JSONResponse({"detail": str(e)}, status_code=503)
+        if shown is None:
+            return JSONResponse({"detail": NOT_SIGNED_IN}, status_code=401)
+        return JSONResponse({"display_name": shown})
 
     return router, require_host

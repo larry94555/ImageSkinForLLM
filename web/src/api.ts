@@ -1380,6 +1380,11 @@ export interface HostSession {
   paused?: boolean;
   // True once the site's subscription is paid for (R67).
   subscribed?: boolean;
+  // The site's host by their display name (R259), for anyone, signed in or not; null when the
+  // site has no host. Never their email.
+  host_name?: string | null;
+  // The signed-in host's own display name (R259).
+  display_name?: string | null;
 }
 
 // Subscribing (R67): whether it is set up on this server, what is sold, and the site's
@@ -1542,11 +1547,18 @@ export async function getCustomUse(): Promise<CustomUse> {
 // Signing in to a site that was deleted (R69a): the host can start it again (R69c).
 export class SiteWasDeleted extends ServerRefusal {}
 
-async function hostAccount(route: "sign-up" | "sign-in", email: string, password: string) {
+async function hostAccount(
+  route: "sign-up" | "sign-in",
+  email: string,
+  password: string,
+  displayName?: string,
+) {
   const response = await fetch(`/api/host/${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(
+      displayName === undefined ? { email, password } : { email, password, display_name: displayName },
+    ),
   });
   if (!response.ok) {
     const body = (await response.clone().json().catch(() => ({}))) as { deleted?: boolean };
@@ -1570,8 +1582,26 @@ export async function restartSite(email: string, password: string): Promise<stri
   return ((await response.json()) as { sign_in_at: string }).sign_in_at;
 }
 
-export function signUpAsHost(email: string, password: string): Promise<HostSession> {
-  return hostAccount("sign-up", email, password);
+// With a display name (R259), such as "Dr. Smith"; left blank, the server uses the email's part
+// before the @.
+export function signUpAsHost(
+  email: string,
+  password: string,
+  displayName?: string,
+): Promise<HostSession> {
+  return hostAccount("sign-up", email, password, displayName);
+}
+
+// Change the name participants and visitors see for the host (R259): the name as kept, or a
+// ServerRefusal saying why not.
+export async function setDisplayName(displayName: string): Promise<string> {
+  const response = await fetch("/api/host/display-name", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { display_name: string }).display_name;
 }
 
 export function signInAsHost(email: string, password: string): Promise<HostSession> {

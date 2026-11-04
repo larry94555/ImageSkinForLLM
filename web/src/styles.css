@@ -796,6 +796,9 @@ ul.photos img { border-radius: 8px; }
 .host-links { display: inline-flex; align-items: center; gap: 4px; }
 .host-email { color: var(--muted); font-size: 0.9em; padding: 0 6px; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .host-links button { padding: 4px 12px; }
+/* Who hosts the site, by their display name (R259). */
+.hosted-by { color: var(--muted); font-size: 0.9em; padding: 0 6px; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hosted-by strong { color: var(--fg); font-weight: 600; }
 /* The host's resource view (R193): each amount on a row, the total last and bold. */
 .disk-used { margin: 8px 0 0; }
 .disk-used .disk-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }

@@ -20,6 +20,7 @@ import {
   ActAsFailedPage,
   ActingBar,
   HostAccountPage,
+  HostedBy,
   HostLinks,
   HostOnlyPage,
   HostProvider,
@@ -259,6 +260,7 @@ function Shell() {
           ))}
         </nav>
         <span className="header-end">
+          {settingsLoaded && (participant || visitor) && <HostedBy />}
           <HostLinks page={route?.page} />
           <AdminLink current={route?.page === "admin"} />
           {settingsLoaded && settingsShown && (

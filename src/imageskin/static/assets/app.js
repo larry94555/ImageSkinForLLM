@@ -709,13 +709,17 @@ async function getCustomUse() {
 	};
 }
 var SiteWasDeleted = class extends ServerRefusal {};
-async function hostAccount(route, email, password) {
+async function hostAccount(route, email, password, displayName) {
 	const response = await fetch(`/api/host/${route}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
+		body: JSON.stringify(displayName === void 0 ? {
 			email,
 			password
+		} : {
+			email,
+			password,
+			display_name: displayName
 		})
 	});
 	if (!response.ok) {
@@ -737,8 +741,17 @@ async function restartSite(email, password) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return (await response.json()).sign_in_at;
 }
-function signUpAsHost(email, password) {
-	return hostAccount("sign-up", email, password);
+function signUpAsHost(email, password, displayName) {
+	return hostAccount("sign-up", email, password, displayName);
+}
+async function setDisplayName(displayName) {
+	const response = await fetch("/api/host/display-name", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ display_name: displayName })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).display_name;
 }
 function signInAsHost(email, password) {
 	return hostAccount("sign-in", email, password);
@@ -3578,7 +3591,8 @@ var HostContext = X({
 	actingEnded: () => {},
 	signUp: async () => false,
 	signIn: async () => false,
-	signOut: async () => {}
+	signOut: async () => {},
+	renamed: () => {}
 });
 function useHost() {
 	return x(HostContext);
@@ -3600,9 +3614,9 @@ function HostProvider({ children }) {
 			setSession(SIGNED_OUT);
 		});
 	}, []);
-	async function account(kind, email, password) {
+	async function account(kind, email, password, name) {
 		const started = performance.now();
-		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
+		const signedIn = await (kind === "up" ? signUpAsHost(email, password, name) : signInAsHost(email, password));
 		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
 		if (signedIn.sign_in_at) {
 			console.info("Host sent to their own site to sign in");
@@ -3621,18 +3635,29 @@ function HostProvider({ children }) {
 	async function signOut() {
 		await signOutAsHost();
 		console.info("Host signed out");
-		setSession(SIGNED_OUT);
+		setSession((was) => ({
+			...SIGNED_OUT,
+			host_name: was?.host_name ?? null
+		}));
 		await reload();
 	}
 	const shared = {
 		session,
 		actingEnded: () => {
-			setSession(SIGNED_OUT);
+			setSession((was) => ({
+				...SIGNED_OUT,
+				host_name: was?.host_name ?? null
+			}));
 			reload();
 		},
-		signUp: (email, password) => account("up", email, password),
+		signUp: (email, password, name) => account("up", email, password, name),
 		signIn: (email, password) => account("in", email, password),
-		signOut
+		signOut,
+		renamed: (name) => setSession((was) => was?.signed_in ? {
+			...was,
+			display_name: name,
+			host_name: was.host_name === was.display_name ? name : was.host_name
+		} : was)
 	};
 	return /* @__PURE__ */ u(HostContext.Provider, {
 		value: shared,
@@ -3668,7 +3693,7 @@ function HostLinks({ page }) {
 					className: "host-email",
 					href: "#/host/account",
 					title: "Your account",
-					children: session.email
+					children: session.display_name || session.email
 				}),
 				/* @__PURE__ */ u("button", {
 					type: "button",
@@ -3688,6 +3713,15 @@ function HostLinks({ page }) {
 	return /* @__PURE__ */ u("span", {
 		className: "host-links",
 		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
+	});
+}
+function HostedBy() {
+	const name = useHost().session?.host_name;
+	if (!name) return null;
+	return /* @__PURE__ */ u("span", {
+		className: "hosted-by",
+		title: `Hosted by ${name}`,
+		children: ["Hosted by ", /* @__PURE__ */ u("strong", { children: name })]
 	});
 }
 function ActingBar() {
@@ -3821,6 +3855,7 @@ function ActAsFailedPage() {
 function HostAccountPage({ kind }) {
 	const { session, signUp, signIn } = useHost();
 	const [email, setEmail] = d("");
+	const [displayName, setDisplayName] = d("");
 	const [password, setPassword] = d("");
 	const [again, setAgain] = d("");
 	const [busy, setBusy] = d(false);
@@ -3845,7 +3880,7 @@ function HostAccountPage({ kind }) {
 		setBusy(true);
 		setDeleted(false);
 		try {
-			if (!await (up ? signUp : signIn)(email, password)) window.location.hash = "#/";
+			if (!await (up ? signUp(email, password, displayName) : signIn(email, password))) window.location.hash = "#/";
 		} catch (err) {
 			console.error(`Could not sign ${kind} as host`, err);
 			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
@@ -3898,6 +3933,21 @@ function HostAccountPage({ kind }) {
 						value: email,
 						onInput: (e) => setEmail(e.currentTarget.value)
 					})] }),
+					up && /* @__PURE__ */ u("label", { children: [
+						"Display name",
+						/* @__PURE__ */ u("input", {
+							type: "text",
+							autoComplete: "name",
+							maxLength: 60,
+							placeholder: "Dr. Smith",
+							value: displayName,
+							onInput: (e) => setDisplayName(e.currentTarget.value)
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: "What participants and visitors see you called. Your email is never shown to them."
+						})
+					] }),
 					/* @__PURE__ */ u("label", { children: [
 						"Password",
 						up && ` (at least 10 characters)`,
@@ -4259,6 +4309,7 @@ function AccountPage() {
 					"."
 				]
 			}),
+			/* @__PURE__ */ u(DisplayName, {}),
 			/* @__PURE__ */ u(YourSites, {}),
 			/* @__PURE__ */ u("h2", { children: "Change email" }),
 			/* @__PURE__ */ u("form", {
@@ -4302,6 +4353,65 @@ function AccountPage() {
 			})
 		]
 	});
+}
+function DisplayName() {
+	const { session, renamed } = useHost();
+	const saved = session?.display_name ?? "";
+	const [name, setName] = d(saved);
+	const [busy, setBusy] = d(false);
+	const [note, setNote] = d(null);
+	const [error, setError] = d(null);
+	const shown = A(saved);
+	if (shown.current !== saved) {
+		shown.current = saved;
+		setName(saved);
+	}
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setNote(null);
+		setError(null);
+		const started = performance.now();
+		try {
+			const kept = await setDisplayName(name);
+			renamed(kept);
+			setName(kept);
+			setNote(`Saved. Participants and visitors see you as ${kept}.`);
+			console.info(`Display name saved (${Math.round(performance.now() - started)} ms)`);
+		} catch (err) {
+			console.error("Could not save the display name", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h2", { children: "Display name" }), /* @__PURE__ */ u("form", {
+		onSubmit: (e) => void submit(e),
+		noValidate: true,
+		children: [
+			/* @__PURE__ */ u("label", { children: ["What participants and visitors see you called", /* @__PURE__ */ u("input", {
+				type: "text",
+				autoComplete: "name",
+				maxLength: 60,
+				value: name,
+				onInput: (e) => setName(e.currentTarget.value)
+			})] }),
+			note && /* @__PURE__ */ u("p", {
+				role: "status",
+				children: note
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy || name.trim() === "" || name.trim() === saved,
+				children: "Save display name"
+			})
+		]
+	})] });
 }
 function EmailChangedPage({ changed }) {
 	h(() => console.info(`Email change page shown (changed: ${changed})`), [changed]);
@@ -13680,6 +13790,7 @@ function Shell() {
 				/* @__PURE__ */ u("span", {
 					className: "header-end",
 					children: [
+						settingsLoaded && (participant || visitor) && /* @__PURE__ */ u(HostedBy, {}),
 						/* @__PURE__ */ u(HostLinks, { page: route?.page }),
 						/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }),
 						settingsLoaded && settingsShown && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })

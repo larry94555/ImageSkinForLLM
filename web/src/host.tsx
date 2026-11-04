@@ -17,6 +17,7 @@ import {
   hostPageOpened,
   type HostSession,
   restartSite,
+  setDisplayName,
   sendConfirmationAgain,
   ServerRefusal,
   setNewPassword,
@@ -29,15 +30,19 @@ import {
 
 // As the server checks (R188), so a short password is said at once.
 export const MIN_PASSWORD = 10;
+// As the server keeps it (R259).
+export const DISPLAY_NAME_MAX = 60;
 
 interface Shared {
   session: HostSession | null; // null until the server has answered
   // Acting ended by itself (R44b): the session is read again, signed out of the host's site.
   actingEnded: () => void;
   // Each resolves to true when the browser is leaving for the host's new site (R62).
-  signUp: (email: string, password: string) => Promise<boolean>;
+  signUp: (email: string, password: string, displayName?: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
+  // The host's display name changed on the account page (R259): the top bar says it at once.
+  renamed: (displayName: string) => void;
 }
 
 const HostContext = createContext<Shared>({
@@ -46,6 +51,7 @@ const HostContext = createContext<Shared>({
   signUp: async () => false,
   signIn: async () => false,
   signOut: async () => {},
+  renamed: () => {},
 });
 
 export function useHost(): Shared {
@@ -73,9 +79,11 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
     });
   }, []);
 
-  async function account(kind: "up" | "in", email: string, password: string) {
+  async function account(kind: "up" | "in", email: string, password: string, name?: string) {
     const started = performance.now();
-    const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
+    const signedIn = await (kind === "up"
+      ? signUpAsHost(email, password, name)
+      : signInAsHost(email, password));
     console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
     if (signedIn.sign_in_at) {
       // The host's site is at another address (R255): signed in there, by its link.
@@ -97,25 +105,38 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
   async function signOut() {
     await signOutAsHost();
     console.info("Host signed out");
-    setSession(SIGNED_OUT);
+    // The site's host is still named to the visitor they now are (R259).
+    setSession((was) => ({ ...SIGNED_OUT, host_name: was?.host_name ?? null }));
     await reload();
   }
 
   const shared = {
     session,
     actingEnded: () => {
-      setSession(SIGNED_OUT);
+      setSession((was) => ({ ...SIGNED_OUT, host_name: was?.host_name ?? null }));
       void reload();
     },
-    signUp: (email: string, password: string) => account("up", email, password),
+    signUp: (email: string, password: string, name?: string) =>
+      account("up", email, password, name),
     signIn: (email: string, password: string) => account("in", email, password),
     signOut,
+    renamed: (name: string) =>
+      setSession((was) =>
+        was?.signed_in
+          ? {
+              ...was,
+              display_name: name,
+              // The host of this site is named so to its visitors too.
+              host_name: was.host_name === was.display_name ? name : was.host_name,
+            }
+          : was,
+      ),
   };
   return <HostContext.Provider value={shared}>{children}</HostContext.Provider>;
 }
 
-// The top bar's host links: Host sign up and Host sign in, or Resources (R193), the host's email
-// and Sign out.
+// The top bar's host links: Host sign up and Host sign in, or Resources (R193), the host's display
+// name (R259) and Sign out.
 // Signing out returns to the participant view's page, the chat.
 export function HostLinks({ page }: { page?: string }) {
   const { session, signOut } = useHost();
@@ -144,7 +165,7 @@ export function HostLinks({ page }: { page?: string }) {
           Resources
         </a>
         <a className="host-email" href="#/host/account" title="Your account">
-          {session.email}
+          {session.display_name || session.email}
         </a>
         <button type="button" className="secondary" disabled={busy} onClick={() => void leave()}>
           Sign out
@@ -161,6 +182,18 @@ export function HostLinks({ page }: { page?: string }) {
     <span className="host-links">
       {link("host-sign-up", "#/host/sign-up", "Host sign up")}
       {link("host-sign-in", "#/host/sign-in", "Host sign in")}
+    </span>
+  );
+}
+
+// Who hosts this site (R259), in the top bar of the participant view and for every visitor: the
+// host's display name, never their email. Nothing while the site has no host.
+export function HostedBy() {
+  const name = useHost().session?.host_name;
+  if (!name) return null;
+  return (
+    <span className="hosted-by" title={`Hosted by ${name}`}>
+      Hosted by <strong>{name}</strong>
     </span>
   );
 }
@@ -319,6 +352,7 @@ export function ActAsFailedPage() {
 export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
   const { session, signUp, signIn } = useHost();
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
@@ -352,7 +386,7 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
     setBusy(true);
     setDeleted(false);
     try {
-      const leaving = await (up ? signUp : signIn)(email, password);
+      const leaving = await (up ? signUp(email, password, displayName) : signIn(email, password));
       if (!leaving) window.location.hash = "#/";
     } catch (err) {
       console.error(`Could not sign ${kind} as host`, err);
@@ -408,6 +442,22 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
             onInput={(e) => setEmail(e.currentTarget.value)}
           />
         </label>
+        {up && (
+          <label>
+            Display name
+            <input
+              type="text"
+              autoComplete="name"
+              maxLength={DISPLAY_NAME_MAX}
+              placeholder="Dr. Smith"
+              value={displayName}
+              onInput={(e) => setDisplayName(e.currentTarget.value)}
+            />
+            <span className="muted">
+              What participants and visitors see you called. Your email is never shown to them.
+            </span>
+          </label>
+        )}
         <label>
           Password{up && ` (at least ${MIN_PASSWORD} characters)`}
           <input
@@ -694,8 +744,9 @@ export function ResetPasswordPage({ token }: { token: string }) {
   );
 }
 
-// The signed-in host's account (R62c): their email, and Change email, which sends a link to the
-// new address; nothing changes until it is opened.
+// The signed-in host's account (R62c): their display name, which participants and visitors see
+// (R259), and their email, with Change email, which sends a link to the new address; nothing
+// changes until it is opened.
 export function AccountPage() {
   const { session } = useHost();
   const [email, setEmail] = useState("");
@@ -729,6 +780,7 @@ export function AccountPage() {
       <p className="lead">
         You sign in with <strong>{session.email}</strong>.
       </p>
+      <DisplayName />
       <YourSites />
       <h2>Change email</h2>
       <form onSubmit={(e) => void submit(e)} noValidate>
@@ -767,6 +819,70 @@ export function AccountPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+// The account page's display name (R259): what participants and visitors see the host called.
+function DisplayName() {
+  const { session, renamed } = useHost();
+  const saved = session?.display_name ?? "";
+  const [name, setName] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // A name read again (such as the session answering after the page opened) fills the field,
+  // without undoing what the host has typed since.
+  const shown = useRef(saved);
+  if (shown.current !== saved) {
+    shown.current = saved;
+    setName(saved);
+  }
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    setBusy(true);
+    setNote(null);
+    setError(null);
+    const started = performance.now();
+    try {
+      const kept = await setDisplayName(name);
+      renamed(kept);
+      setName(kept);
+      setNote(`Saved. Participants and visitors see you as ${kept}.`);
+      console.info(`Display name saved (${Math.round(performance.now() - started)} ms)`);
+    } catch (err) {
+      console.error("Could not save the display name", err);
+      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>Display name</h2>
+      <form onSubmit={(e) => void submit(e)} noValidate>
+        <label>
+          What participants and visitors see you called
+          <input
+            type="text"
+            autoComplete="name"
+            maxLength={DISPLAY_NAME_MAX}
+            value={name}
+            onInput={(e) => setName(e.currentTarget.value)}
+          />
+        </label>
+        {note && <p role="status">{note}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy || name.trim() === "" || name.trim() === saved}>
+          Save display name
+        </button>
+      </form>
+    </>
   );
 }
 

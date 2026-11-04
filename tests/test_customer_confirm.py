@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from test_customer_sign_up import DAN, confirmation_link, sign_up
+from test_customer_sign_up import DAN, NAMED, confirmation_link, sign_up
 from test_site_addresses import PASSWORD, served
 
 from imageskin import admin
@@ -53,7 +53,7 @@ def test_a_new_customer_confirms_their_email_before_managing_their_site(
 
     # Until then the site's host pages are refused, and the browser is told to confirm.
     session = browser.get(f"/t/{code}/api/host/session").json()
-    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True}
+    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True, **NAMED}
     assert browser.get(f"/t/{code}/api/host/me").status_code == 401
     assert browser.get(f"/t/{code}/api/settings").json()["view"] == "participant"
     assert browser.post(f"/t/{code}/api/settings/access", json={}).json()["shown"] is False
@@ -64,7 +64,7 @@ def test_a_new_customer_confirms_their_email_before_managing_their_site(
     assert confirmed.headers["location"] == f"/t/{code}/#/setup"
     assert "Host email confirmed" in caplog.messages
     session = browser.get(f"/t/{code}/api/host/session").json()
-    assert session == {"signed_in": True, "email": DAN, "confirmed": True, "trial": True}
+    assert session == {"signed_in": True, "email": DAN, "confirmed": True, "trial": True, **NAMED}
     assert browser.get(f"/t/{code}/api/host/me").status_code == 200
 
     # A used link says it didn't work.

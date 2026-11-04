@@ -218,11 +218,18 @@ def test_the_api_signs_up_in_and_out(tmp_path: Path) -> None:
     assert browser.get("/api/host/session").json() == {
         "signed_in": False,
         "email": None,
+        "host_name": None,
         "confirmed": True,
     }
     assert browser.get("/api/host/me").status_code == 401
     up = browser.post("/api/host/sign-up", json={"email": "Host@example.com", "password": PASSWORD})
-    assert up.json() == {"signed_in": True, "email": "host@example.com", "confirmed": True}
+    assert up.json() == {
+        "signed_in": True,
+        "email": "host@example.com",
+        "display_name": "host",
+        "host_name": "host",
+        "confirmed": True,
+    }
     cookie = up.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie and "Max-Age=" in cookie
     assert browser.get("/api/host/me").json()["email"] == "host@example.com"
@@ -246,6 +253,8 @@ def test_the_api_signs_up_in_and_out(tmp_path: Path) -> None:
     assert browser.get("/api/host/session").json() == {
         "signed_in": True,
         "email": "host@example.com",
+        "host_name": "host",
+        "display_name": "host",
         "confirmed": True,
     }
 
