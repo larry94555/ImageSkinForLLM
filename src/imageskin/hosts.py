@@ -38,6 +38,8 @@ SITE = "site"  # the host's site, kept with the host; none for the main address'
 # Every site of a host with several (R256): `site` is then the one they used last, which a
 # sign-in at another address goes to (R255). A host from before has none: their one `site`.
 SITES = "sites"
+# The name of the host's folder beside their sites, where their PDFs are kept once (R258).
+LIBRARY = "library"
 
 
 def sites_in(account: dict[str, Any]) -> list[str]:
@@ -749,6 +751,23 @@ class HostAccounts:
             self._save({**data, "hosts": {**data["hosts"], email: account}, "sessions": sessions})
         logger.info("Host site set", extra={"email": email, "site": site, "old_site": old})
         return True
+
+    def library_of(self, email: str, make: bool = True) -> str | None:
+        """The name of the host's folder, where their PDFs are kept once for all their sites
+        (R258), given them the first time it is asked for unless `make` is False. None when
+        there is no such host, or it has none and none was made."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if account is None:
+                return None
+            if account.get(LIBRARY) or not make:
+                return str(account[LIBRARY]) if account.get(LIBRARY) else None
+            key = secrets.token_hex(8)
+            self._save({**data, "hosts": {**data["hosts"], email: {**account, LIBRARY: key}}})
+        logger.info("Host's PDF folder named", extra={"email": email, "library": key})
+        return key
 
     def sites_of(self, email: str) -> list[str]:
         """Every site of the host (R256), the one used last first; none for no such host or

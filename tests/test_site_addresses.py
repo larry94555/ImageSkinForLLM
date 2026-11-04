@@ -220,7 +220,8 @@ def test_each_site_keeps_its_files_in_its_own_folder(
         assert [p["name"] for p in a.get("/api/content").json()] == ["mars.pdf"]
         assert main.get("/api/content").json() == []
     home = tmp_path / "home"
-    assert (home / "sites" / "a" / "content").is_dir()
+    # Kept once in the host's folder, for all their sites (R258).
+    assert [p.name for p in (home / "hosts").glob("*/content/pdfs/*.pdf")] != []
     assert (home / "sites" / "a" / "consent.json").exists() and (home / "consent.json").exists()
     assert not (home / "content").exists() or not any((home / "content").glob("*.pdf"))
     matched = [r for r in caplog.records if r.message == "Site matched"]

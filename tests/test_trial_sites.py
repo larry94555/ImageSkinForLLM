@@ -92,7 +92,8 @@ def test_a_trial_sites_page_and_calls_reach_it_under_its_path(
     # Its own PDFs, apart from the site at a.localhost and the main address's.
     assert [p["name"] for p in trial.get(f"/t/{code}/api/content").json()] == ["mars.pdf"]
     assert a.get("/api/content").json() == []
-    assert (tmp_path / "home" / "sites" / code / "content" / "pdfs").is_dir()
+    # Kept in its host's folder, for all their sites (R258).
+    assert list((tmp_path / "home" / "hosts").glob("*/content/pdfs/*.pdf"))
     matched = [r.__dict__ for r in caplog.records if r.message == "Site matched"]
     assert matched[0]["site"] == code and matched[0]["trial"] == code
 

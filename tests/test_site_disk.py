@@ -77,6 +77,11 @@ def on_disk(folder: Path, leave_out: frozenset[str] = frozenset()) -> int:
     )
 
 
+def ann_on_disk(home: Path) -> int:
+    """Ann's site's folder and her own beside her sites, where her PDFs are kept (R258)."""
+    return on_disk(site_home("a", home)) + sum(on_disk(f) for f in (home / "hosts").glob("*"))
+
+
 def disk(browser: TestClient) -> dict[str, int]:
     answer = browser.get("/api/host/disk")
     assert answer.status_code == 200, answer.text
@@ -90,14 +95,13 @@ def test_the_total_is_the_whole_site_folder_and_no_other_sites(tmp_path: Path) -
     sites, made, home = served(tmp_path)
     ann = signed_in(sites, SITE_A, ANN)
     bob = signed_in(sites, MAIN, BOB)
-    a_home = site_home("a", home)
     assert ann.post("/api/consent", json={"agreed": True}).is_success
     bobs = disk(bob)
     assert bobs["total"] == on_disk(home, SERVICE)
 
     def matches() -> dict[str, int]:
         amounts = disk(ann)
-        assert amounts["total"] == on_disk(a_home)
+        assert amounts["total"] == ann_on_disk(home)
         assert disk(bob) == bobs  # another site's amounts unchanged throughout
         return amounts
 
@@ -138,7 +142,7 @@ def test_the_administrator_counts_a_hosts_own_site(tmp_path: Path) -> None:
     ann.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))})
     boss = administrator(sites, tmp_path)
     asked = boss.get("/api/host/disk", params={"email": ANN}).json()
-    assert asked["total"] == on_disk(site_home("a", home)) == disk(ann)["total"]
+    assert asked["total"] == ann_on_disk(home) == disk(ann)["total"]
     bobs = boss.get("/api/host/disk", params={"email": BOB}).json()
     assert bobs["total"] == on_disk(home, SERVICE)
 

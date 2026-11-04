@@ -127,8 +127,10 @@ def test_nothing_one_site_does_shows_on_another(tmp_path: Path) -> None:
         assert moved == [], f"{who} sees site a's changes at {moved}"
     assert readings(made[code], cy, f"/t/{code}") == trial_before
     # Nothing written outside site a's folder but Ann's sign-in, kept with every site's hosts.
+    # And her PDFs, kept in her own folder beside her sites (R258).
     shared = {"hosts.json"}
-    assert {f: h for f, h in files(home, home / "sites").items() if f not in shared} == {
+    written = files(home, home / "sites")
+    assert {f: h for f, h in written.items() if f not in shared and not f.startswith("hosts")} == {
         f: h for f, h in kept.items() if f not in shared
     }
     a_home = site_home("a", home)

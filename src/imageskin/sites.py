@@ -56,6 +56,7 @@ from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
+from imageskin.host_content import Libraries
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
 from imageskin.hosts import (
@@ -1232,6 +1233,8 @@ class Service:
     acting: ActingAsHost | None = None
     # Subscribing through Stripe (R67), or None when it isn't set up.
     payments: Stripe | None = None
+    # Each host's PDFs, kept once for all their sites (R258).
+    libraries: Libraries = field(default_factory=Libraries)
 
 
 def make_service(
@@ -1259,7 +1262,7 @@ def make_service(
     admin_history = History(
         home, ADMIN_HISTORY_FILE, admin_value_of, NO_ADMIN_GUIDELINES, "Admin guidelines"
     )
-    return Service(
+    service = Service(
         home=home,
         admin_settings=admin_settings,
         admin_sign_ins=admin_sign_ins,
@@ -1273,6 +1276,13 @@ def make_service(
         acting=acting,
         payments=payments,
     )
+
+    # A deleted site's PDFs are taken off it in its host's folder (R258).
+    def pdfs_taken_off(name: str) -> None:
+        service.libraries.site_deleted(home, name)
+
+    service.sites.on_deleted.append(pdfs_taken_off)
+    return service
 
 
 def one_site(scope: Scope) -> str | None:

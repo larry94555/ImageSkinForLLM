@@ -13,7 +13,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Literal, NoReturn, overload
+from typing import Annotated, Any, Literal, NoReturn, cast, overload
 from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import (
@@ -110,6 +110,15 @@ from imageskin.email_change import WRONG_PASSWORD, email_router
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of, site_address
+from imageskin.host_content import (
+    Library,
+    PdfSites,
+    SiteContent,
+    SiteReadings,
+    SiteWiki,
+    library_home,
+    move_site_pdfs,
+)
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import SERVICE as SERVICE_FILES
 from imageskin.host_disk import count as count_disk
@@ -658,6 +667,14 @@ def signed_in_page(error: str, status: int) -> HTMLResponse:
         '<p><a href="/#/settings">Back to Settings</a></p>',
         status_code=status,
     )
+
+
+def library_folder_of(service: Service, site: str) -> Path | None:
+    """The folder of the site's host where their PDFs are kept once (R258), or None for a site
+    with no host, which keeps its own."""
+    host = service.sites.host(site)
+    key = host and service.host_accounts.library_of(host)
+    return library_home(service.home, key) if key else None
 
 
 def create_app(
@@ -1381,6 +1398,11 @@ def create_app(
         folder = data_home if site == host_site else site_home(site, service.home)
         leave_out = SERVICE_FILES if site == DEFAULT_SITE else frozenset()
         amounts = count_disk(folder, wanted, leave_out)
+        # And their PDFs, kept once for all their sites, counted once (R258).
+        key = host_accounts.library_of(wanted, make=False)
+        if key and library_home(service.home, key).is_dir():
+            shared = count_disk(library_home(service.home, key), wanted)
+            amounts = {line: amounts[line] + shared.get(line, 0) for line in amounts}
         if opened:
             logger.info("Resource view opened", extra={"email": wanted, **amounts})
         return amounts
@@ -1765,6 +1787,7 @@ def create_app(
     # PDF content (R34): kept apart from the photos and sounds. It is the administrator's
     # material, not the person's likeness, so it needs no consent; sign-on comes with R44.
     content = ContentStore(data_home)
+    content_folder = content.root  # the site's own, where its lessons are written ahead
     content_api = "/api/content"
     # Each PDF is read when it is added or replaced (R36); on start, any not read yet.
     readings = ReadingJob(
@@ -1795,9 +1818,39 @@ def create_app(
         build_wiki = wiki_builder(llm, client, ask_llm, replies_first)
         build_outline = build_outline or outline_builder(llm, client, ask_llm, replies_first)
     wiki = WikiJob(content, readings, build_wiki, build_outline)
-    readings.on_read = wiki.read
-    readings.catch_up()
-    wiki.catch_up()
+    # A customer's site uses its host's PDFs, kept once for all their sites (R258): read and
+    # built by the host's one reading job and wiki job, and seen here only as the PDFs this site
+    # uses. The main address keeps its own, as before.
+    library_folder = None if at_main else library_folder_of(service, host_site)
+    if library_folder is None:
+        readings.on_read = wiki.read
+        readings.catch_up()
+        wiki.catch_up()
+    else:
+        read_with = read_pdf or pdf_reading.read_pdf
+        built_with, outlined_with = build_wiki, build_outline
+
+        def make_library(store: ContentStore) -> Library:
+            shared = ReadingJob(
+                store, read_with, turns=engines.turns, site=f"host {library_folder.name}"
+            )
+            return Library(
+                library_folder,
+                store,
+                shared,
+                WikiJob(store, shared, built_with, outlined_with),
+                PdfSites(store.root),
+            )
+
+        library = service.libraries.open(library_folder, make_library)
+        move_site_pdfs(data_home, library_folder, host_site, library.uses)
+        site_content = SiteContent(library, host_site)
+        # Stand-ins with the same methods, which see only this site's PDFs.
+        content = cast(ContentStore, site_content)
+        readings = cast(ReadingJob, SiteReadings(library, site_content))
+        wiki = cast(WikiJob, SiteWiki(library, site_content, content_folder / "wiki"))
+        library.readings.catch_up()
+        library.wiki.catch_up()
     app.state.readings = readings
     app.state.wiki = wiki
 
