@@ -5063,134 +5063,155 @@ function AdminSettingsPage() {
 			label
 		]
 	});
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("form", {
-		onSubmit: (e) => {
-			e.preventDefault();
-			save(fields);
-		},
-		children: [
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			saved && /* @__PURE__ */ u("p", {
-				className: "notice",
-				role: "status",
-				children: "Saved. The dashboard, the sign-out and the hosts use them now."
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-sign-out",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-sign-out",
-						children: "Automatic sign-out"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
-							settings.recommended.timeout_minutes,
-							"."
-						]
-					}),
-					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-thresholds",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-thresholds",
-						children: "Colours on the dashboard"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
-							recommended.blue_above,
-							"%, orange below",
-							" ",
-							recommended.orange_below,
-							"%, red below ",
-							recommended.red_below,
-							"%."
-						]
-					}),
-					input("blue", "Blue: more than this % remaining", 1, 99),
-					input("orange", "Orange: less than this % remaining", 1, 99),
-					input("red", "Red: less than this % remaining", 1, 99),
-					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
-						className: "colour-key",
-						children: [
-							/* @__PURE__ */ u("span", {
-								className: `colour-name ${colour}`,
-								children: colour[0].toUpperCase() + colour.slice(1)
-							}),
-							":",
-							" ",
-							meaning,
-							". ",
-							todo
-						]
-					}, colour)),
-					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						disabled: busy,
-						onClick: () => void save({
-							...fields,
-							blue: String(recommended.blue_above),
-							orange: String(recommended.orange_below),
-							red: String(recommended.red_below)
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("form", {
+			onSubmit: (e) => {
+				e.preventDefault();
+				save(fields);
+			},
+			children: [
+				error && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: error
+				}),
+				saved && /* @__PURE__ */ u("p", {
+					className: "notice",
+					role: "status",
+					children: "Saved. The dashboard, the sign-out and the hosts use them now."
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-sign-out",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-sign-out",
+							children: "Automatic sign-out"
 						}),
-						children: "Use the recommended thresholds"
-					}) })
-				]
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
+								settings.recommended.timeout_minutes,
+								"."
+							]
+						}),
+						input("minutes", "Minutes without activity (5 to 240)", 5, 240)
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-thresholds",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-thresholds",
+							children: "Colours on the dashboard"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
+								recommended.blue_above,
+								"%, orange below",
+								" ",
+								recommended.orange_below,
+								"%, red below ",
+								recommended.red_below,
+								"%."
+							]
+						}),
+						input("blue", "Blue: more than this % remaining", 1, 99),
+						input("orange", "Orange: less than this % remaining", 1, 99),
+						input("red", "Red: less than this % remaining", 1, 99),
+						MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+							className: "colour-key",
+							children: [
+								/* @__PURE__ */ u("span", {
+									className: `colour-name ${colour}`,
+									children: colour[0].toUpperCase() + colour.slice(1)
+								}),
+								":",
+								" ",
+								meaning,
+								". ",
+								todo
+							]
+						}, colour)),
+						/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							disabled: busy,
+							onClick: () => void save({
+								...fields,
+								blue: String(recommended.blue_above),
+								orange: String(recommended.orange_below),
+								red: String(recommended.red_below)
+							}),
+							children: "Use the recommended thresholds"
+						}) })
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-hosts",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-hosts",
+							children: "Hosts"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
+						}),
+						/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
+						/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-deleting",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-deleting",
+							children: "Deleting paused sites"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"A site paused because its subscription ended, its trial was cancelled or its host asked to delete it keeps its content this many days, so its host can come back, then everything on it is deleted. Recommended: ",
+								settings.recommended.days_before_deleting,
+								"."
+							]
+						}),
+						input("days", "Days before deleting (1 to 365)", 1, 365)
+					]
+				}),
+				/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+					type: "submit",
+					disabled: busy,
+					children: "Save"
+				}) })
+			]
+		}),
+		/* @__PURE__ */ u(TestEmail, { address: settings.test_email }),
+		/* @__PURE__ */ u(HostProperties, {})
+	] });
+}
+function TestEmail({ address }) {
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-test-email",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-test-email",
+				children: "Test email"
 			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-hosts",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-hosts",
-						children: "Hosts"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
-					}),
-					/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
-					/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-deleting",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-deleting",
-						children: "Deleting paused sites"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"A site paused because its subscription ended, its trial was cancelled or its host asked to delete it keeps its content this many days, so its host can come back, then everything on it is deleted. Recommended: ",
-							settings.recommended.days_before_deleting,
-							"."
-						]
-					}),
-					input("days", "Days before deleting (1 to 365)", 1, 365)
-				]
-			}),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "submit",
-				disabled: busy,
-				children: "Save"
-			}) })
+			/* @__PURE__ */ u("p", { children: ["Test email: ", /* @__PURE__ */ u("strong", { children: address || "not set" })] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Every email for an administrator's test account goes to this address. It is set only in admin-settings.json, in the admin folder on the host, as \"test_email\", and is used as soon as the file is saved."
+			})
 		]
-	}), /* @__PURE__ */ u(HostProperties, {})] });
+	});
 }
 //#endregion
 //#region src/customization.tsx

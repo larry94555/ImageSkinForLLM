@@ -16,6 +16,7 @@ function server() {
     disable_custom_image: true,
     disable_custom_voice: true,
     days_before_deleting: 30,
+    test_email: "",
     refuse: null as number | null,
   };
   const settings = (): AdminSettings => ({
@@ -24,6 +25,7 @@ function server() {
     disable_custom_image: state.disable_custom_image,
     disable_custom_voice: state.disable_custom_voice,
     days_before_deleting: state.days_before_deleting,
+    test_email: state.test_email,
     recommended: {
       timeout_minutes: 30,
       thresholds: RECOMMENDED,
@@ -240,4 +242,24 @@ test("Hosts has the two checkboxes, checked by default, saved as ticked", async 
   await screen.findByRole("status");
   expect(field(/Disable custom voice/).checked).toBe(false);
   expect(field(/Disable custom image/).checked).toBe(true);
+});
+
+test("the test email is shown, and not set when it isn't (R264)", async () => {
+  server();
+  await openSettings();
+  const section = screen.getByRole("region", { name: "Test email" });
+  expect(section.textContent).toContain("Test email: not set");
+  expect(section.textContent).toContain("admin-settings.json");
+  expect(section.querySelector("input")).toBeNull(); // set only in the file
+});
+
+test("a test email set in the file is shown, and Save doesn't send it (R264)", async () => {
+  const { state, puts } = server();
+  state.test_email = "me@example.com";
+  await openSettings();
+  expect(screen.getByRole("region", { name: "Test email" }).textContent).toContain(
+    "Test email: me@example.com",
+  );
+  await save();
+  expect(puts()[0]).not.toHaveProperty("test_email");
 });
