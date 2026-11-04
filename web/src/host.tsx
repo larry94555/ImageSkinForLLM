@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { SiteSwitcher, YourSites } from "./host-sites";
+import { ParticipantPolicyPanel } from "./participant-policy";
 import { useSettingsReload } from "./settings";
 
 import {
@@ -782,6 +783,7 @@ export function AccountPage() {
       </p>
       <DisplayName />
       <YourSites />
+      <ParticipantPolicyPanel />
       <h2>Change email</h2>
       <form onSubmit={(e) => void submit(e)} noValidate>
         <label>

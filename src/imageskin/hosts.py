@@ -857,6 +857,12 @@ class HostAccounts:
         last = str(account.get(SITE, DEFAULT_SITE))
         return [last, *[s for s in theirs if s != last]] if last in theirs else theirs
 
+    def sites_in_order(self, email: str) -> list[str]:
+        """Every site of the host in the order they were made, the first site first (R261)."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email))
+        return [] if account is None else sites_in(account)
+
     def add_site(self, email: str, site: str) -> bool:
         """Give the host another site (R256): their sign-ins are good on it at once, and the
         site they used last stays so. A host whose only site is the main address's, or whose

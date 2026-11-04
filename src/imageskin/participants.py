@@ -250,6 +250,15 @@ class ParticipantAccounts:
             float(account["created_at"]),
         )
 
+    def emails(self) -> set[str]:
+        """Every participant's email, for the host's policy (R261); none while the file can't
+        be read."""
+        try:
+            with self._lock:
+                return set(self._load()["participants"])
+        except ParticipantsUnreadable:
+            return set()
+
     def progress(self, participant: Participant) -> dict[str, Any]:
         """The participant's lesson, quiz and assessment under way, as their browser last sent
         them; none for a file that is missing or can't be read (logged)."""
