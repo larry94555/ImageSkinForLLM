@@ -13,6 +13,7 @@ interface Props {
   onCancel: () => void;
   onConfirm: () => void;
   onOther?: () => void;
+  safe?: boolean; // going ahead takes nothing away, such as Resume subscription (R69b)
 }
 
 // What Tab can reach inside the box.
@@ -86,7 +87,11 @@ export function ConfirmDialog(props: Props) {
               {props.otherLabel}
             </button>
           )}
-          <button type="button" className="danger" onClick={props.onConfirm}>
+          <button
+            type="button"
+            className={props.safe ? undefined : "danger"}
+            onClick={props.onConfirm}
+          >
             {props.confirmLabel}
           </button>
         </div>

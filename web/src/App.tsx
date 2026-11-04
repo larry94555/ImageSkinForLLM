@@ -24,6 +24,7 @@ import {
   HostOnlyPage,
   HostProvider,
   ReadOnly,
+  PausedBar,
   ReadOnlyBar,
   ResetPasswordPage,
   useHost,
@@ -268,6 +269,7 @@ function Shell() {
       <main>
         <ActingBar />
         <ReadOnlyBar />
+        <PausedBar settings={route?.page === "settings"} />
         <AdminEndedNotice />
         <CustomUseProvider value={customUse ?? ALLOWED}>
           {route && READ_ONLY_PAGES.includes(route.page) ? <ReadOnly>{content}</ReadOnly> : content}
