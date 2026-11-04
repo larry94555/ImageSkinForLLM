@@ -243,16 +243,16 @@ class Stripe:
             },
         )
 
-    def refund_first_payment(self, site: str, subscription_id: str) -> str | None:
-        """Refund what a subscription was first charged, its latest invoice's payment: a second
-        subscription for a site already paid for (Codex's review of PR #304). The refund's id,
-        or None when nothing was paid. Asked again, as when Stripe resends the event, Stripe
-        answers the same refund, by its idempotency key, so the payment is never refunded
-        twice. The payment is found in the invoice's payments (`payments`, or
-        `/v1/invoice_payments`, Stripe's API from 2025-03-31.basil on), or else its older
-        `payment_intent` or `charge`. PaymentError when Stripe can't be reached or refuses, or
-        when an invoice that was paid names no payment to refund, so the duplicate is never
-        taken for refunded (Codex's review of PR #304)."""
+    def refund_first_payment(self, site: str, subscription_id: str) -> list[str]:
+        """Refund what a subscription was first charged, every payment of its latest invoice:
+        a second subscription for a site already paid for (Codex's review of PR #304). The
+        refunds' ids, none when nothing was paid. An invoice may be paid by several payments
+        (Stripe's API from 2025-03-31.basil on), so each paid one is refunded the amount it paid
+        towards this invoice, with an idempotency key of its own, and asked again, as when
+        Stripe resends the event, Stripe answers the same refunds, so nothing is refunded twice.
+        PaymentError when Stripe can't be reached or refuses, or when the refunds found don't
+        cover what the invoice was paid, so the duplicate is never taken for refunded until
+        all of it is."""
         start = time.perf_counter()
         try:
             found = self.get(
@@ -263,33 +263,38 @@ class Stripe:
             invoice = found.get("latest_invoice") or {}
             if isinstance(invoice, str):
                 invoice = self.get(f"{API}/invoices/{invoice}?expand[]=payments", self.secret_key)
-            if not invoice.get("amount_paid"):
+            owed = int(invoice.get("amount_paid") or 0)
+            if not owed:
                 logger.warning(
                     "Nothing to refund", extra={"site": site, "subscription": subscription_id}
                 )
-                return None
-            how = _payment_of(invoice)
-            if how is None and invoice.get("id"):
-                listed = self.get(
-                    f"{API}/invoice_payments?invoice={invoice['id']}", self.secret_key
+                return []
+            refunds: list[str] = []
+            covered = 0
+            for how, amount in self._paid_payments(invoice):
+                form = {**how, "reason": "duplicate", "metadata[site]": site}
+                if amount is not None:
+                    form["amount"] = str(amount)  # only what it paid towards this invoice
+                refund = self.post(
+                    f"{API}/refunds",
+                    form,
+                    self.secret_key,
+                    f"refund-{subscription_id}-{next(iter(how.values()))}",
                 )
-                how = _payment_of({"payments": listed})
-            if how is None:
+                refunds.append(str(refund.get("id")))
+                covered += owed if amount is None else amount
+            if covered < owed:
                 logger.error(
-                    "Paid invoice with no payment found",
+                    "Paid invoice not all refunded",
                     extra={
                         "site": site,
                         "subscription": subscription_id,
                         "invoice": invoice.get("id"),
+                        "paid": owed,
+                        "refunded": covered,
                     },
                 )
                 raise PaymentError(UNAVAILABLE)
-            refund = self.post(
-                f"{API}/refunds",
-                {**how, "reason": "duplicate", "metadata[site]": site},
-                self.secret_key,
-                f"refund-{subscription_id}",
-            )
         except urllib.error.HTTPError as e:
             logger.error(
                 "Stripe refused the refund",
@@ -309,12 +314,47 @@ class Stripe:
             extra={
                 "site": site,
                 "subscription": subscription_id,
-                "refund": refund.get("id"),
-                "amount": invoice.get("amount_paid"),
+                "refunds": refunds,
+                "amount": owed,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        return str(refund.get("id"))
+        return refunds
+
+    def _paid_payments(self, invoice: dict[str, Any]) -> list[tuple[dict[str, str], int | None]]:
+        """Each payment that paid the invoice, and the amount it paid towards it: its paid
+        invoice payments (Stripe's API from 2025-03-31.basil on), all of them, read page by
+        page from `/v1/invoice_payments` unless the invoice holds them all; or else its own
+        older `payment_intent` or `charge`, which paid all of it (amount None)."""
+        payments = invoice.get("payments")
+        if isinstance(payments, dict) and payments.get("data") and not payments.get("has_more"):
+            records = list(payments["data"])
+        elif invoice.get("id"):
+            records, after = [], ""
+            while True:
+                page = self.get(
+                    f"{API}/invoice_payments?invoice={invoice['id']}&limit=100{after}",
+                    self.secret_key,
+                )
+                records += page.get("data") or []
+                if not page.get("has_more") or not records:
+                    break
+                after = f"&starting_after={records[-1].get('id')}"
+        else:
+            records = []
+        found: list[tuple[dict[str, str], int | None]] = []
+        for record in records:
+            if not isinstance(record, dict) or record.get("status") not in (None, "paid"):
+                continue
+            how = _paid_by(record.get("payment") or {})
+            if how is not None:
+                amount = record.get("amount_paid")
+                found.append((how, int(amount) if isinstance(amount, int) else None))
+        if not found:
+            how = _paid_by(invoice)
+            if how is not None:
+                found.append((how, None))
+        return found
 
     def card_of(self, site: str, subscription_id: str | None) -> str | None:
         """The card the site's last subscription was paid with (R69b): its payment method's id,
@@ -455,23 +495,11 @@ class Stripe:
         return event
 
 
-def _payment_of(invoice: dict[str, Any]) -> dict[str, str] | None:
-    """What paid the invoice, for a refund: its paid invoice payment's PaymentIntent or charge
-    (Stripe's API from 2025-03-31.basil on), or else its own older `payment_intent` or
-    `charge`; None when it names none."""
-    payments = invoice.get("payments") or {}
-    for record in payments.get("data") or [] if isinstance(payments, dict) else []:
-        if not isinstance(record, dict) or record.get("status") not in (None, "paid"):
-            continue
-        payment = record.get("payment") or {}
-        for key in ("payment_intent", "charge"):
-            value = payment.get(key)
-            if isinstance(value, dict):
-                value = value.get("id")
-            if isinstance(value, str) and value:
-                return {key: value}
+def _paid_by(thing: dict[str, Any]) -> dict[str, str] | None:
+    """The PaymentIntent, or else the charge, a payment or an older invoice names, for a
+    refund; None when it names neither."""
     for key in ("payment_intent", "charge"):
-        value = invoice.get(key)
+        value = thing.get(key)
         if isinstance(value, dict):
             value = value.get("id")
         if isinstance(value, str) and value:

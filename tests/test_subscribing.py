@@ -64,6 +64,10 @@ class FakeStripe:
         # Refunds by idempotency key, as Stripe keeps them, and a failure to make one.
         self.refunds: dict[str, dict[str, Any]] = {}
         self.refund_fails: Exception | None = None
+        # Refunds that fail by their idempotency key, and invoices paid otherwise than the usual
+        # one payment of $1.99, by subscription.
+        self.refund_fails_for: set[str] = set()
+        self.invoices: dict[str, dict[str, Any]] = {}
 
     def __call__(
         self, url: str, form: dict[str, str], key: str, idempotency: str | None = None
@@ -72,6 +76,8 @@ class FakeStripe:
         if url.endswith("/v1/refunds"):
             if self.refund_fails is not None:
                 raise self.refund_fails
+            if idempotency in self.refund_fails_for:
+                raise OSError("Stripe not reached")
             refund = {"id": f"re_{len(self.refunds) + 1}", **form}
             return self.refunds.setdefault(str(idempotency), refund)
         self.keys.append(idempotency)
@@ -99,9 +105,14 @@ class FakeStripe:
         sub = url.rsplit("/", 1)[1].split("?")[0]
         paid = {
             "status": "paid",
+            "amount_paid": 199,
             "payment": {"type": "payment_intent", "payment_intent": f"pi_{sub}"},
         }
-        invoice = {"id": f"in_{sub}", "amount_paid": 199, "payments": {"data": [paid]}}
+        invoice = self.invoices.get(sub) or {
+            "id": f"in_{sub}",
+            "amount_paid": 199,
+            "payments": {"data": [paid]},
+        }
         return {"id": sub, "latest_invoice": invoice}
 
 

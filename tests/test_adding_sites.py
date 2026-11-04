@@ -204,9 +204,9 @@ def test_a_checkout_asked_for_again_is_the_same_one_and_a_second_payment_is_canc
     assert "Second payment refunded" in caplog.messages
     assert fake.deleted == ["https://api.stripe.com/v1/subscriptions/sub_b"]
     # Its first payment is given back: one net payment for the site.
-    assert list(fake.refunds) == ["refund-sub_b"]
-    assert fake.refunds["refund-sub_b"]["payment_intent"] == "pi_sub_b"
-    assert fake.refunds["refund-sub_b"]["reason"] == "duplicate"
+    assert list(fake.refunds) == ["refund-sub_b-pi_sub_b"]
+    assert fake.refunds["refund-sub_b-pi_sub_b"]["payment_intent"] == "pi_sub_b"
+    assert fake.refunds["refund-sub_b-pi_sub_b"]["reason"] == "duplicate"
     assert (service.sites.subscription("dans-two") or {})["id"] == "sub_a"
     # The same event again (Stripe resends it) changes nothing more.
     assert send(main, completed("dans-two", "sub_a")).is_success
@@ -231,12 +231,12 @@ def test_a_second_payment_stripe_cant_refund_or_cancel_yet_is_done_once_when_sen
 
     object.__setattr__(service.payments, "delete", unreachable)
     assert send(main, completed(code, "sub_2")).status_code == 503
-    assert list(fake.refunds) == ["refund-sub_2"]  # refunded, not cancelled yet
+    assert list(fake.refunds) == ["refund-sub_2-pi_sub_2"]  # refunded, not cancelled yet
     object.__setattr__(service.payments, "delete", fake.delete)
     assert send(main, completed(code, "sub_2")).is_success
     assert send(main, completed(code, "sub_2")).is_success  # and once more, as Stripe may
     # One refund at Stripe however often it was asked for, by its idempotency key.
-    assert list(fake.refunds) == ["refund-sub_2"]
+    assert list(fake.refunds) == ["refund-sub_2-pi_sub_2"]
     assert fake.deleted[-1] == "https://api.stripe.com/v1/subscriptions/sub_2"
     assert (service.sites.subscription(code) or {})["id"] == "sub_1"
 
@@ -261,15 +261,15 @@ def test_a_refund_reads_an_invoice_by_its_id_and_refunds_nothing_unpaid() -> Non
         return {"id": "re_1"}
 
     stripe = Stripe("sk_test", SECRET, "price_5gb", post, get=get)
-    assert stripe.refund_first_payment("a", "sub_paid") == "re_1"
+    assert stripe.refund_first_payment("a", "sub_paid") == ["re_1"]
     assert posted == [
         (
             "https://api.stripe.com/v1/refunds",
             {"charge": "ch_1", "reason": "duplicate", "metadata[site]": "a"},
-            "refund-sub_paid",
+            "refund-sub_paid-ch_1",
         )
     ]
-    assert stripe.refund_first_payment("a", "sub_free") is None and len(posted) == 1
+    assert stripe.refund_first_payment("a", "sub_free") == [] and len(posted) == 1
 
 
 def test_a_refund_finds_the_payment_in_the_invoice_payments_of_newer_stripe_apis() -> None:
@@ -282,7 +282,11 @@ def test_a_refund_finds_the_payment_in_the_invoice_payments_of_newer_stripe_apis
         "in_new": {
             "data": [
                 {"status": "canceled", "payment": {"payment_intent": "pi_failed"}},
-                {"status": "paid", "payment": {"type": "charge", "charge": {"id": "ch_new"}}},
+                {
+                    "status": "paid",
+                    "amount_paid": 199,
+                    "payment": {"type": "charge", "charge": {"id": "ch_new"}},
+                },
             ]
         },
         "in_lost": {"data": []},
@@ -290,7 +294,7 @@ def test_a_refund_finds_the_payment_in_the_invoice_payments_of_newer_stripe_apis
 
     def get(url: str, key: str) -> dict[str, object]:
         if "/invoice_payments?invoice=" in url:
-            return dict(listed[url.rsplit("=", 1)[1]])
+            return dict(listed[url.split("invoice=", 1)[1].split("&")[0]])
         if "/invoices/" in url:
             invoice = url.rsplit("/", 1)[1].split("?")[0]
             return {"id": invoice, "amount_paid": 199}
@@ -304,8 +308,10 @@ def test_a_refund_finds_the_payment_in_the_invoice_payments_of_newer_stripe_apis
         return {"id": "re_new"}
 
     stripe = Stripe("sk_test", SECRET, "price_5gb", post, get=get)
-    assert stripe.refund_first_payment("a", "sub_new") == "re_new"
-    assert posted == [{"charge": "ch_new", "reason": "duplicate", "metadata[site]": "a"}]
+    assert stripe.refund_first_payment("a", "sub_new") == ["re_new"]
+    assert posted == [
+        {"charge": "ch_new", "reason": "duplicate", "metadata[site]": "a", "amount": "199"}
+    ]
     with pytest.raises(PaymentError):
         stripe.refund_first_payment("a", "sub_lost")
     assert len(posted) == 1
@@ -326,3 +332,86 @@ def test_a_second_payment_whose_refund_cant_be_found_is_never_acknowledged(
     # Not cancelled as if refunded: answered 503, so Stripe sends it again.
     assert send(main, completed(code, "sub_2")).status_code == 503
     assert fake.refunds == {} and fake.deleted == []
+
+
+def two_partial_payments(sub: str, more: bool = False) -> dict[str, object]:
+    """An invoice of $1.99 paid by two payments, $1.00 and $0.99 (Stripe's API from
+    2025-03-31.basil on); `more` says Stripe listed only the first, so the rest is read page by
+    page."""
+    first = {
+        "id": "inpay_1",
+        "status": "paid",
+        "amount_paid": 100,
+        "payment": {"type": "payment_intent", "payment_intent": f"pi_{sub}_a"},
+    }
+    second = {
+        "id": "inpay_2",
+        "status": "paid",
+        "amount_paid": 99,
+        "payment": {"type": "charge", "charge": f"ch_{sub}_b"},
+    }
+    if more:
+        return {
+            "id": f"in_{sub}",
+            "amount_paid": 199,
+            "payments": {"data": [first], "has_more": True},
+            "_rest": [first, second],
+        }
+    return {"id": f"in_{sub}", "amount_paid": 199, "payments": {"data": [first, second]}}
+
+
+def test_a_second_payment_paid_in_parts_is_refunded_each_part_once_before_it_is_acknowledged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #304: the second subscription's invoice was paid by two partial
+    payments. Stripe fails after the first is refunded: the event is answered 503 and not
+    cancelled; sent again, each part is refunded exactly once, for what it paid, and only then
+    is the subscription ended and the event acknowledged."""
+    fake, sites, service, dan, site, code = subscribed_trial(tmp_path)
+    fake.invoices["sub_2"] = two_partial_payments("sub_2")
+    fake.refund_fails_for = {"refund-sub_2-ch_sub_2_b"}
+    main = TestClient(sites, base_url=MAIN)
+    assert send(main, completed(code, "sub_2")).status_code == 503
+    assert list(fake.refunds) == ["refund-sub_2-pi_sub_2_a"] and fake.deleted == []
+    fake.refund_fails_for = set()
+    with caplog.at_level(logging.INFO):
+        assert send(main, completed(code, "sub_2")).is_success
+    assert "Second payment refunded" in caplog.messages
+    assert send(main, completed(code, "sub_2")).is_success  # and once more, as Stripe may
+    assert list(fake.refunds) == ["refund-sub_2-pi_sub_2_a", "refund-sub_2-ch_sub_2_b"]
+    a, b = fake.refunds.values()
+    assert (a["payment_intent"], a["amount"]) == ("pi_sub_2_a", "100")
+    assert (b["charge"], b["amount"]) == ("ch_sub_2_b", "99")
+    assert fake.deleted[-1] == "https://api.stripe.com/v1/subscriptions/sub_2"
+    assert (service.sites.subscription(code) or {})["id"] == "sub_1"
+
+
+def test_a_refund_reads_every_page_of_an_invoices_payments() -> None:
+    """The invoice's expanded payments are only its first page: the rest are read from
+    `/v1/invoice_payments`, page by page, and every paid one refunded."""
+    invoice = two_partial_payments("sub_x", more=True)
+    rest = invoice.pop("_rest")
+    asked: list[str] = []
+    posted: list[str | None] = []
+
+    def get(url: str, key: str) -> dict[str, object]:
+        asked.append(url)
+        if "/invoice_payments?" in url:
+            if "starting_after=inpay_1" in url:
+                return {"data": rest[1:], "has_more": False}  # type: ignore[index]
+            return {"data": rest[:1], "has_more": True}  # type: ignore[index]
+        return {"latest_invoice": invoice}
+
+    def post(
+        url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, object]:
+        posted.append(idempotency)
+        return {"id": f"re_{len(posted)}"}
+
+    stripe = Stripe("sk_test", SECRET, "price_5gb", post, get=get)
+    assert stripe.refund_first_payment("a", "sub_x") == ["re_1", "re_2"]
+    assert posted == ["refund-sub_x-pi_sub_x_a", "refund-sub_x-ch_sub_x_b"]
+    assert [u.split("?", 1)[1] for u in asked[1:]] == [
+        "invoice=in_sub_x&limit=100",
+        "invoice=in_sub_x&limit=100&starting_after=inpay_1",
+    ]
