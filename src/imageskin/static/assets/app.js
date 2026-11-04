@@ -330,6 +330,22 @@ async function removePdf(id) {
 	const response = await fetch(pdfUrl(id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getPdfSites() {
+	return json(await fetch("/api/content/sites"));
+}
+async function setPdfSites(id, sites) {
+	const response = await fetch(`${pdfUrl(id)}/sites`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sites })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return (await response.json()).sites;
+}
+async function deletePdfEverywhere(id) {
+	const response = await fetch(`${pdfUrl(id)}/everywhere`, { method: "DELETE" });
+	if (!response.ok) throw new Error(await refusal(response));
+}
 async function listReadings() {
 	return json(await fetch("/api/content/readings"));
 }
@@ -9501,7 +9517,10 @@ function VoiceConsent({ onAgreed }) {
 var READING_POLL_MS = 1e3;
 function ContentPage() {
 	const [pdfs, setPdfs] = d(null);
-	const { ask, dialog } = useConfirm();
+	const { ask, choose, dialog } = useConfirm();
+	const hostSites = useHostSites();
+	const several = hostSites !== null && hostSites.length > 1;
+	const [pdfSites, setSitesOf] = d({});
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
@@ -9540,6 +9559,14 @@ function ContentPage() {
 		reading,
 		building
 	]);
+	h(() => {
+		if (!several || pdfs === null) return;
+		let live = true;
+		getPdfSites().then((found) => live && setSitesOf(found), (e) => console.error("Could not read the PDFs' sites", e));
+		return () => {
+			live = false;
+		};
+	}, [several, pdfs]);
 	h(() => {
 		listPdfs().then(setPdfs).catch((e) => {
 			console.error("Could not list the PDFs", e);
@@ -9596,24 +9623,63 @@ function ContentPage() {
 		setPdfs((current) => (current ?? []).map((p) => p.id === pdf.id ? pdf : p));
 		setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
 	}
+	function elsewhere(pdf) {
+		const theirs = pdfSites[pdf.id] ?? [];
+		return (hostSites ?? []).filter((site) => !site.here && theirs.includes(site.site));
+	}
 	async function remove(pdf) {
-		if (!await ask({
+		const others = elsewhere(pdf);
+		const answer = others.length ? await choose({
+			title: `Remove ${pdf.name}?`,
+			children: /* @__PURE__ */ u("p", { children: [
+				"It is also on ",
+				others.map(shown).join(", "),
+				". Remove it from this site only, or delete it and its wiki pages from every site."
+			] }),
+			keepLabel: "No, keep it",
+			otherLabel: "Delete everywhere",
+			confirmLabel: "Remove from this site"
+		}) : await ask({
 			title: `Remove ${pdf.name}?`,
 			children: /* @__PURE__ */ u("p", { children: "Its wiki pages are removed too." }),
 			keepLabel: "No, keep it",
 			confirmLabel: "Yes, remove it"
-		})) return;
+		}) ? "confirm" : "cancel";
+		if (answer === "cancel") return;
+		const everywhere = answer === "other";
 		setRefused([]);
 		setDone(null);
 		try {
-			await removePdf(pdf.id);
-			console.info(`Removed ${pdf.name}`);
+			await (everywhere ? deletePdfEverywhere(pdf.id) : removePdf(pdf.id));
+			console.info(everywhere ? `Deleted ${pdf.name} from every site` : `Removed ${pdf.name}`);
 			setPdfs((current) => (current ?? []).filter((p) => p.id !== pdf.id));
 		} catch (e) {
 			console.error(`Could not remove ${pdf.name}`, e);
 			setRefused([{
 				name: pdf.name,
 				reason: "Could not remove it. Please try again."
+			}]);
+		}
+	}
+	async function toggleSite(pdf, site, on) {
+		const here = hostSites?.find((s) => s.here)?.site;
+		const others = (pdfSites[pdf.id] ?? []).filter((s) => s !== site && s !== here);
+		const wanted = on ? [...others, site] : others;
+		setRefused([]);
+		setDone(null);
+		const started = performance.now();
+		try {
+			const now = await setPdfSites(pdf.id, wanted);
+			console.info(`${pdf.name} now on ${now.join(", ")} (${Math.round(performance.now() - started)} ms)`);
+			setSitesOf((current) => ({
+				...current,
+				[pdf.id]: now
+			}));
+		} catch (e) {
+			console.error(`Could not change the sites of ${pdf.name}`, e);
+			setRefused([{
+				name: pdf.name,
+				reason: e.message
 			}]);
 		}
 	}
@@ -9694,6 +9760,22 @@ function ContentPage() {
 					/* @__PURE__ */ u(WikiLine, {
 						id: pdf.id,
 						build: wiki[pdf.id]
+					}),
+					several && pdfSites[pdf.id] && /* @__PURE__ */ u("fieldset", {
+						className: "pdf-sites",
+						children: [/* @__PURE__ */ u("legend", { children: "Used on" }), hostSites?.map((site) => /* @__PURE__ */ u("label", { children: [
+							/* @__PURE__ */ u("input", {
+								type: "checkbox",
+								checked: site.here || pdfSites[pdf.id].includes(site.site),
+								disabled: site.here || !ready,
+								onChange: (e) => toggleSite(pdf, site.site, e.currentTarget.checked)
+							}),
+							shown(site),
+							site.here && /* @__PURE__ */ u("span", {
+								className: "muted",
+								children: " (this site)"
+							})
+						] }, site.site))]
 					}),
 					/* @__PURE__ */ u("span", {
 						className: "actions",

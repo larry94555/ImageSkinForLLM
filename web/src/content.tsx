@@ -5,6 +5,9 @@
 import { useEffect, useState } from "preact/hooks";
 
 import {
+  deletePdfEverywhere,
+  getPdfSites,
+  type HostSite,
   listPdfs,
   listReadings,
   listWikiBuilds,
@@ -13,10 +16,12 @@ import {
   type Reading,
   removePdf,
   sendPdf,
+  setPdfSites,
   type WikiBuild,
   wikiHref,
 } from "./api";
 import { useConfirm } from "./confirm-dialog";
+import { shown, useHostSites } from "./host-sites";
 import { useSettings } from "./settings";
 
 // How often the reading and wiki progress is checked while a PDF is being read or built.
@@ -30,7 +35,11 @@ interface Refused {
 export function ContentPage() {
   // null until the list has loaded.
   const [pdfs, setPdfs] = useState<Pdf[] | null>(null);
-  const { ask, dialog } = useConfirm();
+  const { ask, choose, dialog } = useConfirm();
+  // A host with several sites picks which of them use each PDF (R258a).
+  const hostSites = useHostSites();
+  const several = hostSites !== null && hostSites.length > 1;
+  const [pdfSites, setSitesOf] = useState<Record<string, string[]>>({});
   const [loadFailed, setLoadFailed] = useState(false);
   // What is being sent now: the file's name, and the id of the PDF it replaces, if any.
   const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
@@ -75,6 +84,18 @@ export function ContentPage() {
       window.clearInterval(timer);
     };
   }, [pdfs, reading, building]);
+
+  useEffect(() => {
+    if (!several || pdfs === null) return;
+    let live = true;
+    getPdfSites().then(
+      (found) => live && setSitesOf(found),
+      (e: unknown) => console.error("Could not read the PDFs' sites", e),
+    );
+    return () => {
+      live = false;
+    };
+  }, [several, pdfs]);
 
   useEffect(() => {
     listPdfs()
@@ -138,23 +159,68 @@ export function ContentPage() {
     setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
   }
 
+  // The host's other sites that use the PDF too, by address.
+  function elsewhere(pdf: Pdf): HostSite[] {
+    const theirs = pdfSites[pdf.id] ?? [];
+    return (hostSites ?? []).filter((site) => !site.here && theirs.includes(site.site));
+  }
+
   async function remove(pdf: Pdf) {
-    const yes = await ask({
-      title: `Remove ${pdf.name}?`,
-      children: <p>Its wiki pages are removed too.</p>,
-      keepLabel: "No, keep it",
-      confirmLabel: "Yes, remove it",
-    });
-    if (!yes) return;
+    const others = elsewhere(pdf);
+    // On other sites too, it is taken off this one only, or deleted from all of them.
+    const answer = others.length
+      ? await choose({
+          title: `Remove ${pdf.name}?`,
+          children: (
+            <p>
+              It is also on {others.map(shown).join(", ")}. Remove it from this site only, or delete
+              it and its wiki pages from every site.
+            </p>
+          ),
+          keepLabel: "No, keep it",
+          otherLabel: "Delete everywhere",
+          confirmLabel: "Remove from this site",
+        })
+      : (await ask({
+            title: `Remove ${pdf.name}?`,
+            children: <p>Its wiki pages are removed too.</p>,
+            keepLabel: "No, keep it",
+            confirmLabel: "Yes, remove it",
+          }))
+        ? "confirm"
+        : "cancel";
+    if (answer === "cancel") return;
+    const everywhere = answer === "other";
     setRefused([]);
     setDone(null);
     try {
-      await removePdf(pdf.id);
-      console.info(`Removed ${pdf.name}`);
+      await (everywhere ? deletePdfEverywhere(pdf.id) : removePdf(pdf.id));
+      console.info(everywhere ? `Deleted ${pdf.name} from every site` : `Removed ${pdf.name}`);
       setPdfs((current) => (current ?? []).filter((p) => p.id !== pdf.id));
     } catch (e) {
       console.error(`Could not remove ${pdf.name}`, e);
       setRefused([{ name: pdf.name, reason: "Could not remove it. Please try again." }]);
+    }
+  }
+
+  // Gives the PDF to another of the host's sites, or takes it off one (R258a).
+  async function toggleSite(pdf: Pdf, site: string, on: boolean) {
+    // The other sites only: this one always keeps it, and its Remove takes it off here.
+    const here = hostSites?.find((s) => s.here)?.site;
+    const others = (pdfSites[pdf.id] ?? []).filter((s) => s !== site && s !== here);
+    const wanted = on ? [...others, site] : others;
+    setRefused([]);
+    setDone(null);
+    const started = performance.now();
+    try {
+      const now = await setPdfSites(pdf.id, wanted);
+      console.info(
+        `${pdf.name} now on ${now.join(", ")} (${Math.round(performance.now() - started)} ms)`,
+      );
+      setSitesOf((current) => ({ ...current, [pdf.id]: now }));
+    } catch (e) {
+      console.error(`Could not change the sites of ${pdf.name}`, e);
+      setRefused([{ name: pdf.name, reason: (e as Error).message }]);
     }
   }
 
@@ -210,6 +276,23 @@ export function ContentPage() {
             </span>
             <ReadingLine reading={readings[pdf.id]} />
             <WikiLine id={pdf.id} build={wiki[pdf.id]} />
+            {several && pdfSites[pdf.id] && (
+              <fieldset className="pdf-sites">
+                <legend>Used on</legend>
+                {hostSites?.map((site) => (
+                  <label key={site.site}>
+                    <input
+                      type="checkbox"
+                      checked={site.here || pdfSites[pdf.id].includes(site.site)}
+                      disabled={site.here || !ready}
+                      onChange={(e) => toggleSite(pdf, site.site, e.currentTarget.checked)}
+                    />
+                    {shown(site)}
+                    {site.here && <span className="muted"> (this site)</span>}
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <span className="actions">
               <label className={sending?.replacing === pdf.id ? "replace busy" : "replace"}>
                 {sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace"}

@@ -246,6 +246,10 @@ ul.pdfs { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12
 ul.pdfs li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 ul.pdfs .muted, ul.pdfs .error { grid-column: 1; font-size: 0.875rem; }
 ul.pdfs .actions { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: 8px; }
+/* Which of the host's sites use the PDF (R258a). */
+ul.pdfs .pdf-sites { grid-column: 1; border: 0; padding: 0; margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.875rem; }
+ul.pdfs .pdf-sites legend { float: left; padding: 0; margin-right: 4px; color: var(--muted); }
+ul.pdfs .pdf-sites label { display: inline-flex; align-items: center; gap: 6px; }
 label.replace {
   position: relative;
   padding: 2px 10px;

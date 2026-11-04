@@ -488,3 +488,65 @@ def test_a_pdf_moves_last_so_a_stop_part_way_leaves_it_with_the_site(tmp_path: P
     assert move_site_pdfs(site_a, library, "a", uses) == 1  # the next start
     assert (library / "content" / "pdfs" / f"{pdf.id}.pdf").is_file()
     assert uses.read() == {pdf.id: ["a"]}
+
+
+def test_the_host_picks_which_of_their_sites_use_a_pdf(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R258a: Manage Content gives a PDF to the host's other sites, and takes it off them; only
+    their own sites, and only a PDF this site uses."""
+    s = Served(tmp_path)
+    ann_a, ann_b, bob_c = s.host(A, ANN), s.host(B, ANN), s.host(C, BOB)
+    pdf = ann_a.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))}).json()["id"]
+    s.settle("a")
+    assert ann_a.get("/api/content/sites").json() == {pdf: ["a"]}
+    assert ann_b.get("/api/content/sites").json() == {}
+    with caplog.at_level(logging.INFO):
+        given = ann_a.put(f"/api/content/{pdf}/sites", json={"sites": ["b"]})
+    assert given.json() == {"sites": ["a", "b"]}
+    assert "PDF's sites changed" in caplog.messages
+    assert seen(ann_b)["pdfs"] == ["a.pdf"] and len(s.read) == 1
+    assert ann_b.get("/api/content/sites").json() == {pdf: ["a", "b"]}
+    # Never another host's site, nor a PDF the site doesn't use.
+    refused = ann_a.put(f"/api/content/{pdf}/sites", json={"sites": ["c"]})
+    assert refused.status_code == 400
+    assert bob_c.put(f"/api/content/{pdf}/sites", json={"sites": ["a"]}).status_code == 400
+    assert bob_c.put(f"/api/content/{pdf}/sites", json={"sites": []}).status_code == 404
+    assert s.uses() == {pdf: ["a", "b"]}
+    # Taken off site b from site a; this site always keeps it (its Remove takes it off here).
+    assert ann_a.put(f"/api/content/{pdf}/sites", json={"sites": []}).json() == {"sites": ["a"]}
+    assert seen(ann_b)["pdfs"] == []
+    # From site b, given back, then deleted everywhere from there.
+    assert ann_a.put(f"/api/content/{pdf}/sites", json={"sites": ["b", "a"]}).is_success
+    assert ann_b.delete(f"/api/content/{pdf}/everywhere").json() == {"removed": True}
+    assert seen(ann_a)["pdfs"] == [] and seen(ann_b)["pdfs"] == []
+    assert s.uses() == {}
+    assert not list((s.library() / "content").rglob(f"{pdf}*"))
+    assert ann_b.delete(f"/api/content/{pdf}/everywhere").status_code == 404
+    # A PDF its last site took off meanwhile is never given again.
+    assert ann_a.put(f"/api/content/{pdf}/sites", json={"sites": ["b"]}).status_code == 404
+    assert s.uses() == {}
+
+
+def test_a_site_whose_pdfs_are_its_own_shares_none(tmp_path: Path) -> None:
+    s = Served(tmp_path)
+    main = TestClient(s.apps, base_url="http://localhost")
+    main.post("/api/host/sign-in", json={"email": "zed@example.com", "password": PASSWORD})
+    s.service.host_accounts.sign_up("zed@example.com", PASSWORD, "test")
+    assert main.post(
+        "/api/host/sign-in", json={"email": "zed@example.com", "password": PASSWORD}
+    ).is_success
+    assert main.get("/api/content/sites").json() == {}
+    assert main.put(f"/api/content/{'0' * 32}/sites", json={"sites": []}).status_code == 404
+    assert main.delete(f"/api/content/{'0' * 32}/everywhere").status_code == 404
+
+
+def test_a_record_that_cant_be_saved_gives_and_deletes_nothing(tmp_path: Path) -> None:
+    s = Served(tmp_path)
+    pdf, folder = shared_pdf(s)
+    ann_a = s.host(A, ANN)
+    with patch.object(PdfSites, "change", side_effect=OSError("disk full")):
+        assert ann_a.put(f"/api/content/{pdf}/sites", json={"sites": []}).status_code == 500
+        assert ann_a.delete(f"/api/content/{pdf}/everywhere").status_code == 500
+    assert s.uses() == {pdf: ["a", "b"]}
+    assert (folder / "content" / "pdfs" / f"{pdf}.pdf").is_file()

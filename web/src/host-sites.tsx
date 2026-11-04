@@ -19,7 +19,7 @@ import { navigation, useHost } from "./host";
 import { CHECK_AFTER_MS } from "./subscription";
 
 // The host's sites, read once they are signed in; null until the server has answered.
-function useHostSites(): HostSite[] | null {
+export function useHostSites(): HostSite[] | null {
   const { session } = useHost();
   const [sites, setSites] = useState<HostSite[] | null>(null);
   const signedIn = session?.signed_in === true;
@@ -38,7 +38,7 @@ function useHostSites(): HostSite[] | null {
 }
 
 // Where a site is, as shown: its address without the scheme.
-function shown(site: HostSite): string {
+export function shown(site: HostSite): string {
   return site.address.replace(/^https?:\/\//, "");
 }
 

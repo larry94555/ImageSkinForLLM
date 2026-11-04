@@ -42,6 +42,7 @@ LIBRARIES_FOLDER = "hosts"  # beside `sites`, in the service's home
 USES_FILE = "sites.json"  # in the host's content folder
 # Where each PDF's files are, by its id, as R61f moved them (`site_moves`).
 PDF_FOLDERS = ("pdfs", "read", "wiki")
+Sites = list[str]  # sites by name, where `list` is a method's name
 # The order a site's PDF moves in: the PDF's own file last, so it stays the site's until all
 # made from it has moved.
 MOVE_ORDER = ("read", "wiki", "pdfs")
@@ -169,6 +170,10 @@ class Library:
                 call()
             except Exception:
                 logger.exception("Site not told the wiki changed", extra={"site": site, "on": what})
+
+    def notify(self) -> None:
+        """Tell every site the PDFs it uses changed, so it writes its lessons again (R98a)."""
+        self._each(self.changed, "changed")
 
     def delete(self, pdf_id: str) -> bool:
         """Delete the PDF, with everything made from it: whether there was one. UploadError when
@@ -429,14 +434,76 @@ class SiteContent:
         logger.info(
             "PDF taken off the site", extra={"site": self.site, "id": pdf_id, "still_on": left}
         )
-        if not left:
-            try:
-                self._library.delete(pdf_id)
-            except UploadError:
-                logger.error(
-                    "Unused PDF kept until the host's folder is opened again",
-                    extra={"site": self.site, "id": pdf_id},
-                )
+        if left:
+            self._library.notify()
+        else:
+            self._delete_unused(pdf_id)
+        return True
+
+    def _delete_unused(self, pdf_id: str) -> None:
+        try:
+            self._library.delete(pdf_id)
+        except UploadError:
+            logger.error(
+                "Unused PDF kept until the host's folder is opened again",
+                extra={"site": self.site, "id": pdf_id},
+            )
+
+    def sites(self) -> dict[str, Sites]:
+        """The sites that use each of this site's PDFs (R258a)."""
+        try:
+            data = self._uses.read()
+        except UsesUnreadable:
+            return {}
+        return {pdf: sites for pdf, sites in data.items() if self.site in sites}
+
+    def give(self, pdf_id: str, sites: Sites) -> Sites:
+        """Make `sites`, with this one, the sites that use one of this site's PDFs (R258a): the
+        sites now. The host's other sites are checked by the caller. Decided in the record's own
+        change, under its lock, so a PDF its last site took off meanwhile is never given again
+        (UploadError 404). UploadError 500 when the record can't be saved."""
+        wanted = [self.site, *dict.fromkeys(s for s in sites if s != self.site)]
+        before: Sites = []
+
+        def given(data: dict[str, list[str]]) -> None:
+            if self.site not in data.get(pdf_id, []):
+                raise KeyError(pdf_id)
+            before[:] = data[pdf_id]
+            kept = [s for s in data[pdf_id] if s in wanted]
+            data[pdf_id] = kept + [s for s in wanted if s not in kept]
+
+        try:
+            now = self._uses.change(given)[pdf_id]
+        except KeyError as e:
+            raise UploadError("No such PDF.", status=404) from e
+        except (UsesUnreadable, OSError) as e:
+            logger.error("PDF's sites not saved", extra={"site": self.site, "error": str(e)})
+            raise UploadError(NOT_SAVED, status=500) from e
+        logger.info(
+            "PDF's sites changed",
+            extra={"site": self.site, "id": pdf_id, "before": before, "sites": now},
+        )
+        self._library.notify()
+        return now
+
+    def delete_everywhere(self, pdf_id: str) -> bool:
+        """Delete one of this site's PDFs from every site of the host (R258a), the record first,
+        as `remove` does: False when this site doesn't use it."""
+        gone: Sites = []
+
+        def taken(data: dict[str, Sites]) -> None:
+            if self.site in data.get(pdf_id, []):
+                gone[:] = data.pop(pdf_id)
+
+        try:
+            self._uses.change(taken)
+        except (UsesUnreadable, OSError) as e:
+            logger.error("PDF not deleted everywhere", extra={"site": self.site, "error": str(e)})
+            raise UploadError(NOT_SAVED, status=500) from e
+        if not gone:
+            return False
+        logger.info("PDF deleted from every site", extra={"id": pdf_id, "sites": gone})
+        self._delete_unused(pdf_id)
         return True
 
 
