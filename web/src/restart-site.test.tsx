@@ -10,7 +10,8 @@ import { navigation } from "./host";
 
 vi.unmock("./api");
 
-const DELETED = "Your site was deleted. Your account is kept, so you can start it again.";
+const DELETED =
+  "Your site was paused for 30 days, so its content was deleted. You can start a new, empty site at the same address if it is still free.";
 const LINK = "https://dans.me0.ai/api/host/sign-in/once";
 
 function server(restart: { status: number; body: object } = { status: 200, body: { sign_in_at: LINK } }) {

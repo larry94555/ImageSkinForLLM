@@ -18,7 +18,7 @@ from test_subscribing import (  # noqa: F401 (the fixture)
     served,
 )
 
-from imageskin.hosts import DELETED, NO_SITE, SITE_DELETED
+from imageskin.hosts import DELETED, NO_SITE, site_deleted_words
 from imageskin.payments import Stripe
 from imageskin.sites import RESTARTED, SiteError, site_home
 
@@ -49,7 +49,14 @@ def test_a_deleted_sites_host_starts_it_again_at_its_old_subdomain(
     main = TestClient(sites, base_url=MAIN)
     refused = main.post("/api/host/sign-in", json={"email": DAN, "password": PASSWORD})
     assert refused.status_code == 401
-    assert refused.json() == {"detail": SITE_DELETED, "deleted": True}
+    assert refused.json() == {"detail": site_deleted_words(), "deleted": True}
+    assert refused.json()["detail"] == (
+        "Your site was paused for 30 days, so its content was deleted. You can start a new, "
+        "empty site at the same address if it is still free."
+    )
+    # The days are the admin settings' (Larry, on PR #302).
+    service.admin_settings.change({"days_before_deleting": 7})
+    assert "paused for 7 days" in sign_in(main).json()["detail"]  # type: ignore[attr-defined]
 
     with caplog.at_level(logging.INFO):
         started = main.post("/api/host/restart", json={"email": DAN, "password": PASSWORD})

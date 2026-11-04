@@ -38,7 +38,20 @@ SITE = "site"  # the host's site, kept with the host; none for the main address'
 # The host's site was deleted (R69a): their account is kept, so they can sign in and resume
 # (R69b), but no site is theirs. Never a site's name, which has letters or digits only.
 NO_SITE = "-"
-SITE_DELETED = "Your site was deleted. Your account is kept, so you can start it again."
+# Said only once the site's content is gone, after it was paused for the admin settings' days:
+# while it is only paused, its host signs in and resumes it (R69b). A new, empty site is what
+# they can start (R69c; Larry, on PR #302).
+SITE_DELETED = (
+    "Your site was paused for {days} days, so its content was deleted. You can start a new, "
+    "empty site at the same address if it is still free."
+)
+
+
+def site_deleted_words(days: int = 30) -> str:
+    """What signing in says once the host's site was deleted, after `days` paused (R69c)."""
+    return SITE_DELETED.format(days=days)
+
+
 # What a host's deleted site was (R69c): its subdomain, and Stripe's customer and last
 # subscription, so starting it again uses the card Stripe keeps for them.
 DELETED = "deleted_site"
@@ -123,7 +136,7 @@ class SiteDeleted(HostRefused):
     (R69c). Told only once the password is checked."""
 
     def __init__(self) -> None:
-        super().__init__(SITE_DELETED, "site deleted")
+        super().__init__(site_deleted_words(), "site deleted")
 
 
 class HostElsewhere(HostRefused):

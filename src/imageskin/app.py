@@ -870,6 +870,7 @@ def create_app(
         subscribed=service.sites.subscribed,
         subdomain=service.sites.subdomain,
         restart=service.sites.restart,
+        days_before_deleting=lambda: admin_settings.current.days_before_deleting,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

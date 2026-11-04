@@ -28,6 +28,7 @@ from imageskin.hosts import (
     SiteDeleted,
     normal_email,
     refuse_if_disabled,
+    site_deleted_words,
     trial_cookie,
 )
 
@@ -104,6 +105,7 @@ def host_router(
     subscribed: Callable[[str], bool] = lambda _: False,
     subdomain: Callable[[str], str | None] = lambda site: site,
     restart: Callable[[str], str] | None = None,
+    days_before_deleting: Callable[[], int] = lambda: 30,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -331,9 +333,15 @@ def host_router(
                     "sign_in_at": f"{to}/api/host/sign-in/{link}",
                 }
             )
-        except SiteDeleted as e:
-            # The page then offers to start it again (R69c).
-            return JSONResponse({"detail": str(e), "deleted": restart is not None}, status_code=401)
+        except SiteDeleted:
+            # The page then offers to start a new one (R69c), saying the admin settings' days.
+            return JSONResponse(
+                {
+                    "detail": site_deleted_words(days_before_deleting()),
+                    "deleted": restart is not None,
+                },
+                status_code=401,
+            )
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
