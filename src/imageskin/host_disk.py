@@ -125,6 +125,7 @@ AMOUNTS = ("images_and_recordings", "pdfs", "guidelines", "conversations", "pref
 SERVICE = frozenset(
     {
         "sites",
+        "hosts",  # each host's PDFs, kept once for all their sites, counted as theirs (R258)
         "sites.json",
         "hosts.json",
         "admin.toml",
