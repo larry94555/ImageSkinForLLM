@@ -11359,7 +11359,7 @@ function ParticipantAccountPage({ kind }) {
 			/* @__PURE__ */ u("h1", { children: title }),
 			/* @__PURE__ */ u("p", {
 				className: "lead",
-				children: up ? "Make an account on this site, so your conversation is kept for you on any browser." : "Sign in with the email and password of your account on this site."
+				children: up ? "Make an account, so your conversation is kept for you on any browser. It works on every site of this host." : "Sign in with the email and password of your account with this host."
 			}),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => void submit(e),

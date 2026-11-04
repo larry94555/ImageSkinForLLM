@@ -1,4 +1,4 @@
-// A participant's account on this site (roadmap R46): Sign up and Sign in in the top bar for anyone
+// A participant's account with this site's host (roadmap R46, R260): Sign up and Sign in in the top bar for anyone
 // not signed in as a host, or the participant's email and Sign out, and the two pages at
 // #/sign-up and #/sign-in. A signed-in participant's conversation is their account's, so it
 // follows them to another browser; the server picks it by their cookie.
@@ -248,8 +248,8 @@ export function ParticipantAccountPage({ kind }: { kind: "up" | "in" }) {
       <h1>{title}</h1>
       <p className="lead">
         {up
-          ? "Make an account on this site, so your conversation is kept for you on any browser."
-          : "Sign in with the email and password of your account on this site."}
+          ? "Make an account, so your conversation is kept for you on any browser. It works on every site of this host."
+          : "Sign in with the email and password of your account with this host."}
       </p>
       <form onSubmit={(e) => void submit(e)} noValidate>
         <label>
