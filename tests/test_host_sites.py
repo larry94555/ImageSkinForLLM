@@ -77,8 +77,8 @@ def test_a_host_is_given_a_second_site_and_their_sign_in_works_on_both(
     ann_a = signed_in(sites, SITE_A, ANN)
     listed = ann_a.get("/api/host/sites").json()["sites"]
     assert listed == [
-        {"site": "a", "address": "http://a.localhost", "here": True},
-        {"site": "b", "address": "http://b.localhost", "here": False},
+        {"site": "a", "address": "http://a.localhost", "here": True, "paused": False},
+        {"site": "b", "address": "http://b.localhost", "here": False, "paused": False},
     ]
     with caplog.at_level(logging.INFO):
         go = ann_a.post("/api/host/sites/b/open")
@@ -122,7 +122,7 @@ def test_another_hosts_site_still_refuses_them(
     bob_c = signed_in(sites, SITE_C, BOB)
     assert bob_c.post("/api/host/sites/a/open").status_code == 404
     assert bob_c.get("/api/host/sites").json()["sites"] == [
-        {"site": "c", "address": "http://c.localhost", "here": True}
+        {"site": "c", "address": "http://c.localhost", "here": True, "paused": False}
     ]
 
 

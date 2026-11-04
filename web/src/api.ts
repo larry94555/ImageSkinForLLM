@@ -1387,6 +1387,7 @@ export interface Subscription {
   resumable?: boolean;
   // True for a site started again after it was deleted, empty until paid for (R69c).
   restarted?: boolean;
+  added?: boolean; // a site its host added beside their others, not paid for yet (R257)
 }
 
 // Cancels the subscription at the end of the period paid for, or keeps it after all (R69):
@@ -1828,4 +1829,37 @@ export async function compareAdminGuidelinesChange(part: string, number: number)
   const response = await fetch(`/api/admin/guidelines/history/${encodeURIComponent(part)}/${number}/compare`);
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as CustomizationComparison;
+}
+
+// Each of the signed-in host's sites (R256, R257), the one used last first: where it is, whether
+// it is this one, and whether it is paused, as a site added and not yet paid for is.
+export interface HostSite {
+  site: string;
+  address: string;
+  here: boolean;
+  paused?: boolean;
+}
+
+export async function getHostSites(): Promise<HostSite[]> {
+  return (await json<{ sites: HostSite[] }>(await fetch("/api/host/sites"))).sites;
+}
+
+// A one-time link that opens another of the host's sites signed in (R256), as each address has
+// its own sign-in. Throws a ServerRefusal saying why not.
+export async function openHostSite(site: string): Promise<string> {
+  const response = await fetch(`/api/host/sites/${encodeURIComponent(site)}/open`, { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { go_to: string }).go_to;
+}
+
+// Adds a site at the subdomain picked (R257), paused until paid for: Stripe's page, which the
+// browser goes to. Throws a ServerRefusal saying why not.
+export async function addHostSite(name: string): Promise<string> {
+  const response = await fetch("/api/host/sites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { url: string }).url;
 }

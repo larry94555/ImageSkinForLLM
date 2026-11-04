@@ -176,7 +176,15 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import FINAL, RESTARTED, Service, SiteError, make_service, site_home
+from imageskin.sites import (
+    ADDED,
+    FINAL,
+    RESTARTED,
+    Service,
+    SiteError,
+    make_service,
+    site_home,
+)
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -917,6 +925,8 @@ def create_app(
             "resumable": resumable(),
             # Started again after it was deleted, empty, and paid for by resuming (R69c).
             "restarted": service.sites.paused(host_site) == RESTARTED,
+            # Added by its host beside their others, and not paid for yet (R257).
+            "added": service.sites.paused(host_site) == ADDED,
         }
 
     def resumable() -> bool:
@@ -1069,6 +1079,57 @@ def create_app(
         except PaymentError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
         return {"url": url}
+
+    @app.post("/api/host/sites")
+    def add_site(
+        request: Request,
+        host: SignedInHost,
+        name: Annotated[str, Body(embed=True, max_length=100)],
+    ) -> dict[str, str]:
+        """Add a site (R257): another of the host's, at the subdomain they picked, checked as
+        R63's are, paused until it is paid for. The answer is Stripe's page, which the browser
+        goes to, for the Stripe customer of the host's other sites when they have one, so their
+        card is filled in; Stripe's event then unpauses the new site (R67), and the browser
+        comes back to the account page, which lists it."""
+        start = time.perf_counter()
+        if host.acting:
+            # A new site is paid for with the host's own card.
+            raise HTTPException(status_code=403, detail="Only the host can add a site.")
+        if service.payments is None:
+            logger.warning("Site not added", extra={"email": host.email, "why": "no payments"})
+            raise HTTPException(status_code=503, detail=PAYMENTS_NOT_SET_UP)
+        theirs = host_accounts.sites_of(host.email)
+        customer = next(
+            (
+                str(found["customer"])
+                for found in map(service.sites.subscription, theirs)
+                if found and found.get("customer")
+            ),
+            None,
+        )
+        try:
+            made = service.sites.add_paid(host.email, name)
+        except (SiteError, HostsUnreadable) as e:
+            logger.warning("Site not added", extra={"email": host.email, "why": str(e)})
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        back = f"{origin_of(request)}{request.scope.get('root_path', '')}/#/host/account"
+        try:
+            url = service.payments.checkout(made, host.email, back, back, customer)
+        except PaymentError as e:
+            # Nothing is left behind: the new site goes, and its name is free again.
+            service.sites.delete(made, "its checkout couldn't start")
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        logger.info(
+            "Site added, to be paid for",
+            extra={
+                "email": host.email,
+                "site": made,
+                "sites": len(theirs) + 1,
+                "customer_kept": customer is not None,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return {"site": made, "url": url}
 
     # One resume at a time on this site, so a second click never makes a second subscription.
     resuming = threading.Lock()

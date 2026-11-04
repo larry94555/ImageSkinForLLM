@@ -161,6 +161,9 @@ SUBSCRIPTIONS_HAD = "subscriptions_had"
 DELETING = "deleted by its host"
 # Why a site its host started again after it was deleted is paused, until paid for (R69c).
 RESTARTED = "started again, not yet paid for"
+# Why a site a host added to their others (R257) is paused until its first payment, which
+# Stripe's event records (R67), unpausing it; left unpaid, it is deleted as any paused site is.
+ADDED = "added, not yet paid for"
 
 
 class TrialUsed(SiteError):
@@ -851,6 +854,33 @@ class SiteDirectory:
         )
         return name
 
+    def add_paid(self, email: str, subdomain: str) -> str:
+        """Add another site for a host who has one (R257), at the subdomain they picked, with
+        R63's checks: its name inside. It is paused until its first payment (`ADDED`), never a
+        free trial (R66). A name a site changed away from (R64) is free as a subdomain but still
+        that site's name inside, so the new site is then named inside by a new random code.
+        SiteError when the name can't be had, or the host has no site of their own."""
+        name = subdomain.strip().lower()
+        theirs = self._hosts.sites_of(email)
+        if not theirs or theirs[0] in (DEFAULT_SITE, NO_SITE):
+            raise SiteError("Only a host with a site of their own can add another.")
+        letters = string.ascii_lowercase + string.digits
+        with self._lock:
+            sites = self._load()
+            problem = _name_problem(sites, name, self._codes_kept)
+            if problem is not None:
+                raise SiteError(problem)
+            inside = name
+            taken = set(sites) | {str(s[PICKED]) for s in sites.values() if s.get(PICKED)}
+            while inside in taken or inside in self._codes_kept:
+                inside = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))
+        record: dict[str, Any] = {"paused": ADDED, "paused_at": time.time()}
+        if inside != name:
+            record[PICKED] = name
+        self._add(inside, email, trial=False, record=record)
+        logger.info("Site added by its host", extra={"site": inside, "subdomain": name})
+        return inside
+
     def add_trial(self, email: str, finish: bool = False) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
         host: its code and folder. SiteError as for `add`.
@@ -899,6 +929,9 @@ class SiteDirectory:
             sites = dict(self._load())
             if name in sites or _site_at(sites, name) is not None or name in self._codes_kept:
                 raise SiteError(f"There is already a site called {name}.")
+            picked = (record or {}).get(PICKED)
+            if picked and _name_problem(sites, str(picked), self._codes_kept) is not None:
+                raise SiteError(f"{picked} is taken. Choose another name.")
             host_site = self._hosts.site_of(email)
             if host_site is None:
                 raise SiteError(f"No host has signed up as {email}.")

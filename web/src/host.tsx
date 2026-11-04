@@ -6,6 +6,7 @@ import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
+import { SiteSwitcher, YourSites } from "./host-sites";
 import { useSettingsReload } from "./settings";
 
 import {
@@ -135,6 +136,7 @@ export function HostLinks({ page }: { page?: string }) {
     }
     return (
       <span className="host-links">
+        <SiteSwitcher />
         <a
           href="#/resources"
           className={page === "resources" ? "settings-link current" : "settings-link"}
@@ -727,6 +729,7 @@ export function AccountPage() {
       <p className="lead">
         You sign in with <strong>{session.email}</strong>.
       </p>
+      <YourSites />
       <h2>Change email</h2>
       <form onSubmit={(e) => void submit(e)} noValidate>
         <label>

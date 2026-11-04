@@ -862,6 +862,23 @@ async function compareAdminGuidelinesChange(part, number) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function getHostSites() {
+	return (await json(await fetch("/api/host/sites"))).sites;
+}
+async function openHostSite(site) {
+	const response = await fetch(`/api/host/sites/${encodeURIComponent(site)}/open`, { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).go_to;
+}
+async function addHostSite(name) {
+	const response = await fetch("/api/host/sites", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).url;
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1258,6 +1275,683 @@ function useConfirm() {
 			onOther: () => asking.answer("other")
 		})
 	};
+}
+//#endregion
+//#region src/delete-site.tsx
+function daysLeft(deletesAt, days, now = Date.now() / 1e3) {
+	return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / 86400)));
+}
+function DeleteSite({ days, subscribed, endsAt, deletesAt, onChanged }) {
+	const [asking, setAsking] = d(false);
+	const [password, setPassword] = d("");
+	const [deleting, setDeleting] = d(false);
+	const [when, setWhen] = d(deletesAt);
+	const [ends, setEnds] = d(subscribed ? endsAt : null);
+	const [failed, setFailed] = d(null);
+	const kept = `${days} day${days === 1 ? "" : "s"}`;
+	async function remove() {
+		setAsking(false);
+		setDeleting(true);
+		setFailed(null);
+		try {
+			const asked = await deleteSite(password);
+			console.info("Site deletion asked: service ends at", asked.ends_at, "deleted at", asked.deletes_at);
+			setEnds(asked.ends_at);
+			setWhen(asked.deletes_at);
+			onChanged?.();
+		} catch (e) {
+			console.error("Could not delete the site", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
+		}
+		setPassword("");
+		setDeleting(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-delete-site",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-delete-site",
+				children: "Delete site"
+			}),
+			when !== null && ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Your subscription is cancelled. You will have service until ",
+					endDay(ends),
+					". After that, your service will be paused. You will then have ",
+					kept,
+					" to renew your subscription before the content is deleted."
+				]
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Until then, Keep my subscription, above, undoes it."
+			})] }) : when !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Your site has been paused. You will have ",
+					daysLeft(when, days),
+					" days to start it again before it gets deleted."
+				]
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"It is deleted on ",
+					endDay(when),
+					". Subscribing again before then brings it back as it was. Your account is kept either way."
+				]
+			})] }) : /* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						disabled: deleting,
+						onClick: () => {
+							console.info("Delete site: asking to confirm");
+							setAsking(true);
+						},
+						children: "Delete site"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							subscribed ? `Cancels your subscription: you keep your site until the end of the month paid for, then it pauses. Its person, files and address are deleted ${kept} after that, unless you renew first.` : `Pauses your site now. Its person, files and address are deleted ${kept} later, unless you subscribe first.`,
+							" ",
+							"Your account is kept. It asks first."
+						]
+					}),
+					deleting && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Deleting…"
+					})
+				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to delete your site?",
+				keepLabel: "No, keep my site",
+				confirmLabel: "Yes, delete it",
+				onCancel: () => {
+					console.info("Delete site: kept");
+					setAsking(false);
+					setPassword("");
+				},
+				onConfirm: remove,
+				children: [
+					subscribed ? /* @__PURE__ */ u("p", { children: [
+						"Your subscription is now cancelled. You will have service until the end of the month. After that, your service will be paused. You will then have ",
+						kept,
+						" to renew your subscription before the content is deleted."
+					] }) : /* @__PURE__ */ u("p", { children: [
+						"Your site will be paused now. You will then have ",
+						kept,
+						" to subscribe before the content is deleted."
+					] }),
+					/* @__PURE__ */ u("label", {
+						htmlFor: "delete-site-password",
+						children: "Your password, to confirm"
+					}),
+					/* @__PURE__ */ u("input", {
+						id: "delete-site-password",
+						type: "password",
+						autoComplete: "current-password",
+						value: password,
+						onInput: (e) => setPassword(e.target.value)
+					})
+				]
+			})
+		]
+	});
+}
+//#endregion
+//#region src/subscription.tsx
+var go = {
+	to: (url) => window.location.assign(url),
+	reload: () => window.location.reload()
+};
+function SubscriptionSection() {
+	const session = useHost().session;
+	const host = session?.signed_in === true;
+	const [subscription, setSubscription] = d(null);
+	const [starting, setStarting] = d(false);
+	const [asking, setAsking] = d(false);
+	const [failed, setFailed] = d(null);
+	const [version, setVersion] = d(0);
+	function read() {
+		getSubscription().then((found) => {
+			setSubscription(found);
+			setVersion((v) => v + 1);
+		}, (e) => console.error("Could not read the subscription", e));
+	}
+	h(() => {
+		if (host) read();
+	}, [host]);
+	if (!host || subscription === null) return null;
+	const address = subscription.change_subdomain && subscription.subdomain && /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-address",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-address",
+				children: "Site address"
+			}),
+			/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Your site's subdomain is ",
+					/* @__PURE__ */ u("strong", { children: subscription.subdomain }),
+					"."
+				]
+			}),
+			/* @__PURE__ */ u(SubdomainPicker, { current: subscription.subdomain })
+		]
+	});
+	const days = subscription.days_before_deleting ?? 30;
+	const deletion = subscription.deletable && /* @__PURE__ */ u(DeleteSite, {
+		onChanged: read,
+		days,
+		subscribed: subscription.subscribed,
+		endsAt: subscription.ends_at ?? null,
+		deletesAt: subscription.deletes_at ?? null
+	}, `delete-${version}`);
+	if (!subscription.subscribed && !subscription.available) return address || deletion ? /* @__PURE__ */ u(S, { children: [address, deletion] }) : null;
+	async function subscribe() {
+		setStarting(true);
+		setFailed(null);
+		try {
+			const url = await startSubscribing();
+			console.info("Subscribing: going to Stripe's page");
+			go.to(url);
+		} catch (e) {
+			console.error("Could not start subscribing", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "Subscribing could not start. Try again.");
+			setStarting(false);
+		}
+	}
+	async function resume() {
+		setAsking(false);
+		setStarting(true);
+		setFailed(null);
+		try {
+			const answer = await resumeSubscription();
+			if (answer.resumed) {
+				console.info("Subscription resumed: the site is back");
+				go.reload();
+				return;
+			}
+			console.info("Resume subscription: Stripe needs a card, going to its page");
+			go.to(answer.url ?? "");
+		} catch (e) {
+			console.error("Could not resume the subscription", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "Resuming didn't work. Try again.");
+			setStarting(false);
+		}
+	}
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("section", {
+			className: "panel",
+			"aria-labelledby": "settings-subscription",
+			children: [
+				/* @__PURE__ */ u("h2", {
+					id: "settings-subscription",
+					children: "Subscription"
+				}),
+				subscription.subscribed ? /* @__PURE__ */ u(S, { children: [
+					/* @__PURE__ */ u("p", {
+						role: "status",
+						children: [
+							"Subscribed: ",
+							subscription.price,
+							"."
+						]
+					}),
+					subscription.payment_failed && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: "Your last payment didn't go through. Stripe will try your card again over the next few days, and your site keeps working meanwhile."
+					}),
+					subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
+					/* @__PURE__ */ u(CancelSubscription, {
+						onChanged: read,
+						endsAt: subscription.ends_at ?? null,
+						days
+					}, `cancel-${version}`)
+				] }) : subscription.resumable ? /* @__PURE__ */ u("div", {
+					className: "switch",
+					children: [
+						/* @__PURE__ */ u("p", {
+							role: "status",
+							children: subscription.restarted ? "Your site is started again, empty, and paused until it is paid for. Resume your subscription to open it." : "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: starting,
+							onClick: () => {
+								console.info("Resume subscription: asking to confirm");
+								setAsking(true);
+							},
+							children: "Resume subscription"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [subscription.price, ", with the card Stripe keeps for you, so you type no card details."]
+						}),
+						starting && /* @__PURE__ */ u("p", {
+							className: "muted busy",
+							children: "Asking Stripe…"
+						}),
+						asking && /* @__PURE__ */ u(ConfirmDialog, {
+							title: "Resume your subscription?",
+							keepLabel: "Not now",
+							confirmLabel: "Yes, resume it",
+							safe: true,
+							onCancel: () => {
+								console.info("Resume subscription: not now");
+								setAsking(false);
+							},
+							onConfirm: resume,
+							children: [/* @__PURE__ */ u("p", { children: [
+								"Your subscription, ",
+								subscription.price,
+								", starts again now and is charged to the card Stripe keeps for you.",
+								" ",
+								subscription.restarted ? "Your site opens at once." : "Your site comes back at once, with everything on it."
+							] }), /* @__PURE__ */ u("p", { children: "If Stripe needs a card, its secure page opens for you to give one." })]
+						})
+					]
+				}) : /* @__PURE__ */ u("div", {
+					className: "switch",
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: starting,
+							onClick: subscribe,
+							children: "Subscribe"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								subscription.price,
+								", paid on Stripe's secure page; your card details never reach this site.",
+								subscription.added ? " Your new site opens once it is paid for." : session?.paused ? " Subscribing brings your paused site back." : ""
+							]
+						}),
+						starting && /* @__PURE__ */ u("p", {
+							className: "muted busy",
+							children: "Opening Stripe…"
+						})
+					]
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				})
+			]
+		}),
+		address,
+		deletion
+	] });
+}
+function endDay(seconds) {
+	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleDateString(void 0, { dateStyle: "long" });
+}
+function CancelSubscription({ endsAt, days, onChanged }) {
+	const [ends, setEnds] = d(endsAt);
+	const [asking, setAsking] = d(false);
+	const [busy, setBusy] = d(false);
+	const [failed, setFailed] = d(null);
+	async function change(cancel) {
+		setAsking(false);
+		setBusy(true);
+		setFailed(null);
+		try {
+			const when = await setSubscriptionCancelled(cancel);
+			console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
+			setEnds(when);
+			onChanged?.();
+		} catch (e) {
+			console.error("Could not change the subscription", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
+		}
+		setBusy(false);
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "switch",
+		children: [
+			ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				role: "status",
+				children: [
+					"Cancelled: your site keeps working until ",
+					endDay(ends),
+					", then pauses. Visitors then see that it is paused, and you can still sign in and subscribe again. You then have",
+					" ",
+					days,
+					" days before its content is deleted."
+				]
+			}), /* @__PURE__ */ u("button", {
+				type: "button",
+				disabled: busy,
+				onClick: () => change(false),
+				children: "Keep my subscription"
+			})] }) : /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "remove",
+				disabled: busy,
+				onClick: () => {
+					console.info("Cancel subscription: asking to confirm");
+					setAsking(true);
+				},
+				children: "Cancel subscription"
+			}), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Your site keeps working until the end of the month paid for, then pauses. You then have ",
+					days,
+					" days to subscribe again before its content is deleted. It asks first."
+				]
+			})] }),
+			busy && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Asking Stripe…"
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to cancel your subscription?",
+				keepLabel: "No, keep it",
+				confirmLabel: "Yes, cancel it",
+				onCancel: () => {
+					console.info("Cancel subscription: kept");
+					setAsking(false);
+				},
+				onConfirm: () => change(true),
+				children: [/* @__PURE__ */ u("p", { children: "Your site keeps working until the end of the month paid for, then pauses." }), /* @__PURE__ */ u("p", { children: [
+					"Until then, you can keep your subscription after all. Once it pauses, you have ",
+					days,
+					" ",
+					"days to subscribe again before its content is deleted."
+				] })]
+			})
+		]
+	});
+}
+function SubdomainPicker({ current }) {
+	const [name, setName] = d("");
+	const [check, setCheck] = d(null);
+	const [picking, setPicking] = d(false);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		setCheck(null);
+		if (!name.trim()) return;
+		let live = true;
+		const timer = setTimeout(() => {
+			checkSubdomain(name).then((found) => live && setCheck(found), (e) => console.error("Could not check the subdomain", e));
+		}, 300);
+		return () => {
+			live = false;
+			clearTimeout(timer);
+		};
+	}, [name]);
+	async function pick(event) {
+		event.preventDefault();
+		setPicking(true);
+		setFailed(null);
+		try {
+			const picked = await pickSubdomain(name);
+			console.info(`Subdomain ${current ? "changed" : "picked"}: going to the site's new address`, picked.address);
+			go.to(picked.sign_in_at ?? `${picked.address}/`);
+		} catch (e) {
+			console.error("Could not pick the subdomain", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The address could not be set. Try again.");
+			setPicking(false);
+		}
+	}
+	const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
+	return /* @__PURE__ */ u("form", {
+		className: "switch",
+		onSubmit: pick,
+		"aria-label": "Your site's address",
+		children: [
+			/* @__PURE__ */ u("label", {
+				htmlFor: "settings-subdomain",
+				children: current ? "Change your site's address" : "Pick your site's address"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: current ? `Your site moves to the new subdomain, with everything on it. ${current} then finds no site, and anyone can take it.` : "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."
+			}),
+			/* @__PURE__ */ u("input", {
+				id: "settings-subdomain",
+				value: name,
+				autoComplete: "off",
+				spellcheck: false,
+				disabled: picking,
+				onInput: (e) => setName(e.target.value)
+			}),
+			check !== null && /* @__PURE__ */ u("p", {
+				className: check.problem === null ? "muted" : "error",
+				role: "status",
+				children: check.problem ?? `${check.name} is free.`
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: !free || picking,
+				children: current ? "Change address" : "Use this address"
+			}),
+			picking && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Moving your site…"
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			})
+		]
+	});
+}
+//#endregion
+//#region src/host-sites.tsx
+function useHostSites() {
+	const { session } = useHost();
+	const [sites, setSites] = d(null);
+	const signedIn = session?.signed_in === true;
+	h(() => {
+		if (!signedIn) return;
+		let live = true;
+		getHostSites().then((found) => live && setSites(found), (e) => console.error("Could not read the host's sites", e));
+		return () => {
+			live = false;
+		};
+	}, [signedIn]);
+	return signedIn ? sites : null;
+}
+function shown(site) {
+	return site.address.replace(/^https?:\/\//, "");
+}
+async function goToSite(site) {
+	const started = performance.now();
+	const link = await openHostSite(site);
+	console.info(`Going to another of the host's sites (${Math.round(performance.now() - started)} ms)`);
+	navigation.goTo(link);
+}
+function SiteSwitcher() {
+	const sites = useHostSites();
+	const [failed, setFailed] = d(false);
+	if (!sites || sites.length < 2) return null;
+	const here = sites.find((s) => s.here);
+	return /* @__PURE__ */ u("span", {
+		className: "site-switcher",
+		children: [/* @__PURE__ */ u("select", {
+			"aria-label": "Your sites",
+			value: here?.site ?? "",
+			onChange: (e) => {
+				const site = e.currentTarget.value;
+				if (site === here?.site) return;
+				setFailed(false);
+				goToSite(site).catch((err) => {
+					console.error("Could not open the other site", err);
+					setFailed(true);
+				});
+			},
+			children: sites.map((s) => /* @__PURE__ */ u("option", {
+				value: s.site,
+				children: shown(s)
+			}, s.site))
+		}), failed && /* @__PURE__ */ u("span", {
+			className: "error",
+			role: "alert",
+			children: "That site could not be opened. Try again."
+		})]
+	});
+}
+function YourSites() {
+	const sites = useHostSites();
+	const [failed, setFailed] = d(null);
+	if (sites === null) return /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Reading your sites…"
+	});
+	return /* @__PURE__ */ u("section", {
+		"aria-labelledby": "your-sites",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "your-sites",
+				children: "Your sites"
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: "your-sites",
+				children: sites.map((s) => /* @__PURE__ */ u("li", { children: [
+					/* @__PURE__ */ u("span", {
+						className: "site-address",
+						children: shown(s)
+					}),
+					s.paused && /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: " · paused"
+					}),
+					s.here ? /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: " · this site"
+					}) : /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => {
+							setFailed(null);
+							goToSite(s.site).catch((err) => {
+								console.error("Could not open the other site", err);
+								setFailed(err instanceof ServerRefusal ? err.message : "That site could not be opened. Try again.");
+							});
+						},
+						children: "Open"
+					})
+				] }, s.site))
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: failed
+			}),
+			/* @__PURE__ */ u(AddSite, {})
+		]
+	});
+}
+function AddSite() {
+	const { session } = useHost();
+	const [price, setPrice] = d(null);
+	const [available, setAvailable] = d(true);
+	const [name, setName] = d("");
+	const [check, setCheck] = d(null);
+	const [adding, setAdding] = d(false);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		getSubscription().then((found) => {
+			setPrice(found.price);
+			setAvailable(found.available);
+		}, (e) => console.error("Could not read the price", e));
+	}, []);
+	h(() => {
+		setCheck(null);
+		if (!name.trim()) return;
+		let live = true;
+		const timer = setTimeout(() => {
+			checkSubdomain(name).then((found) => live && setCheck(found), (e) => console.error("Could not check the subdomain", e));
+		}, 300);
+		return () => {
+			live = false;
+			clearTimeout(timer);
+		};
+	}, [name]);
+	if (session?.acting_as_admin) return /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Only the host adds a site, as it is paid for with their card."
+	});
+	if (!available) return /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Adding a site needs subscribing, which isn't set up here."
+	});
+	async function add(event) {
+		event.preventDefault();
+		setAdding(true);
+		setFailed(null);
+		try {
+			const url = await addHostSite(name);
+			console.info("Site added: going to Stripe to pay for it");
+			navigation.goTo(url);
+		} catch (e) {
+			console.error("Could not add a site", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "The site could not be added. Try again.");
+			setAdding(false);
+		}
+	}
+	const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
+	return /* @__PURE__ */ u("form", {
+		className: "add-site",
+		onSubmit: add,
+		"aria-labelledby": "add-a-site",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "add-a-site",
+				children: "Add a site"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: ["A new site of your own, with its own person, content and settings, at a subdomain you pick.", price ? ` It is ${price}, paid on Stripe's secure page.` : ""]
+			}),
+			/* @__PURE__ */ u("label", { children: ["The new site's address", /* @__PURE__ */ u("input", {
+				type: "text",
+				value: name,
+				autoComplete: "off",
+				spellcheck: false,
+				disabled: adding,
+				onInput: (e) => setName(e.target.value)
+			})] }),
+			check !== null && /* @__PURE__ */ u("p", {
+				className: check.problem === null ? "muted" : "error",
+				role: "status",
+				children: check.problem ?? `${check.name} is free.`
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: !free || adding,
+				children: "Add and subscribe"
+			}),
+			adding && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Opening Stripe…"
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: failed
+			})
+		]
+	});
 }
 //#endregion
 //#region src/cancel-trial.tsx
@@ -2253,485 +2947,6 @@ function modelsNote(models, model, provider) {
 	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
 	return `${listed} ${blank}`;
 }
-//#endregion
-//#region src/delete-site.tsx
-function daysLeft(deletesAt, days, now = Date.now() / 1e3) {
-	return Math.min(days, Math.max(0, Math.ceil((deletesAt - now) / 86400)));
-}
-function DeleteSite({ days, subscribed, endsAt, deletesAt, onChanged }) {
-	const [asking, setAsking] = d(false);
-	const [password, setPassword] = d("");
-	const [deleting, setDeleting] = d(false);
-	const [when, setWhen] = d(deletesAt);
-	const [ends, setEnds] = d(subscribed ? endsAt : null);
-	const [failed, setFailed] = d(null);
-	const kept = `${days} day${days === 1 ? "" : "s"}`;
-	async function remove() {
-		setAsking(false);
-		setDeleting(true);
-		setFailed(null);
-		try {
-			const asked = await deleteSite(password);
-			console.info("Site deletion asked: service ends at", asked.ends_at, "deleted at", asked.deletes_at);
-			setEnds(asked.ends_at);
-			setWhen(asked.deletes_at);
-			onChanged?.();
-		} catch (e) {
-			console.error("Could not delete the site", e);
-			setFailed(e instanceof ServerRefusal ? e.message : "The site could not be deleted. Try again.");
-		}
-		setPassword("");
-		setDeleting(false);
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "settings-delete-site",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "settings-delete-site",
-				children: "Delete site"
-			}),
-			when !== null && ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
-				role: "status",
-				children: [
-					"Your subscription is cancelled. You will have service until ",
-					endDay(ends),
-					". After that, your service will be paused. You will then have ",
-					kept,
-					" to renew your subscription before the content is deleted."
-				]
-			}), /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Until then, Keep my subscription, above, undoes it."
-			})] }) : when !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
-				role: "status",
-				children: [
-					"Your site has been paused. You will have ",
-					daysLeft(when, days),
-					" days to start it again before it gets deleted."
-				]
-			}), /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: [
-					"It is deleted on ",
-					endDay(when),
-					". Subscribing again before then brings it back as it was. Your account is kept either way."
-				]
-			})] }) : /* @__PURE__ */ u("div", {
-				className: "switch",
-				children: [
-					/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "remove",
-						disabled: deleting,
-						onClick: () => {
-							console.info("Delete site: asking to confirm");
-							setAsking(true);
-						},
-						children: "Delete site"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							subscribed ? `Cancels your subscription: you keep your site until the end of the month paid for, then it pauses. Its person, files and address are deleted ${kept} after that, unless you renew first.` : `Pauses your site now. Its person, files and address are deleted ${kept} later, unless you subscribe first.`,
-							" ",
-							"Your account is kept. It asks first."
-						]
-					}),
-					deleting && /* @__PURE__ */ u("p", {
-						className: "muted busy",
-						children: "Deleting…"
-					})
-				]
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			asking && /* @__PURE__ */ u(ConfirmDialog, {
-				title: "Are you sure you want to delete your site?",
-				keepLabel: "No, keep my site",
-				confirmLabel: "Yes, delete it",
-				onCancel: () => {
-					console.info("Delete site: kept");
-					setAsking(false);
-					setPassword("");
-				},
-				onConfirm: remove,
-				children: [
-					subscribed ? /* @__PURE__ */ u("p", { children: [
-						"Your subscription is now cancelled. You will have service until the end of the month. After that, your service will be paused. You will then have ",
-						kept,
-						" to renew your subscription before the content is deleted."
-					] }) : /* @__PURE__ */ u("p", { children: [
-						"Your site will be paused now. You will then have ",
-						kept,
-						" to subscribe before the content is deleted."
-					] }),
-					/* @__PURE__ */ u("label", {
-						htmlFor: "delete-site-password",
-						children: "Your password, to confirm"
-					}),
-					/* @__PURE__ */ u("input", {
-						id: "delete-site-password",
-						type: "password",
-						autoComplete: "current-password",
-						value: password,
-						onInput: (e) => setPassword(e.target.value)
-					})
-				]
-			})
-		]
-	});
-}
-//#endregion
-//#region src/subscription.tsx
-var go = {
-	to: (url) => window.location.assign(url),
-	reload: () => window.location.reload()
-};
-function SubscriptionSection() {
-	const session = useHost().session;
-	const host = session?.signed_in === true;
-	const [subscription, setSubscription] = d(null);
-	const [starting, setStarting] = d(false);
-	const [asking, setAsking] = d(false);
-	const [failed, setFailed] = d(null);
-	const [version, setVersion] = d(0);
-	function read() {
-		getSubscription().then((found) => {
-			setSubscription(found);
-			setVersion((v) => v + 1);
-		}, (e) => console.error("Could not read the subscription", e));
-	}
-	h(() => {
-		if (host) read();
-	}, [host]);
-	if (!host || subscription === null) return null;
-	const address = subscription.change_subdomain && subscription.subdomain && /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "settings-address",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "settings-address",
-				children: "Site address"
-			}),
-			/* @__PURE__ */ u("p", {
-				role: "status",
-				children: [
-					"Your site's subdomain is ",
-					/* @__PURE__ */ u("strong", { children: subscription.subdomain }),
-					"."
-				]
-			}),
-			/* @__PURE__ */ u(SubdomainPicker, { current: subscription.subdomain })
-		]
-	});
-	const days = subscription.days_before_deleting ?? 30;
-	const deletion = subscription.deletable && /* @__PURE__ */ u(DeleteSite, {
-		onChanged: read,
-		days,
-		subscribed: subscription.subscribed,
-		endsAt: subscription.ends_at ?? null,
-		deletesAt: subscription.deletes_at ?? null
-	}, `delete-${version}`);
-	if (!subscription.subscribed && !subscription.available) return address || deletion ? /* @__PURE__ */ u(S, { children: [address, deletion] }) : null;
-	async function subscribe() {
-		setStarting(true);
-		setFailed(null);
-		try {
-			const url = await startSubscribing();
-			console.info("Subscribing: going to Stripe's page");
-			go.to(url);
-		} catch (e) {
-			console.error("Could not start subscribing", e);
-			setFailed(e instanceof ServerRefusal ? e.message : "Subscribing could not start. Try again.");
-			setStarting(false);
-		}
-	}
-	async function resume() {
-		setAsking(false);
-		setStarting(true);
-		setFailed(null);
-		try {
-			const answer = await resumeSubscription();
-			if (answer.resumed) {
-				console.info("Subscription resumed: the site is back");
-				go.reload();
-				return;
-			}
-			console.info("Resume subscription: Stripe needs a card, going to its page");
-			go.to(answer.url ?? "");
-		} catch (e) {
-			console.error("Could not resume the subscription", e);
-			setFailed(e instanceof ServerRefusal ? e.message : "Resuming didn't work. Try again.");
-			setStarting(false);
-		}
-	}
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("section", {
-			className: "panel",
-			"aria-labelledby": "settings-subscription",
-			children: [
-				/* @__PURE__ */ u("h2", {
-					id: "settings-subscription",
-					children: "Subscription"
-				}),
-				subscription.subscribed ? /* @__PURE__ */ u(S, { children: [
-					/* @__PURE__ */ u("p", {
-						role: "status",
-						children: [
-							"Subscribed: ",
-							subscription.price,
-							"."
-						]
-					}),
-					subscription.payment_failed && /* @__PURE__ */ u("p", {
-						className: "error",
-						role: "alert",
-						children: "Your last payment didn't go through. Stripe will try your card again over the next few days, and your site keeps working meanwhile."
-					}),
-					subscription.pick_subdomain && /* @__PURE__ */ u(SubdomainPicker, {}),
-					/* @__PURE__ */ u(CancelSubscription, {
-						onChanged: read,
-						endsAt: subscription.ends_at ?? null,
-						days
-					}, `cancel-${version}`)
-				] }) : subscription.resumable ? /* @__PURE__ */ u("div", {
-					className: "switch",
-					children: [
-						/* @__PURE__ */ u("p", {
-							role: "status",
-							children: subscription.restarted ? "Your site is started again, empty, and paused until it is paid for. Resume your subscription to open it." : "Your site is paused: visitors see that it is paused. Resume your subscription to bring it back as it was."
-						}),
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							disabled: starting,
-							onClick: () => {
-								console.info("Resume subscription: asking to confirm");
-								setAsking(true);
-							},
-							children: "Resume subscription"
-						}),
-						/* @__PURE__ */ u("p", {
-							className: "muted",
-							children: [subscription.price, ", with the card Stripe keeps for you, so you type no card details."]
-						}),
-						starting && /* @__PURE__ */ u("p", {
-							className: "muted busy",
-							children: "Asking Stripe…"
-						}),
-						asking && /* @__PURE__ */ u(ConfirmDialog, {
-							title: "Resume your subscription?",
-							keepLabel: "Not now",
-							confirmLabel: "Yes, resume it",
-							safe: true,
-							onCancel: () => {
-								console.info("Resume subscription: not now");
-								setAsking(false);
-							},
-							onConfirm: resume,
-							children: [/* @__PURE__ */ u("p", { children: [
-								"Your subscription, ",
-								subscription.price,
-								", starts again now and is charged to the card Stripe keeps for you.",
-								" ",
-								subscription.restarted ? "Your site opens at once." : "Your site comes back at once, with everything on it."
-							] }), /* @__PURE__ */ u("p", { children: "If Stripe needs a card, its secure page opens for you to give one." })]
-						})
-					]
-				}) : /* @__PURE__ */ u("div", {
-					className: "switch",
-					children: [
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							disabled: starting,
-							onClick: subscribe,
-							children: "Subscribe"
-						}),
-						/* @__PURE__ */ u("p", {
-							className: "muted",
-							children: [
-								subscription.price,
-								", paid on Stripe's secure page; your card details never reach this site.",
-								session?.paused ? " Subscribing brings your paused site back." : ""
-							]
-						}),
-						starting && /* @__PURE__ */ u("p", {
-							className: "muted busy",
-							children: "Opening Stripe…"
-						})
-					]
-				}),
-				failed && /* @__PURE__ */ u("p", {
-					className: "error",
-					children: failed
-				})
-			]
-		}),
-		address,
-		deletion
-	] });
-}
-function endDay(seconds) {
-	return (/* @__PURE__ */ new Date(seconds * 1e3)).toLocaleDateString(void 0, { dateStyle: "long" });
-}
-function CancelSubscription({ endsAt, days, onChanged }) {
-	const [ends, setEnds] = d(endsAt);
-	const [asking, setAsking] = d(false);
-	const [busy, setBusy] = d(false);
-	const [failed, setFailed] = d(null);
-	async function change(cancel) {
-		setAsking(false);
-		setBusy(true);
-		setFailed(null);
-		try {
-			const when = await setSubscriptionCancelled(cancel);
-			console.info(cancel ? "Subscription cancelled: it ends" : "Subscription kept", when);
-			setEnds(when);
-			onChanged?.();
-		} catch (e) {
-			console.error("Could not change the subscription", e);
-			setFailed(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
-		}
-		setBusy(false);
-	}
-	return /* @__PURE__ */ u("div", {
-		className: "switch",
-		children: [
-			ends !== null ? /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
-				role: "status",
-				children: [
-					"Cancelled: your site keeps working until ",
-					endDay(ends),
-					", then pauses. Visitors then see that it is paused, and you can still sign in and subscribe again. You then have",
-					" ",
-					days,
-					" days before its content is deleted."
-				]
-			}), /* @__PURE__ */ u("button", {
-				type: "button",
-				disabled: busy,
-				onClick: () => change(false),
-				children: "Keep my subscription"
-			})] }) : /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("button", {
-				type: "button",
-				className: "remove",
-				disabled: busy,
-				onClick: () => {
-					console.info("Cancel subscription: asking to confirm");
-					setAsking(true);
-				},
-				children: "Cancel subscription"
-			}), /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: [
-					"Your site keeps working until the end of the month paid for, then pauses. You then have ",
-					days,
-					" days to subscribe again before its content is deleted. It asks first."
-				]
-			})] }),
-			busy && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Asking Stripe…"
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			asking && /* @__PURE__ */ u(ConfirmDialog, {
-				title: "Are you sure you want to cancel your subscription?",
-				keepLabel: "No, keep it",
-				confirmLabel: "Yes, cancel it",
-				onCancel: () => {
-					console.info("Cancel subscription: kept");
-					setAsking(false);
-				},
-				onConfirm: () => change(true),
-				children: [/* @__PURE__ */ u("p", { children: "Your site keeps working until the end of the month paid for, then pauses." }), /* @__PURE__ */ u("p", { children: [
-					"Until then, you can keep your subscription after all. Once it pauses, you have ",
-					days,
-					" ",
-					"days to subscribe again before its content is deleted."
-				] })]
-			})
-		]
-	});
-}
-function SubdomainPicker({ current }) {
-	const [name, setName] = d("");
-	const [check, setCheck] = d(null);
-	const [picking, setPicking] = d(false);
-	const [failed, setFailed] = d(null);
-	h(() => {
-		setCheck(null);
-		if (!name.trim()) return;
-		let live = true;
-		const timer = setTimeout(() => {
-			checkSubdomain(name).then((found) => live && setCheck(found), (e) => console.error("Could not check the subdomain", e));
-		}, 300);
-		return () => {
-			live = false;
-			clearTimeout(timer);
-		};
-	}, [name]);
-	async function pick(event) {
-		event.preventDefault();
-		setPicking(true);
-		setFailed(null);
-		try {
-			const picked = await pickSubdomain(name);
-			console.info(`Subdomain ${current ? "changed" : "picked"}: going to the site's new address`, picked.address);
-			go.to(picked.sign_in_at ?? `${picked.address}/`);
-		} catch (e) {
-			console.error("Could not pick the subdomain", e);
-			setFailed(e instanceof ServerRefusal ? e.message : "The address could not be set. Try again.");
-			setPicking(false);
-		}
-	}
-	const free = check !== null && check.problem === null && check.name === name.trim().toLowerCase();
-	return /* @__PURE__ */ u("form", {
-		className: "switch",
-		onSubmit: pick,
-		"aria-label": "Your site's address",
-		children: [
-			/* @__PURE__ */ u("label", {
-				htmlFor: "settings-subdomain",
-				children: current ? "Change your site's address" : "Pick your site's address"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: current ? `Your site moves to the new subdomain, with everything on it. ${current} then finds no site, and anyone can take it.` : "Your site moves from its trial path to a subdomain of its own, with everything on it. The trial path then goes there."
-			}),
-			/* @__PURE__ */ u("input", {
-				id: "settings-subdomain",
-				value: name,
-				autoComplete: "off",
-				spellcheck: false,
-				disabled: picking,
-				onInput: (e) => setName(e.target.value)
-			}),
-			check !== null && /* @__PURE__ */ u("p", {
-				className: check.problem === null ? "muted" : "error",
-				role: "status",
-				children: check.problem ?? `${check.name} is free.`
-			}),
-			/* @__PURE__ */ u("button", {
-				type: "submit",
-				disabled: !free || picking,
-				children: current ? "Change address" : "Use this address"
-			}),
-			picking && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Moving your site…"
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			})
-		]
-	});
-}
 function reason(e, fallback) {
 	return e instanceof ServerRefusal ? e.message : fallback;
 }
@@ -3431,6 +3646,7 @@ function HostLinks({ page }) {
 		return /* @__PURE__ */ u("span", {
 			className: "host-links",
 			children: [
+				/* @__PURE__ */ u(SiteSwitcher, {}),
 				/* @__PURE__ */ u("a", {
 					href: "#/resources",
 					className: page === "resources" ? "settings-link current" : "settings-link",
@@ -4031,6 +4247,7 @@ function AccountPage() {
 					"."
 				]
 			}),
+			/* @__PURE__ */ u(YourSites, {}),
 			/* @__PURE__ */ u("h2", { children: "Change email" }),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => void submit(e),
