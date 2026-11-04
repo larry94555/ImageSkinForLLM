@@ -242,3 +242,55 @@ def test_the_command_line_gives_a_host_another_site(
     said = capsys.readouterr().out
     assert re.search(r"now has 2 sites, a, b, and signs in once for all of them", said)
     assert accounts.sites_of(ANN) == ["a", "b"]
+
+
+def test_a_freed_site_never_lets_its_old_host_in_when_their_account_wasnt_updated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #303: hosts.json can't be saved as Ann's site b is deleted, so her
+    account still names it; b, freed, is then Bob's, and Ann's sign-in must not work there,
+    even after a restart."""
+    sites, _, service = two_sites(tmp_path, bob_too=False)
+    ann_b = signed_in(sites, SITE_B, ANN)
+    accounts = service.host_accounts
+    real_save = HostAccounts._save
+
+    def full_disk(self: HostAccounts, data: dict[str, object]) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(HostAccounts, "_save", full_disk)
+    with caplog.at_level(logging.INFO):
+        assert service.sites.delete("b", "test")
+    assert "Deleted site's host not updated" in caplog.messages
+    assert "b" in accounts.sites_of(ANN)  # the account still names it
+    # While hosts.json still can't be saved, b isn't given to anyone.
+    with pytest.raises(SiteError, match="could not be saved"):
+        service.sites.add("b", BOB)
+    assert not service.sites.exists("b")
+    monkeypatch.setattr(HostAccounts, "_save", real_save)
+
+    with caplog.at_level(logging.INFO):
+        service.sites.add("b", BOB)
+    assert "Site taken from its old host" in caplog.messages
+    assert service.sites.host("b") == BOB and accounts.sites_of(ANN) == ["a"]
+    # Ann's sign-in from before, on Bob's new site: no sign-in, nor on her own (ended).
+    assert session(ann_b)["signed_in"] is False
+    # Signing in again at b sends her to her own site, not into Bob's.
+    at_b = TestClient(sites, base_url=SITE_B)
+    sent = at_b.post("/api/host/sign-in", json={"email": ANN, "password": PASSWORD}).json()
+    assert sent["signed_in"] is False and sent["site"] == "a"
+    # And after a restart, from the files alone.
+    again = HostAccounts(tmp_path / "home")
+    assert again.sites_of(ANN) == ["a"] and again.sites_of(BOB) == ["b"]
+    assert signed_in(sites, SITE_B, BOB) and signed_in(sites, SITE_A, ANN)
+
+
+def test_a_freed_site_that_was_its_old_hosts_only_one_leaves_them_none(tmp_path: Path) -> None:
+    accounts = HostAccounts(tmp_path)
+    for email in (ANN, BOB):
+        accounts.sign_up(email, PASSWORD, "test")
+    accounts.set_site(ANN, "a")  # its deletion never reached her account
+    token = accounts.sign_in_now(ANN)
+    assert accounts.release_site("a", BOB) == [ANN]
+    assert accounts.site_of(ANN) == NO_SITE and accounts.host(token, "a") is None
+    assert accounts.release_site("a", BOB) == []  # nothing more to take

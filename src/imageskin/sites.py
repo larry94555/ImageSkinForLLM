@@ -58,7 +58,14 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import NO_SITE, TRIAL_USED, HostAccounts, normal_email, trial_cookie
+from imageskin.hosts import (
+    NO_SITE,
+    TRIAL_USED,
+    HostAccounts,
+    HostsUnreadable,
+    normal_email,
+    trial_cookie,
+)
 from imageskin.network import NetworkMonth
 from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
@@ -648,18 +655,27 @@ class SiteDirectory:
                 )
                 return False
             host = str(site.get("host", ""))
-            if host and self._hosts.remove_site(host, name):
-                pass  # one of the host's several sites (R256): they keep the others
-            elif host and self._hosts.site_of(host) == name:
-                # Kept with the host's account, so they can start it again (R69c).
-                paid = site.get("subscription") or {}
-                self._hosts.site_deleted(
-                    host,
-                    {
-                        "subdomain": _subdomain(name, site),
-                        "customer": paid.get("customer") or None,
-                        "subscription": paid.get("id") or None,
-                    },
+            try:
+                if host and self._hosts.remove_site(host, name):
+                    pass  # one of the host's several sites (R256): they keep the others
+                elif host and self._hosts.site_of(host) == name:
+                    # Kept with the host's account, so they can start it again (R69c).
+                    paid = site.get("subscription") or {}
+                    self._hosts.site_deleted(
+                        host,
+                        {
+                            "subdomain": _subdomain(name, site),
+                            "customer": paid.get("customer") or None,
+                            "subscription": paid.get("id") or None,
+                        },
+                    )
+            except (HostsUnreadable, OSError) as e:
+                # The site is gone all the same. Its name is given again only once its old
+                # host's account no longer names it (`release_site` in `_add`; Codex's review
+                # of PR #303).
+                logger.error(
+                    "Deleted site's host not updated",
+                    extra={"site": name, "host": host, "error": str(e)},
                 )
         for forget in self.on_deleted:
             forget(name)
@@ -897,6 +913,16 @@ class SiteDirectory:
                     logger.warning("Trial refused: email already used", extra={"email": email})
                     raise TrialUsed(TRIAL_USED)
                 used = [*used, email_key(email)]
+            # No other host's account may still name it, as after a deletion that couldn't
+            # reach hosts.json; refused when that can't be made sure (Codex's review of PR #303).
+            try:
+                self._hosts.release_site(name, email)
+            except OSError as e:
+                logger.error(
+                    "Site not added",
+                    extra={"site": name, "why": "old host not released", "error": str(e)},
+                )
+                raise SiteError("The host accounts could not be saved.") from e
             sites[name] = {
                 "host": email.strip().lower(),
                 "created_at": time.time(),

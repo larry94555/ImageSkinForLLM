@@ -805,6 +805,38 @@ class HostAccounts:
         logger.info("Host site removed", extra={"email": email, "site": site, "left": len(left)})
         return True
 
+    def release_site(self, site: str, email: str) -> list[str]:
+        """Take the site from every host but `email` before it is given to them (R256): the
+        hosts it was taken from. A host whose deletion of it didn't reach this file (it failed
+        to save, or the server stopped) would otherwise be signed in on another host's new site
+        of that name (Codex's review of PR #303). Their sign-ins end, and they keep their other
+        sites, or have none, as when a site is deleted (R69a). HostsUnreadable, or the error
+        saving, when it can't be done; the site is then not given."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            hosts = dict(data["hosts"])
+            taken = [
+                other
+                for other, account in hosts.items()
+                if other != email
+                and (site in sites_in(account) or account.get(SITE, DEFAULT_SITE) == site)
+            ]
+            if not taken:
+                return []
+            for other in taken:
+                account = {**hosts[other]}
+                left = [s for s in sites_in(account) if s != site]
+                account.pop(SITES, None)
+                if len(left) > 1:
+                    account[SITES] = left
+                account[SITE] = left[0] if left else NO_SITE
+                hosts[other] = account
+            sessions = {k: v for k, v in data["sessions"].items() if v["email"] not in taken}
+            self._save({**data, "hosts": hosts, "sessions": sessions})
+        logger.warning("Site taken from its old host", extra={"site": site, "hosts": len(taken)})
+        return taken
+
     def site_deleted(self, email: str, deleted: dict[str, Any]) -> bool:
         """The host's site was deleted (R69a): their sign-ins end, their account is kept with
         no site, and what the site was is kept with it, so they can start it again (R69c)."""
