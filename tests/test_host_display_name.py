@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from test_customer_sign_up import quick_hashes  # noqa: F401
 from test_site_addresses import PASSWORD, served
@@ -115,7 +116,8 @@ def test_a_visitor_sees_the_display_name_and_the_email_nowhere(tmp_path: Path) -
     asked = ["/", "/api/host/session"] + [
         route.path
         for route in made["a"].routes
-        if "GET" in getattr(route, "methods", set())
+        if isinstance(route, APIRoute)
+        and "GET" in (route.methods or set())
         and "{" not in route.path
         and route.path not in SKIPPED
     ]
