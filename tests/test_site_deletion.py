@@ -33,7 +33,7 @@ from test_subscribing import (  # noqa: F401 (the fixture)
 )
 
 from imageskin.email_change import WRONG_PASSWORD
-from imageskin.hosts import NO_SITE, SITE_DELETED
+from imageskin.hosts import NO_SITE, site_deleted_words
 from imageskin.payments import UNAVAILABLE, PaymentError, Stripe, delete_request
 from imageskin.site_deletion import PAUSED_TOO_LONG, delete_paused, keep_deleting_paused
 from imageskin.sites import DELETING, SiteApps, SiteDirectory, site_home
@@ -153,9 +153,9 @@ def test_the_host_deletes_their_site_with_their_password(
     assert service.host_accounts.site_of(DAN) == NO_SITE
     main = TestClient(sites, base_url=MAIN)
     signing = main.post("/api/host/sign-in", json={"email": DAN, "password": PASSWORD})
-    assert signing.status_code == 401 and signing.json()["detail"] == SITE_DELETED
+    assert signing.status_code == 401 and signing.json()["detail"] == site_deleted_words()
     guess = main.post("/api/host/sign-in", json={"email": DAN, "password": "a wrong guess"})
-    assert guess.json()["detail"] != SITE_DELETED
+    assert guess.json()["detail"] != site_deleted_words()
     # And a trial again is refused: one per email address (R66).
     assert service.sites.trial_used(DAN)
 

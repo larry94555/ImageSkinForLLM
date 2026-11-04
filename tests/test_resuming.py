@@ -92,8 +92,11 @@ def ended(status: str = "canceled") -> dict[str, Any]:
     }
 
 
-def paused(tmp_path: Path, status: str = "canceled"):  # type: ignore[no-untyped-def]
-    """Dan's site, subscribed, then paused as Stripe ended its subscription: Dan's browser."""
+def paused(  # type: ignore[no-untyped-def]
+    tmp_path: Path, status: str = "canceled", subdomain: str | None = None
+):
+    """Dan's site, subscribed, at the `subdomain` picked, then paused as Stripe ended its
+    subscription: Dan's browser."""
     fake = FakeStripe()
     stripe = Stripe("sk_test", SECRET, "price_5gb", fake.post, delete=fake.delete, get=fake.get)
     sites, _, service = served(tmp_path, stripe)
@@ -101,6 +104,8 @@ def paused(tmp_path: Path, status: str = "canceled"):  # type: ignore[no-untyped
     code = site.removeprefix("/t/")
     main = TestClient(sites, base_url=MAIN)
     assert send(main, completed(code, "sub_1")).is_success
+    if subdomain:
+        service.sites.pick_subdomain(code, subdomain)
     assert send(main, ended(status)).is_success
     assert service.sites.paused(code) == "subscription ended"
     (site_home(code, service.home) / "person.txt").write_text("Dan's person", encoding="utf-8")

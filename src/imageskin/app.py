@@ -116,6 +116,7 @@ from imageskin.host_disk import count as count_disk
 from imageskin.hosts import (
     ACT_PREFIX,
     DEFAULT_SITE,
+    NO_SITE,
     Host,
     HostsUnreadable,
     normal_email,
@@ -175,7 +176,7 @@ from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
 from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
-from imageskin.sites import FINAL, Service, SiteError, make_service, site_home
+from imageskin.sites import FINAL, RESTARTED, Service, SiteError, make_service, site_home
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -868,6 +869,8 @@ def create_app(
         paused=service.sites.paused,
         subscribed=service.sites.subscribed,
         subdomain=service.sites.subdomain,
+        restart=service.sites.restart,
+        days_before_deleting=lambda: admin_settings.current.days_before_deleting,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -911,6 +914,8 @@ def create_app(
             "deletes_at": deletes_at(),
             # A paused site that was paid for before resumes with the card Stripe keeps (R69b).
             "resumable": resumable(),
+            # Started again after it was deleted, empty, and paid for by resuming (R69c).
+            "restarted": service.sites.paused(host_site) == RESTARTED,
         }
 
     def resumable() -> bool:
@@ -1272,6 +1277,8 @@ def create_app(
         # administrator at the main address.
         site = host_site if host is not None and wanted == host.email else None
         site = site or host_accounts.site_of(wanted) or DEFAULT_SITE
+        if site == NO_SITE:
+            refuse(404, "This host's site was deleted.", "site deleted")  # R69a
         folder = data_home if site == host_site else site_home(site, service.home)
         leave_out = SERVICE_FILES if site == DEFAULT_SITE else frozenset()
         amounts = count_disk(folder, wanted, leave_out)

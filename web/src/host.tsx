@@ -15,12 +15,14 @@ import {
   getHostSession,
   hostPageOpened,
   type HostSession,
+  restartSite,
   sendConfirmationAgain,
   ServerRefusal,
   setNewPassword,
   signInAsHost,
   signOutAsHost,
   signUpAsHost,
+  SiteWasDeleted,
   stopActing,
 } from "./api";
 
@@ -319,6 +321,8 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The host's site was deleted (R69a): Start my site again (R69c).
+  const [deleted, setDeleted] = useState(false);
   const up = kind === "up";
 
   useEffect(() => {
@@ -344,13 +348,31 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
     setError(found);
     if (found) return;
     setBusy(true);
+    setDeleted(false);
     try {
       const leaving = await (up ? signUp : signIn)(email, password);
       if (!leaving) window.location.hash = "#/";
     } catch (err) {
       console.error(`Could not sign ${kind} as host`, err);
       setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+      setDeleted(err instanceof SiteWasDeleted);
     } finally {
+      setBusy(false);
+    }
+  }
+
+  // A new, empty site, at its old subdomain if still free, paused until Resume subscription
+  // pays for it (R69c, R69b). The browser goes there, signed in.
+  async function startAgain() {
+    setBusy(true);
+    try {
+      const link = await restartSite(email, password);
+      console.info("Site started again: going there");
+      navigation.goTo(link);
+    } catch (err) {
+      console.error("Could not start the site again", err);
+      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+      setDeleted(false);
       setBusy(false);
     }
   }
@@ -408,6 +430,17 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
           <p className="error" role="alert">
             {error}
           </p>
+        )}
+        {deleted && (
+          <div className="switch">
+            <button type="button" disabled={busy} onClick={() => void startAgain()}>
+              Start my site again
+            </button>
+            <p className="muted">
+              A new, empty site, at your old address if it is still free. It starts once you
+              resume your subscription there.
+            </p>
+          </div>
         )}
         <button type="submit" disabled={busy || email.trim() === "" || password === ""}>
           {up ? "Sign up" : "Sign in"}

@@ -31,7 +31,7 @@ from typing import Any
 
 from imageskin.accent import KEPT_SUFFIX
 from imageskin.host_disk import FILENAME as OWNERS_FILE
-from imageskin.hosts import DEFAULT_SITE, HostAccounts
+from imageskin.hosts import DEFAULT_SITE, NO_SITE, HostAccounts
 from imageskin.photoreal_library import library_key
 from imageskin.sites import RESERVED, SiteDirectory, SiteError, site_home
 from imageskin.uploads import MEDIA_TYPE
@@ -317,6 +317,8 @@ def move_hosts_to_sites(home: Path, hosts: HostAccounts, sites: SiteDirectory) -
     done: list[Moved] = []
     for n, email in enumerate(ordered):
         site = str(accounts[email].get("site", DEFAULT_SITE))
+        if site == NO_SITE:
+            continue  # their site was deleted (R69a), and stays so until they start it again
         copied = 0
         if site == DEFAULT_SITE:
             site = site_name(email, taken)
