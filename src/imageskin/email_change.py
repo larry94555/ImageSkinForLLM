@@ -22,7 +22,7 @@ from imageskin.hosts import (
     HostRefused,
     HostsUnreadable,
 )
-from imageskin.sites import SiteDirectory
+from imageskin.sites import SiteDirectory, site_home
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,13 @@ def email_router(
     admin_password: Callable[[str], bool] = lambda _: False,
 ) -> APIRouter:
     """The two calls of Change email on the site's Account page. `owners` is the site's record of
-    who added each file, which follows the host to their new email."""
+    who added each file, which follows the host to their new email, as each other site's of theirs
+    does (R256)."""
     router = APIRouter(prefix="/api/host/email")
+
+    def owners_of(each: str) -> Owners:
+        """Who added each file on one of the host's sites: this one's, or another's (R256)."""
+        return owners if each == site else Owners(site_home(each, sites.home))
 
     @router.post("")
     def ask(
@@ -106,22 +111,33 @@ def email_router(
             if found is None:
                 return failed
             email, new_email = found
-            # Only on the host's own site, whose records follow the account: anywhere else the
-            # link is refused and left unused (Codex's review of PR #283).
-            if accounts.site_of(email) != site:
+            # Only on one of the host's own sites, whose records follow the account: anywhere
+            # else the link is refused and left unused (Codex's review of PR #283).
+            theirs = accounts.sites_of(email)
+            if site not in theirs:
                 logger.warning(
                     "Host email not changed",
                     extra={"email": email, "why": "another site's link", "site": site},
                 )
                 return failed
-            # The site's records first, so each follows the account; put back if it can't move.
-            if site != DEFAULT_SITE:
-                sites.set_host(site, email, new_email)
-            owners.rename(email, new_email)
-            if accounts.change_email(token) is None:
-                owners.rename(new_email, email)
-                if site != DEFAULT_SITE:
-                    sites.set_host(site, new_email, email)
+            # The records of each of their sites first (R256), so each follows the account; put
+            # back if it can't move.
+            moved: list[str] = []
+            try:
+                for each in theirs:
+                    moved.append(each)  # put back even if only partly moved
+                    if each != DEFAULT_SITE:
+                        sites.set_host(each, email, new_email)
+                    owners_of(each).rename(email, new_email)
+                changed = accounts.change_email(token) is not None
+            except (HostsUnreadable, OwnersUnreadable, OSError):
+                changed = False
+                logger.exception("Host email not changed", extra={"why": "files unreadable"})
+            if not changed:
+                for each in moved:
+                    owners_of(each).rename(new_email, email)
+                    if each != DEFAULT_SITE:
+                        sites.set_host(each, new_email, email)
                 return failed
         except (HostsUnreadable, OwnersUnreadable, OSError):
             logger.exception("Host email not changed", extra={"why": "files unreadable"})

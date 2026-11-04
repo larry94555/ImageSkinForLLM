@@ -77,6 +77,22 @@ class ActingAsHost:
         logger.info("Admin acting link made", extra={"email": email})
         return token
 
+    def again(self, token: str) -> str | None:
+        """A one-time link for acting as the same host on another of their sites (R256), from
+        an acting token in use, which goes on working; None for one no longer in use."""
+        if self.email_of(token) is None:
+            return None
+        link = secrets.token_urlsafe(32)
+        with self._lock:
+            acting = self._acting.get(key(token))
+            if acting is None:
+                return None
+            self._links[key(link)] = Acting(
+                acting.admin_token, acting.email, self.clock(), acting.back
+            )
+        logger.info("Admin acting link made", extra={"email": acting.email, "from": "acting"})
+        return link
+
     def open(self, link: str, takes: Callable[[str], bool]) -> tuple[str, str] | None:
         """The acting token and the host's email for a link opened where `takes` says its host
         is; the link then works no more. None, and the link kept, when it is opened on another
@@ -184,7 +200,7 @@ def acting_routes(
     @host.get("/{link}", response_model=None)
     def open_link(request: Request, link: str) -> RedirectResponse | JSONResponse:
         root = request.scope.get("root_path", "")
-        opened = acting.open(link, lambda email: accounts.site_of(email) == site)
+        opened = acting.open(link, lambda email: site in accounts.sites_of(email))
         if opened is None:
             return RedirectResponse(f"{root}/#/host/act-as-failed", status_code=303)
         token, _ = opened

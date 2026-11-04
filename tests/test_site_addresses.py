@@ -106,7 +106,6 @@ def test_a_site_is_added_with_its_one_host(
         ("default", "bob@example.com", "kept for the service"),
         ("a", "bob@example.com", "already a site called a"),
         ("b", "nobody@example.com", "No host has signed up"),
-        ("b", "ann@example.com", "already the host of a"),
     ],
 )
 def test_a_site_that_cant_be_added_says_why(
@@ -260,10 +259,12 @@ def test_sites_are_added_and_listed_from_the_command_line(
     with_hosts(tmp_path, "ann@example.com")
     assert cli.main(["site", "add", "a", "--host", "ann@example.com"]) == 0
     assert "Added the site a" in capsys.readouterr().out
-    assert cli.main(["site", "add", "b", "--host", "ann@example.com"]) == 1
-    assert "already the host of a. Nothing changed." in capsys.readouterr().err
+    assert cli.main(["site", "add", "b", "--host", "ann@example.com"]) == 0
+    assert "now has 2 sites, a, b, and signs in once" in capsys.readouterr().out
     assert cli.main(["site", "list"]) == 0
-    assert capsys.readouterr().out == "a: ann@example.com at a.localhost\n"
+    assert capsys.readouterr().out == (
+        "a: ann@example.com at a.localhost\nb: ann@example.com at b.localhost\n"
+    )
 
 
 def test_a_site_cant_be_added_while_the_host_accounts_cant_be_read(

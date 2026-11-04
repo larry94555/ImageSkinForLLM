@@ -547,7 +547,8 @@ async function getAdminHosts(q = "") {
 	const found = await response.json();
 	return {
 		hosts: found.hosts,
-		disabled: found.disabled ?? []
+		disabled: found.disabled ?? [],
+		sites: found.sites ?? {}
 	};
 }
 async function getHostChoices(email) {
@@ -4174,6 +4175,10 @@ function HostProperties() {
 					current.disabled.includes(email) && /* @__PURE__ */ u("span", {
 						className: "host-state",
 						children: "Disabled: read-only for them"
+					}),
+					(current.sites[email]?.length ?? 0) > 0 && /* @__PURE__ */ u("span", {
+						className: "host-sites",
+						children: ["Sites: ", current.sites[email].join(", ")]
 					}),
 					email === selected && /* @__PURE__ */ u(HostChoicesPanel, {
 						email,

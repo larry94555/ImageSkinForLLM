@@ -53,7 +53,8 @@ def test_a_disabled_host_reads_but_changes_nothing(
     assert service.host_accounts.is_disabled(ANN)
     assert boss.get("/api/admin/hosts/properties", params={"email": ANN}).json()["disabled"]
     # The admin view's list says so beside the email (R44d).
-    assert boss.get("/api/admin/hosts").json() == {"hosts": [ANN, BOB], "disabled": [ANN]}
+    hosts = boss.get("/api/admin/hosts").json()
+    assert (hosts["hosts"], hosts["disabled"]) == ([ANN, BOB], [ANN])
 
     # Still signed in, and reading as before.
     assert ann.get("/api/host/session").json()["disabled"] is True

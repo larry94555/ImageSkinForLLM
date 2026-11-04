@@ -58,7 +58,14 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import NO_SITE, TRIAL_USED, HostAccounts, normal_email, trial_cookie
+from imageskin.hosts import (
+    NO_SITE,
+    TRIAL_USED,
+    HostAccounts,
+    HostsUnreadable,
+    normal_email,
+    trial_cookie,
+)
 from imageskin.network import NetworkMonth
 from imageskin.payments import Stripe
 from imageskin.settings_access import SettingsAccess
@@ -600,7 +607,8 @@ class SiteDirectory:
     ) -> bool:
         """Delete the site (R69a): its record, so its subdomain is free at once, and its folder,
         with everything in it. A trial's code is kept, never given again. Its host's account is
-        kept, with no site, so they can still sign in and resume (R69b); their sign-ins end.
+        kept, with no site, so they can still sign in and resume (R69b); their sign-ins end. A
+        host with other sites keeps them, and their sign-ins (R256).
         Any subscription Stripe keeps must be cancelled first (`site_deletion`). False, with
         nothing changed, when it mustn't be deleted (`deletable`), checked again under the lock
         as the record goes, so a payment that came meanwhile always wins, or when its folder
@@ -647,16 +655,27 @@ class SiteDirectory:
                 )
                 return False
             host = str(site.get("host", ""))
-            if host and self._hosts.site_of(host) == name:
-                # Kept with the host's account, so they can start it again (R69c).
-                paid = site.get("subscription") or {}
-                self._hosts.site_deleted(
-                    host,
-                    {
-                        "subdomain": _subdomain(name, site),
-                        "customer": paid.get("customer") or None,
-                        "subscription": paid.get("id") or None,
-                    },
+            try:
+                if host and self._hosts.remove_site(host, name):
+                    pass  # one of the host's several sites (R256): they keep the others
+                elif host and self._hosts.site_of(host) == name:
+                    # Kept with the host's account, so they can start it again (R69c).
+                    paid = site.get("subscription") or {}
+                    self._hosts.site_deleted(
+                        host,
+                        {
+                            "subdomain": _subdomain(name, site),
+                            "customer": paid.get("customer") or None,
+                            "subscription": paid.get("id") or None,
+                        },
+                    )
+            except (HostsUnreadable, OSError) as e:
+                # The site is gone all the same. Its name is given again only once its old
+                # host's account no longer names it (`release_site` in `_add`; Codex's review
+                # of PR #303).
+                logger.error(
+                    "Deleted site's host not updated",
+                    extra={"site": name, "host": host, "error": str(e)},
                 )
         for forget in self.on_deleted:
             forget(name)
@@ -850,7 +869,7 @@ class SiteDirectory:
             )
             if not finish:
                 own = None
-            if own is not None and self._hosts.site_of(email) != own:
+            if own is not None and own not in self._hosts.sites_of(email):
                 self._hosts.set_site(email, own)
         if own is not None:
             folder = site_home(own, self.home)
@@ -864,8 +883,9 @@ class SiteDirectory:
         return code, self._add(code, email, trial=True)
 
     def add(self, name: str, email: str) -> Path:
-        """Add the site, with the host as its one host, and return its folder. SiteError when
-        the name can't be a subdomain or is taken, or the host isn't one or has a site."""
+        """Add the site, with the host as its one host, and return its folder: another of theirs
+        when they have one (R256). SiteError when the name can't be a subdomain or is taken, or
+        the host isn't one."""
         return self._add(name.strip().lower(), email, trial=False)
 
     def _add(
@@ -882,8 +902,10 @@ class SiteDirectory:
             host_site = self._hosts.site_of(email)
             if host_site is None:
                 raise SiteError(f"No host has signed up as {email}.")
-            # A host whose site was deleted (R69a) may have another.
-            if host_site not in (DEFAULT_SITE, NO_SITE):
+            # A host whose site was deleted (R69a) may have another, and a host with a site may
+            # be given another one (R256), which isn't a trial: that is one per email (R66).
+            another = host_site not in (DEFAULT_SITE, NO_SITE)
+            if another and trial:
                 raise SiteError(f"{email} is already the host of {host_site}.")
             used = self._trials_used
             if trial:
@@ -891,6 +913,16 @@ class SiteDirectory:
                     logger.warning("Trial refused: email already used", extra={"email": email})
                     raise TrialUsed(TRIAL_USED)
                 used = [*used, email_key(email)]
+            # No other host's account may still name it, as after a deletion that couldn't
+            # reach hosts.json; refused when that can't be made sure (Codex's review of PR #303).
+            try:
+                self._hosts.release_site(name, email)
+            except OSError as e:
+                logger.error(
+                    "Site not added",
+                    extra={"site": name, "why": "old host not released", "error": str(e)},
+                )
+                raise SiteError("The host accounts could not be saved.") from e
             sites[name] = {
                 "host": email.strip().lower(),
                 "created_at": time.time(),
@@ -899,12 +931,21 @@ class SiteDirectory:
             if trial:
                 sites[name]["trial"] = True
             self._write(sites, used)
-            self._hosts.set_site(email, name)
+            if another:
+                self._hosts.add_site(email, name)
+            else:
+                self._hosts.set_site(email, name)
         folder = site_home(name, self.home)
         folder.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Site added",
-            extra={"site": name, "host": email, "path": str(folder), "trial": trial},
+            extra={
+                "site": name,
+                "host": email,
+                "path": str(folder),
+                "trial": trial,
+                "another": another,
+            },
         )
         return folder
 

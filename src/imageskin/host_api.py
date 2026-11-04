@@ -6,7 +6,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -42,6 +42,7 @@ NOT_SIGNED_IN = "Sign in as a host to do this."
 # one host.
 SITE_HAS_HOST = "This site already has its host. Sign up at the main address instead."
 NO_SITE_MADE = "Your account was made, but its site wasn't. Please try signing in in a minute."
+NOT_YOURS = "That isn't one of your sites."
 ALREADY_CONFIRMED = "Your email address is already confirmed."
 CONFIRM_SUBJECT = "Confirm your email for your me0.ai site"
 
@@ -106,6 +107,7 @@ def host_router(
     subdomain: Callable[[str], str | None] = lambda site: site,
     restart: Callable[[str], str] | None = None,
     days_before_deleting: Callable[[], int] = lambda: 30,
+    acting_link: Callable[[str], str | None] = lambda _: None,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -116,7 +118,9 @@ def host_router(
     `send_email` before managing it (R62b). `trial_used` says whether an email address has had
     its one free trial, and `paused` why a site is paused (R66); `subscribed` whether it is paid
     for (R67). With `restart`, a host whose site was deleted starts it again (R69c): it is given
-    their email and returns the new site's name."""
+    their email and returns the new site's name. A host with several sites (R256) opens each
+    signed in, with a one-time link, made with `acting_link` for the administrator acting as
+    them (R44a)."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -409,6 +413,59 @@ def host_router(
             path="/",
         )
         return response
+
+    @router.get("/sites")
+    def own_sites(request: Request, host: Annotated[Host, Depends(require_host)]) -> dict[str, Any]:
+        """Each of the host's sites (R256), the one used last first, with where it is: what
+        R257's switcher lists. `here` is this one."""
+        return {
+            "sites": [
+                {
+                    "site": each,
+                    "address": site_address(request, site, each, is_trial, subdomain),
+                    "here": each == site,
+                }
+                for each in accounts.sites_of(host.email)
+            ]
+        }
+
+    @router.post("/sites/{name}/open")
+    def open_site(
+        request: Request,
+        name: str,
+        host: Annotated[Host, Depends(require_host)],
+        token: Token = None,
+    ) -> JSONResponse:
+        """Open another of the host's sites signed in (R256): the browser goes to `go_to`, a
+        one-time link that signs them in there, as after a sign-in at another address (R255),
+        since this site's cookie doesn't reach another subdomain. Only their own sites."""
+        start = time.perf_counter()
+        if name not in accounts.sites_of(host.email):
+            logger.warning(
+                "Host site not opened",
+                extra={"email": host.email, "site": name, "why": "not theirs"},
+            )
+            return JSONResponse({"detail": NOT_YOURS}, status_code=404)
+        to = site_address(request, site, name, is_trial, subdomain)
+        if host.acting:
+            link = acting_link(token or "")
+            go_to = f"{to}/api/host/act-as/{link}"
+        else:
+            link = accounts.sign_in_link(host.email)
+            go_to = f"{to}/api/host/sign-in/{link}"
+        if link is None:
+            return JSONResponse({"detail": NOT_SIGNED_IN}, status_code=401)
+        logger.info(
+            "Host site opened",
+            extra={
+                "email": host.email,
+                "here": site,
+                "site": name,
+                "acting": host.acting,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return JSONResponse({"site": name, "go_to": go_to})
 
     @router.post("/sign-out")
     def sign_out(request: Request, token: Token = None) -> JSONResponse:

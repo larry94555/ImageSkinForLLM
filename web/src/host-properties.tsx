@@ -8,6 +8,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useAdmin } from "./admin";
 import {
   actAsHost,
+  type AdminHosts,
   type CustomKind,
   getAdminHosts,
   getHostChoices,
@@ -23,7 +24,7 @@ import { navigation } from "./host";
 // What the server answered, and the search it answered: only the answer for what is in the box
 // now is shown (Codex's review of PR #267), so while a new search is read, the last one's list or
 // message isn't shown under it.
-type Answer = { query: string; hosts: string[]; disabled: string[] } | { query: string; error: string };
+type Answer = ({ query: string } & AdminHosts) | { query: string; error: string };
 
 export function HostProperties() {
   const { refresh } = useAdmin();
@@ -89,6 +90,10 @@ export function HostProperties() {
                 {email}
               </button>
               {current.disabled.includes(email) && <span className="host-state">Disabled: read-only for them</span>}
+              {(current.sites[email]?.length ?? 0) > 0 && (
+                // Each of the host's sites (R256): acting as them and disabling them apply to all.
+                <span className="host-sites">Sites: {current.sites[email].join(", ")}</span>
+              )}
               {/* Keyed by the host, so one host's answer is never shown for another. */}
               {email === selected && (
                 <HostChoicesPanel
@@ -107,7 +112,7 @@ export function HostProperties() {
 
 // The list with one host's state changed, as Disable or Enable saved it (R44d).
 function withDisabled(
-  answer: { query: string; hosts: string[]; disabled: string[] },
+  answer: { query: string } & AdminHosts,
   email: string,
   disabled: boolean,
 ): Answer {

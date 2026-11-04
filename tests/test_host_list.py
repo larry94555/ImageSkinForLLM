@@ -78,8 +78,14 @@ def test_the_administrator_searches_the_hosts(
     assert every.json() == {
         "hosts": ["ann@example.com", "bob@ann.net", "joanne@site.org"],
         "disabled": [],
+        # Each at the main address, as no site was made for them (R256).
+        "sites": {e: ["main address"] for e in EMAILS},
     }
-    assert some.json() == {"hosts": ["ann@example.com"], "disabled": []}
+    assert some.json() == {
+        "hosts": ["ann@example.com"],
+        "disabled": [],
+        "sites": {"ann@example.com": ["main address"]},
+    }
     shown = [r for r in caplog.records if r.message == "Host list shown"]
     assert [(r.matched, r.searched) for r in shown] == [(3, False), (1, True)]  # type: ignore[attr-defined]
     assert all(isinstance(r.__dict__["duration_ms"], float) for r in shown)
