@@ -16,6 +16,7 @@ from imageskin.hosts import (
     LONG_DISPLAY_NAME,
     MAX_DISPLAY_NAME,
     NO_DISPLAY_NAME,
+    UNPRINTABLE_DISPLAY_NAME,
     HostAccounts,
     HostRefused,
     checked_display_name,
@@ -59,15 +60,19 @@ def test_sign_up_keeps_the_display_name_and_the_account_page_changes_it(
     ("name", "says"),
     [
         ("", NO_DISPLAY_NAME),
-        ("  \n ", NO_DISPLAY_NAME),
-        ("Dr.\x00Smith", NO_DISPLAY_NAME),
+        ("   ", NO_DISPLAY_NAME),
+        ("  \n ", UNPRINTABLE_DISPLAY_NAME),
+        ("Dr.\x00Smith", UNPRINTABLE_DISPLAY_NAME),
+        ("Dr.\nSmith", UNPRINTABLE_DISPLAY_NAME),
+        ("Dr.\tSmith", UNPRINTABLE_DISPLAY_NAME),
+        ("Dr. Smith\r", UNPRINTABLE_DISPLAY_NAME),
         ("x" * (MAX_DISPLAY_NAME + 1), LONG_DISPLAY_NAME),
     ],
 )
 def test_a_display_name_that_isnt_one_is_refused(tmp_path: Path, name: str, says: str) -> None:
     with pytest.raises(HostRefused, match=says.replace(".", r"\.")):
         checked_display_name(name)
-    if not name.strip():
+    if not name.strip(" "):
         return  # at sign-up, a blank one is none (above)
     accounts = HostAccounts(tmp_path)
     with pytest.raises(HostRefused, match=says.replace(".", r"\.")):

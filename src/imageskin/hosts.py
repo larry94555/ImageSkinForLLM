@@ -45,6 +45,9 @@ LIBRARY = "library"
 DISPLAY_NAME = "display_name"
 MAX_DISPLAY_NAME = 60
 NO_DISPLAY_NAME = "Enter a display name, such as Dr. Smith."
+UNPRINTABLE_DISPLAY_NAME = (
+    "The display name can't have line breaks, tabs or other special characters."
+)
 LONG_DISPLAY_NAME = f"The display name can be at most {MAX_DISPLAY_NAME} characters."
 
 
@@ -191,8 +194,12 @@ def default_display_name(email: str) -> str:
 def checked_display_name(name: str) -> str:
     """The display name as kept, with its spaces tidied (R259); HostRefused when it is empty or
     too long, or holds a line break or other control character."""
+    # Checked before the spaces are tidied, which would turn a line break or tab into a space
+    # (Codex's review of PR #307).
+    if not name.isprintable():
+        raise HostRefused(UNPRINTABLE_DISPLAY_NAME, "display name not printable")
     shown = " ".join(name.split())
-    if not shown or not shown.isprintable():
+    if not shown:
         raise HostRefused(NO_DISPLAY_NAME, "no display name")
     if len(shown) > MAX_DISPLAY_NAME:
         raise HostRefused(LONG_DISPLAY_NAME, "display name too long")
@@ -365,7 +372,8 @@ class HostAccounts:
         if len(password) < MIN_PASSWORD:
             self._refuse(SHORT_PASSWORD, "password too short", "sign-up", email, address)
         shown = None
-        if display_name is not None and display_name.strip():
+        # Only spaces is none; a line break or other special character is refused, as later.
+        if display_name is not None and display_name.strip(" "):
             try:
                 shown = checked_display_name(display_name)
             except HostRefused as e:
