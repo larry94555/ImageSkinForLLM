@@ -243,14 +243,59 @@ test("a signed-in participant's lesson comes from their account, and changes are
   ).toHaveLength(1);
 });
 
-test("a lesson begun before signing up becomes the account's", async () => {
+test("a lesson begun just before signing up becomes the new account's", async () => {
+  localStorage.setItem(LESSON_KEY, JSON.stringify(LESSON));
+  const s = server();
+  window.location.hash = "#/sign-up";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Sign up" });
+  fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
+  fireEvent.input(screen.getByLabelText(/^Password \(at least/), {
+    target: { value: "a long secret" },
+  });
+  fireEvent.input(screen.getByLabelText("Password again"), {
+    target: { value: "a long secret" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+  });
+  await waitFor(() => expect(reloaded).toHaveBeenCalled());
+  expect(s.kept).toEqual({ lesson: LESSON });
+});
+
+test("another person's lesson left on the browser never reaches an account (Codex's review of PR #308)", async () => {
+  // Someone's lesson is still here, though their cookie is gone; Pat's account has none.
   localStorage.setItem(LESSON_KEY, JSON.stringify(LESSON));
   const s = server({ participant: true });
   window.location.hash = "#/sign-in";
   render(<App />);
   await screen.findByText(/You are signed in with/);
-  await waitFor(() => expect(s.kept).toEqual({ lesson: LESSON }));
-  expect(JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null")).toEqual(
-    LESSON,
+  await waitFor(() => expect(localStorage.getItem(LESSON_KEY)).toBeNull());
+  expect(s.kept).toEqual({});
+  expect(
+    s.asked.some((a) => a.startsWith("PUT /api/participant/progress")),
+  ).toBe(false);
+});
+
+test("signing in to an account puts its lesson in place of the browser's", async () => {
+  localStorage.setItem(
+    LESSON_KEY,
+    JSON.stringify({ topic: "Someone else's", part: 0 }),
   );
+  const s = server();
+  window.location.hash = "#/sign-in";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Sign in" });
+  fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
+  fireEvent.input(screen.getByLabelText("Password"), {
+    target: { value: "a long secret" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  });
+  await waitFor(() => expect(reloaded).toHaveBeenCalled());
+  // Signing in never sends what the browser had.
+  expect(
+    s.asked.some((a) => a.startsWith("PUT /api/participant/progress")),
+  ).toBe(false);
 });

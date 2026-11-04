@@ -11205,13 +11205,11 @@ function ChoiceIcon({ href }) {
 async function followProgress() {
 	const started = performance.now();
 	const kept = await getParticipantProgress();
-	const here = readProgress();
-	if (Object.keys(kept).length > 0) writeProgress(kept);
-	else if (Object.keys(here).length > 0) await putParticipantProgress(here);
+	writeProgress(kept);
 	syncProgress((now) => {
 		putParticipantProgress(now).catch((e) => console.error("Could not keep the progress for the account", e));
 	});
-	console.info(`Participant progress followed (${Object.keys(kept).length > 0 ? "from the account" : "from this browser"}, ${Math.round(performance.now() - started)} ms)`);
+	console.info(`Participant progress followed (${Object.keys(kept).join(", ") || "none kept"}, ${Math.round(performance.now() - started)} ms)`);
 }
 var reloading = { reload: () => window.location.reload() };
 var SIGNED_OUT = {
@@ -11243,6 +11241,10 @@ function ParticipantProvider({ children }) {
 		const started = performance.now();
 		const signedIn = await (kind === "up" ? signUpAsParticipant : signInAsParticipant)(email, password);
 		console.info(`Participant signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		if (kind === "up") {
+			const here = readProgress();
+			if (Object.keys(here).length > 0) await putParticipantProgress(here).catch((e) => console.error("Could not keep the lesson for the new account", e));
+		}
 		setSession(signedIn);
 	}
 	const shared = {

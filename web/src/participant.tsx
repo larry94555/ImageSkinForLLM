@@ -26,22 +26,21 @@ import {
   writeProgress,
 } from "./progress";
 
-// The signed-in participant's progress (R46): what the server kept is put on this browser, or,
-// when it kept none, what this browser has (a lesson begun before signing up) becomes the
-// account's. Then each change is sent.
+// The signed-in participant's progress (R46): what the account kept is put on this browser in
+// place of whatever is here, even when it kept none, so one person's lesson left on a browser
+// never shows to, or is saved for, another account (Codex's review of PR #308). Then each change
+// is sent.
 async function followProgress(): Promise<void> {
   const started = performance.now();
   const kept = (await getParticipantProgress()) as Kept;
-  const here = readProgress();
-  if (Object.keys(kept).length > 0) writeProgress(kept);
-  else if (Object.keys(here).length > 0) await putParticipantProgress(here);
+  writeProgress(kept);
   syncProgress((now) => {
     putParticipantProgress(now).catch((e: unknown) =>
       console.error("Could not keep the progress for the account", e),
     );
   });
   console.info(
-    `Participant progress followed (${Object.keys(kept).length > 0 ? "from the account" : "from this browser"}, ${Math.round(performance.now() - started)} ms)`,
+    `Participant progress followed (${Object.keys(kept).join(", ") || "none kept"}, ${Math.round(performance.now() - started)} ms)`,
   );
 }
 
@@ -102,6 +101,16 @@ export function ParticipantProvider({
     console.info(
       `Participant signed ${kind} (${Math.round(performance.now() - started)} ms)`,
     );
+    if (kind === "up") {
+      // A lesson begun on this browser just before signing up becomes the new account's; only
+      // here, as the account was made this moment by this browser.
+      const here = readProgress();
+      if (Object.keys(here).length > 0) {
+        await putParticipantProgress(here).catch((e: unknown) =>
+          console.error("Could not keep the lesson for the new account", e),
+        );
+      }
+    }
     setSession(signedIn);
   }
 
