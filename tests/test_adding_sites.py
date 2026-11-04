@@ -30,7 +30,7 @@ def subscribed_trial(tmp_path: Path, fake: FakeStripe | None = None):  # type: i
     """Dan's trial site, paid for by Stripe customer cus_1: Stripe, his browser, the site's path
     and code."""
     fake = fake or FakeStripe()
-    stripe = Stripe("sk_test", SECRET, "price_5gb", fake, delete=fake.delete)
+    stripe = Stripe("sk_test", SECRET, "price_5gb", fake, delete=fake.delete, get=fake.get)
     sites, _, service = served(tmp_path, stripe)
     dan, site = a_trial(sites, tmp_path / "home")
     code = site.removeprefix("/t/")
@@ -201,21 +201,72 @@ def test_a_checkout_asked_for_again_is_the_same_one_and_a_second_payment_is_canc
     with caplog.at_level(logging.INFO):
         assert send(main, completed("dans-two", "sub_b")).is_success
     assert "Second subscription for a site" in caplog.messages
+    assert "Second payment refunded" in caplog.messages
     assert fake.deleted == ["https://api.stripe.com/v1/subscriptions/sub_b"]
+    # Its first payment is given back: one net payment for the site.
+    assert list(fake.refunds) == ["refund-sub_b"]
+    assert fake.refunds["refund-sub_b"]["payment_intent"] == "pi_sub_b"
+    assert fake.refunds["refund-sub_b"]["reason"] == "duplicate"
     assert (service.sites.subscription("dans-two") or {})["id"] == "sub_a"
     # The same event again (Stripe resends it) changes nothing more.
     assert send(main, completed("dans-two", "sub_a")).is_success
     assert (service.sites.subscription("dans-two") or {})["id"] == "sub_a"
 
 
-def test_a_second_payment_stripe_cant_cancel_yet_is_tried_again(tmp_path: Path) -> None:
+def test_a_second_payment_stripe_cant_refund_or_cancel_yet_is_done_once_when_sent_again(
+    tmp_path: Path,
+) -> None:
+    """Stripe can't be reached as the second payment is refunded, then as it is cancelled: the
+    event is answered 503 each time, so Stripe sends it again, and once both work the payment
+    is refunded once and the subscription ended, the first one kept all along."""
     fake, sites, service, dan, site, code = subscribed_trial(tmp_path)
     main = TestClient(sites, base_url=MAIN)
+    fake.refund_fails = OSError("Stripe not reached")
+    assert send(main, completed(code, "sub_2")).status_code == 503
+    assert fake.refunds == {} and fake.deleted == []
+    fake.refund_fails = None
 
     def unreachable(url: str, key: str) -> dict[str, object]:
         raise OSError("Stripe not reached")
 
     object.__setattr__(service.payments, "delete", unreachable)
-    # Stripe sends the event again until it is answered 2xx.
     assert send(main, completed(code, "sub_2")).status_code == 503
+    assert list(fake.refunds) == ["refund-sub_2"]  # refunded, not cancelled yet
+    object.__setattr__(service.payments, "delete", fake.delete)
+    assert send(main, completed(code, "sub_2")).is_success
+    assert send(main, completed(code, "sub_2")).is_success  # and once more, as Stripe may
+    # One refund at Stripe however often it was asked for, by its idempotency key.
+    assert list(fake.refunds) == ["refund-sub_2"]
+    assert fake.deleted[-1] == "https://api.stripe.com/v1/subscriptions/sub_2"
     assert (service.sites.subscription(code) or {})["id"] == "sub_1"
+
+
+def test_a_refund_reads_an_invoice_by_its_id_and_refunds_nothing_unpaid() -> None:
+    posted: list[tuple[str, dict[str, str], str | None]] = []
+    invoices: dict[str, dict[str, object]] = {
+        "in_paid": {"charge": "ch_1", "amount_paid": 199},
+        "in_free": {"payment_intent": None, "amount_paid": 0},
+    }
+
+    def get(url: str, key: str) -> dict[str, object]:
+        if "/invoices/" in url:
+            return dict(invoices[url.rsplit("/", 1)[1]])
+        sub = url.rsplit("/", 1)[1].split("?")[0]
+        return {"latest_invoice": "in_paid" if sub == "sub_paid" else "in_free"}
+
+    def post(
+        url: str, form: dict[str, str], key: str, idempotency: str | None = None
+    ) -> dict[str, object]:
+        posted.append((url, form, idempotency))
+        return {"id": "re_1"}
+
+    stripe = Stripe("sk_test", SECRET, "price_5gb", post, get=get)
+    assert stripe.refund_first_payment("a", "sub_paid") == "re_1"
+    assert posted == [
+        (
+            "https://api.stripe.com/v1/refunds",
+            {"charge": "ch_1", "reason": "duplicate", "metadata[site]": "a"},
+            "refund-sub_paid",
+        )
+    ]
+    assert stripe.refund_first_payment("a", "sub_free") is None and len(posted) == 1

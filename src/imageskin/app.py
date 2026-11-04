@@ -1256,9 +1256,14 @@ def create_app(
                         ):
                             logger.error("Subscription for no site", extra={"site": site})
                     except PaidTwice:
-                        # Ended at once, so the host pays for one; Stripe sends the event
-                        # again until this works (Codex's review of PR #304).
+                        # Its first payment refunded and it ended at once, so the host pays for
+                        # one; Stripe sends the event again until both work, and each is
+                        # asked for so that doing it twice is doing it once (Codex's review
+                        # of PR #304).
                         try:
+                            # Refunded first: a subscription that is already cancelled can
+                            # still be read, and its refund asked for again.
+                            service.payments.refund_first_payment(site, str(thing["subscription"]))
                             service.payments.cancel_now(site, str(thing["subscription"]))
                         except PaymentError as e:
                             raise HTTPException(status_code=503, detail=str(e)) from e

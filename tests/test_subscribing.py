@@ -60,11 +60,20 @@ class FakeStripe:
         self.keys: list[str | None] = []
         self.lose_answer = False  # Stripe makes the checkout, but its answer is lost
         self.deleted: list[str] = []
+        self.got: list[str] = []
+        # Refunds by idempotency key, as Stripe keeps them, and a failure to make one.
+        self.refunds: dict[str, dict[str, Any]] = {}
+        self.refund_fails: Exception | None = None
 
     def __call__(
         self, url: str, form: dict[str, str], key: str, idempotency: str | None = None
     ) -> dict[str, Any]:
         self.posted.append((url, form, key))
+        if url.endswith("/v1/refunds"):
+            if self.refund_fails is not None:
+                raise self.refund_fails
+            refund = {"id": f"re_{len(self.refunds) + 1}", **form}
+            return self.refunds.setdefault(str(idempotency), refund)
         self.keys.append(idempotency)
         if self.fail is not None:
             raise self.fail
@@ -82,6 +91,12 @@ class FakeStripe:
     def delete(self, url: str, key: str) -> dict[str, Any]:
         self.deleted.append(url)
         return {"id": url.rsplit("/", 1)[1], "status": "canceled"}
+
+    def get(self, url: str, key: str) -> dict[str, Any]:
+        """A subscription, with the invoice its first payment paid, $1.99."""
+        self.got.append(url)
+        sub = url.rsplit("/", 1)[1].split("?")[0]
+        return {"id": sub, "latest_invoice": {"payment_intent": f"pi_{sub}", "amount_paid": 199}}
 
 
 # The service last served, whose sites' tokens a completed checkout carries, as Stripe sends back

@@ -243,6 +243,67 @@ class Stripe:
             },
         )
 
+    def refund_first_payment(self, site: str, subscription_id: str) -> str | None:
+        """Refund what a subscription was first charged, its latest invoice's payment: a second
+        subscription for a site already paid for (Codex's review of PR #304). The refund's id,
+        or None when nothing was paid. Asked again, as when Stripe resends the event, Stripe
+        answers the same refund, by its idempotency key, so the payment is never refunded
+        twice. PaymentError when Stripe can't be reached or refuses."""
+        start = time.perf_counter()
+        try:
+            found = self.get(
+                f"{API}/subscriptions/{subscription_id}?expand[]=latest_invoice", self.secret_key
+            )
+            invoice = found.get("latest_invoice") or {}
+            if isinstance(invoice, str):
+                invoice = self.get(f"{API}/invoices/{invoice}", self.secret_key)
+            paid = {
+                key: str(invoice[key])
+                for key in ("payment_intent", "charge")
+                if invoice.get(key) and isinstance(invoice[key], str)
+            }
+            if not paid or not invoice.get("amount_paid"):
+                logger.warning(
+                    "Nothing to refund", extra={"site": site, "subscription": subscription_id}
+                )
+                return None
+            how = (
+                {"payment_intent": paid["payment_intent"]}
+                if "payment_intent" in paid
+                else {"charge": paid["charge"]}
+            )
+            refund = self.post(
+                f"{API}/refunds",
+                {**how, "reason": "duplicate", "metadata[site]": site},
+                self.secret_key,
+                f"refund-{subscription_id}",
+            )
+        except urllib.error.HTTPError as e:
+            logger.error(
+                "Stripe refused the refund",
+                extra={
+                    "site": site,
+                    "subscription": subscription_id,
+                    "status": e.code,
+                    "error": e.read()[:500].decode(errors="replace"),
+                },
+            )
+            raise PaymentError(UNAVAILABLE) from e
+        except (OSError, ValueError) as e:
+            logger.error("Stripe not reached", extra={"site": site, "error": str(e)})
+            raise PaymentError(UNAVAILABLE) from e
+        logger.info(
+            "Second payment refunded",
+            extra={
+                "site": site,
+                "subscription": subscription_id,
+                "refund": refund.get("id"),
+                "amount": invoice.get("amount_paid"),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return str(refund.get("id"))
+
     def card_of(self, site: str, subscription_id: str | None) -> str | None:
         """The card the site's last subscription was paid with (R69b): its payment method's id,
         or None when Stripe has none for it, so the customer's own default is used."""
