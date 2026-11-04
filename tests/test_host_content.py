@@ -5,8 +5,10 @@ and built once, and each site sees only the PDFs it uses; another host's sites n
 import io
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -19,15 +21,20 @@ from imageskin.app import create_app
 from imageskin.content import ContentStore
 from imageskin.host_content import (
     LIBRARIES_FOLDER,
+    Libraries,
+    Library,
     PdfSites,
+    SiteContent,
     delete_files,
     library_home,
     move_site_pdfs,
 )
 from imageskin.hosts import LIBRARY
 from imageskin.pdf_reading import Piece, Progress, Reading
+from imageskin.reading_job import ReadingJob
 from imageskin.sites import Service, SiteApps, site_home, site_matcher
-from imageskin.uploads import PhotoResult
+from imageskin.uploads import PhotoResult, UploadError
+from imageskin.wiki_job import WikiJob
 
 pytestmark = pytest.mark.real_hosts
 
@@ -304,3 +311,118 @@ def test_the_hosts_folder_is_named_once_and_kept_when_their_email_changes(tmp_pa
     assert accounts.library_of("ann2@example.com", make=False) == key
     with pytest.raises(ValueError):
         library_home(s.home, "../x")
+
+
+def shared_pdf(s: Served) -> tuple[str, Path]:
+    """A PDF on Ann's sites a and b, read and built: its id and Ann's folder."""
+    ann_a = s.host(A, ANN)
+    s.host(B, ANN)
+    pdf = ann_a.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))}).json()["id"]
+    s.settle("a")
+    PdfSites(s.library() / "content").add(pdf, "b")
+    return pdf, s.library()
+
+
+def reopened(s: Served, folder: Path) -> Library:
+    """Ann's folder opened again, as at the next start."""
+
+    def make(store: ContentStore) -> Library:
+        readings = ReadingJob(store, s.reading)
+        return Library(
+            folder,
+            store,
+            readings,
+            WikiJob(store, readings, one_page_per_piece),
+            PdfSites(store.root),
+        )
+
+    return Libraries().open(folder, make)
+
+
+def test_two_sites_taking_a_pdf_off_at_once_delete_it_once(tmp_path: Path) -> None:
+    """Codex's review of PR #305: both sites see the other still using it before either takes
+    it off; the one whose change leaves no site deletes it, so it is never left behind."""
+    s = Served(tmp_path)
+    pdf, folder = shared_pdf(s)
+    library = s.service.libraries.find(folder)
+    assert library is not None
+    both = threading.Barrier(2)
+    checked = SiteContent.uses
+
+    def uses(self: SiteContent, pdf_id: str | None) -> bool:
+        found = checked(self, pdf_id)
+        both.wait(timeout=5)  # each has seen the PDF on both sites
+        return found
+
+    results: list[bool] = []
+    with patch.object(SiteContent, "uses", uses):
+        threads = [
+            threading.Thread(
+                target=lambda site=site: results.append(SiteContent(library, site).remove(pdf))
+            )
+            for site in ("a", "b")
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+    assert results == [True, True]
+    assert s.uses() == {}
+    assert not list((folder / "content").rglob(f"{pdf}*"))
+
+
+def test_a_record_that_cant_be_saved_leaves_the_pdf_as_it_was(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #305: the last site's Remove can't save the record; nothing is
+    deleted, the PDF is still on the site, and still there once the folder is opened again."""
+    s = Served(tmp_path)
+    ann_a = s.host(A, ANN)
+    pdf = ann_a.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))}).json()["id"]
+    s.settle("a")
+    with patch.object(PdfSites, "change", side_effect=OSError("disk full")):
+        with caplog.at_level(logging.ERROR):
+            assert ann_a.delete(f"/api/content/{pdf}").status_code == 500
+    assert "PDF not taken off the site" in caplog.messages
+    assert s.uses() == {pdf: ["a"]}
+    assert seen(ann_a)["pdfs"] == ["a.pdf"] and seen(ann_a)["pages"] == [f"{pdf}-p1"]
+    library = reopened(s, s.library())
+    assert library.store.get(pdf) is not None
+    assert (s.library() / "content" / "wiki" / f"{pdf}.json").is_file()
+
+
+def test_files_that_cant_be_deleted_are_collected_when_the_folder_is_opened_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The record is saved first: a PDF whose files can't be deleted then, or whose deletion a
+    stop cut short, is no site's, and goes the next time the host's folder is opened."""
+    s = Served(tmp_path)
+    ann_a = s.host(A, ANN)
+    pdf = ann_a.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))}).json()["id"]
+    s.settle("a")
+    refused = UploadError("The PDF could not be removed. Try again.", status=500)
+    with patch.object(ContentStore, "remove", side_effect=refused):
+        with caplog.at_level(logging.ERROR):
+            assert ann_a.delete(f"/api/content/{pdf}").is_success
+    assert "Unused PDF kept until the host's folder is opened again" in caplog.messages
+    assert s.uses() == {} and seen(ann_a)["pdfs"] == []
+    content = s.library() / "content"
+    assert (content / "pdfs" / f"{pdf}.pdf").is_file()
+    # A stop after the PDF went but before what was made from it: only those files are left.
+    other = "0" * 32
+    (content / "read" / f"{other}.json").write_text("{}")
+    with caplog.at_level(logging.WARNING):
+        reopened(s, s.library())
+    assert "Unused PDFs collected" in caplog.messages
+    assert not list(content.rglob(f"{pdf}*")) and not list(content.rglob(f"{other}*"))
+    assert (content / "wiki" / "pace.json").is_file()  # not a PDF's
+
+
+def test_nothing_is_collected_while_the_record_cant_be_read(tmp_path: Path) -> None:
+    s = Served(tmp_path)
+    ann_a = s.host(A, ANN)
+    pdf = ann_a.post("/api/content", files={"file": ("a.pdf", io.BytesIO(PDF))}).json()["id"]
+    s.settle("a")
+    (s.library() / "content" / "sites.json").write_text("not json")
+    assert reopened(s, s.library()).collect() == []
+    assert (s.library() / "content" / "pdfs" / f"{pdf}.pdf").is_file()

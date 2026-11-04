@@ -176,6 +176,35 @@ class Library:
             self.wiki.forget(pdf_id)
         return removed
 
+    def collect(self) -> list[str]:
+        """Delete every PDF in the host's folder that no site uses, with all made from it: one
+        whose last site took it off as its files couldn't be deleted, or as the server stopped
+        (Codex's review of PR #305). Run as the folder is opened, before any site uses it, and
+        never while the record can't be read. The PDFs collected."""
+        try:
+            used = set(self.uses.read())
+        except UsesUnreadable:
+            return []
+        found = {
+            path.name.split(".", 1)[0]
+            for folder in PDF_FOLDERS
+            if (self.folder / "content" / folder).is_dir()
+            for path in (self.folder / "content" / folder).iterdir()
+        }
+        unused = sorted(i for i in found if _is_id(i) and i not in used)
+        for pdf_id in unused:
+            try:
+                if not self.delete(pdf_id):  # its files made from it, with no PDF left
+                    self.readings.forget(pdf_id)
+                    self.wiki.forget(pdf_id)
+            except (UploadError, OSError) as e:
+                logger.error("Unused PDF not collected", extra={"id": pdf_id, "error": str(e)})
+        if unused:
+            logger.warning(
+                "Unused PDFs collected", extra={"folder": str(self.folder), "pdfs": unused}
+            )
+        return unused
+
     def site_deleted(self, site: str) -> list[str]:
         """A deleted site's PDFs (R69a): taken off it, and deleted when no other site of the
         host uses them. The PDFs deleted; each one that can't be is logged, and kept."""
@@ -210,6 +239,7 @@ class Libraries:
             if library is None:
                 start = time.perf_counter()
                 library = make(ContentStore(folder))
+                library.collect()
                 self._made[folder] = library
                 logger.info(
                     "Host's PDFs opened",
@@ -249,6 +279,10 @@ class Libraries:
                     deleted.append(pdf_id)
             logger.info("Deleted site's PDFs taken off", extra={"site": site, "deleted": unused})
         return deleted
+
+
+def _is_id(name: str) -> bool:
+    return len(name) == 32 and all(c in "0123456789abcdef" for c in name)
 
 
 def _readable(uses: PdfSites) -> dict[str, list[str]]:
@@ -363,20 +397,31 @@ class SiteContent:
 
     def remove(self, pdf_id: str) -> bool:
         """Take the PDF off this site: deleted, with all made from it, once no other site of
-        the host uses it. False when this site doesn't use it."""
+        the host uses it. False when this site doesn't use it.
+
+        The record is changed first, and whether this was the PDF's last site is read from that
+        same change, under its lock, so two sites taking it off at once never both leave it to
+        the other (Codex's review of PR #305). Only then are the files deleted: a record that
+        can't be saved leaves the PDF as it was, and files that can't be deleted, or a stop
+        before they are, are collected the next time the host's folder is opened."""
         if not self.uses(pdf_id):
             return False
-        others = [s for s in self._uses.sites_of(pdf_id) if s != self.site]
-        if not others:
-            self._library.delete(pdf_id)  # UploadError, with nothing changed, if it can't be
         try:
-            self._uses.take_off(pdf_id, self.site)
+            left = self._uses.take_off(pdf_id, self.site)
         except (UsesUnreadable, OSError) as e:
             logger.error("PDF not taken off the site", extra={"site": self.site, "error": str(e)})
             raise UploadError(NOT_SAVED, status=500) from e
         logger.info(
-            "PDF taken off the site", extra={"site": self.site, "id": pdf_id, "still_on": others}
+            "PDF taken off the site", extra={"site": self.site, "id": pdf_id, "still_on": left}
         )
+        if not left:
+            try:
+                self._library.delete(pdf_id)
+            except UploadError:
+                logger.error(
+                    "Unused PDF kept until the host's folder is opened again",
+                    extra={"site": self.site, "id": pdf_id},
+                )
         return True
 
 
