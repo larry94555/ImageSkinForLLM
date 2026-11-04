@@ -21,6 +21,8 @@ from imageskin.sites import trial_cookies_in
 pytestmark = pytest.mark.real_hosts
 
 DAN, EVE = "dan@example.com", "eve@example.com"
+# The site's host, by the part of their email before the @ (R259).
+NAMED = {"host_name": "dan", "display_name": "dan"}
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +66,7 @@ def test_signing_up_makes_a_trial_site_and_signs_in_there(
     assert created.__dict__["trial"] == code and "duration_ms" in created.__dict__
     # Signed in at the new site's path, and not at the main address.
     session = browser.get(f"/t/{code}/api/host/session").json()
-    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True}
+    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True, **NAMED}
     assert browser.get("/api/host/session").json()["signed_in"] is False
     # The host's pages there are theirs, once they confirm their email (R62b).
     assert browser.get(f"/t/{code}/api/host/me").status_code == 401
@@ -195,7 +197,7 @@ def test_signing_up_again_finishes_a_site_that_stopped_partway(
     trials = [n for n, s in service.sites._load().items() if s.get("trial")]
     assert trials == [code]
     session = browser.get(f"/t/{code}/api/host/session").json()
-    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True}
+    assert session == {"signed_in": True, "email": DAN, "confirmed": False, "trial": True, **NAMED}
 
 
 def test_signing_up_again_with_a_site_that_isnt_a_trial_is_refused(tmp_path: Path) -> None:

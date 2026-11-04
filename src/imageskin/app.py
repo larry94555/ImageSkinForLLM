@@ -126,6 +126,7 @@ from imageskin.hosts import (
     ACT_PREFIX,
     DEFAULT_SITE,
     NO_SITE,
+    SITE,
     Host,
     HostsUnreadable,
     normal_email,
@@ -677,6 +678,20 @@ def library_folder_of(service: Service, site: str) -> Path | None:
     return library_home(service.home, key) if key else None
 
 
+def host_of_site(service: Service, name: str) -> str | None:
+    """The email of the site's host, for their display name (R259): the one the site was made
+    for, or at the main address the one host whose site it is, as on a computer of its own."""
+    found = service.sites.host(name)
+    if found or name != DEFAULT_SITE:
+        return found
+    theirs = [
+        email
+        for email, account in service.host_accounts.accounts().items()
+        if account.get(SITE, DEFAULT_SITE) == DEFAULT_SITE
+    ]
+    return theirs[0] if len(theirs) == 1 else None
+
+
 def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
@@ -898,6 +913,7 @@ def create_app(
         restart=service.sites.restart,
         days_before_deleting=lambda: admin_settings.current.days_before_deleting,
         acting_link=service.acting.again if service.acting else lambda _: None,
+        site_host=lambda name: host_of_site(service, name),
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

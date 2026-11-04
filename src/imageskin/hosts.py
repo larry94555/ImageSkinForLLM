@@ -40,6 +40,12 @@ SITE = "site"  # the host's site, kept with the host; none for the main address'
 SITES = "sites"
 # The name of the host's folder beside their sites, where their PDFs are kept once (R258).
 LIBRARY = "library"
+# The name participants and visitors see for the host, in place of their email (R259). A host
+# with none is shown the part of their email before the @.
+DISPLAY_NAME = "display_name"
+MAX_DISPLAY_NAME = 60
+NO_DISPLAY_NAME = "Enter a display name, such as Dr. Smith."
+LONG_DISPLAY_NAME = f"The display name can be at most {MAX_DISPLAY_NAME} characters."
 
 
 def sites_in(account: dict[str, Any]) -> list[str]:
@@ -175,6 +181,22 @@ def trial_cookie(code: str) -> str:
 
 def normal_email(email: str) -> str:
     return email.strip().lower()
+
+
+def default_display_name(email: str) -> str:
+    """What a host who hasn't set a display name is called (R259): their email before the @."""
+    return normal_email(email).split("@", 1)[0]
+
+
+def checked_display_name(name: str) -> str:
+    """The display name as kept, with its spaces tidied (R259); HostRefused when it is empty or
+    too long, or holds a line break or other control character."""
+    shown = " ".join(name.split())
+    if not shown or not shown.isprintable():
+        raise HostRefused(NO_DISPLAY_NAME, "no display name")
+    if len(shown) > MAX_DISPLAY_NAME:
+        raise HostRefused(LONG_DISPLAY_NAME, "display name too long")
+    return shown
 
 
 def token_key(token: str) -> str:
@@ -323,16 +345,31 @@ class HostAccounts:
         logger.info("Host email confirmed", extra={"email": email})
         return email
 
-    def sign_up(self, email: str, password: str, address: str, confirm: bool = False) -> str:
+    def sign_up(
+        self,
+        email: str,
+        password: str,
+        address: str,
+        confirm: bool = False,
+        display_name: str | None = None,
+    ) -> str:
         """Make a host account and sign it in, returning the sign-in's token; HostRefused when
-        the email isn't one, the password is too short or the email is already signed up. With
-        `confirm`, the host is unconfirmed until they use a confirmation link (R62b)."""
+        the email isn't one, the password is too short, the display name isn't one (R259) or
+        the email is already signed up. With `confirm`, the host is unconfirmed until they use
+        a confirmation link (R62b). With no `display_name`, the host is shown by their email
+        before the @ until they set one."""
         start = time.perf_counter()
         email = normal_email(email)
         if not EMAIL.fullmatch(email):
             self._refuse(BAD_EMAIL, "not an email address", "sign-up", email, address)
         if len(password) < MIN_PASSWORD:
             self._refuse(SHORT_PASSWORD, "password too short", "sign-up", email, address)
+        shown = None
+        if display_name is not None and display_name.strip():
+            try:
+                shown = checked_display_name(display_name)
+            except HostRefused as e:
+                self._refuse(str(e), e.reason, "sign-up", email, address)
         # Hashed before the lock, as it takes about 50 ms.
         password_hash = hash_password(password)
         with self._lock:
@@ -341,6 +378,8 @@ class HostAccounts:
                 self._refuse(EMAIL_TAKEN, "email already signed up", "sign-up", email, address)
             data = {**data, "hosts": {**data["hosts"]}, "sessions": {**data["sessions"]}}
             data["hosts"][email] = {"password_hash": password_hash, "created_at": self.clock()}
+            if shown is not None:
+                data["hosts"][email][DISPLAY_NAME] = shown
             if confirm:
                 data["hosts"][email][CONFIRMED] = False
             token = self._new_sign_in(data, email)
@@ -768,6 +807,36 @@ class HostAccounts:
             self._save({**data, "hosts": {**data["hosts"], email: {**account, LIBRARY: key}}})
         logger.info("Host's PDF folder named", extra={"email": email, "library": key})
         return key
+
+    def display_name_of(self, email: str) -> str | None:
+        """The name participants and visitors see for the host (R259): the one they set, else
+        their email before the @; None when there is no such host."""
+        email = normal_email(email)
+        with self._lock:
+            account = self._load()["hosts"].get(email)
+        if account is None:
+            return None
+        return str(account.get(DISPLAY_NAME) or default_display_name(email))
+
+    def set_display_name(self, email: str, name: str) -> str | None:
+        """Change the host's display name (R259), returning it as kept; HostRefused when it
+        isn't one, None when there is no such host."""
+        email = normal_email(email)
+        shown = checked_display_name(name)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if account is None:
+                logger.warning("Display name not set", extra={"email": email, "why": "no host"})
+                return None
+            old = account.get(DISPLAY_NAME)
+            account = {**account, DISPLAY_NAME: shown}
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        logger.info(
+            "Host display name set",
+            extra={"email": email, "display_name": shown, "was_set": old is not None},
+        )
+        return shown
 
     def sites_of(self, email: str) -> list[str]:
         """Every site of the host (R256), the one used last first; none for no such host or
