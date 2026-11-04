@@ -149,6 +149,7 @@ from imageskin.participant_api import give_cookie, participant_router
 from imageskin.participant_policy import (
     ParticipantPolicies,
     PolicyUnreadable,
+    allowed_sites,
     landing_site,
     participant_policy_router,
 )
@@ -360,6 +361,19 @@ this_visitor: ContextVar[str | None] = ContextVar("this_visitor", default=None)
 # A paused site's notice (R66, R69), and the calls its visitors still make: its host's sign-in and
 # account pages, the administrator's, and what the page reads to say it is paused.
 PAUSED_WORDS = "This site is paused."
+# A signed-in participant on one of the host's sites the host's policy doesn't let them open
+# (R262): all they are told, naming neither the host nor anything of the site.
+NOT_ACTIVE_WORDS = "This subdomain is not yet active -- check with the host on its status."
+# What such a participant may still call: their own sign-in and sign-out, and the host's and
+# administrator's sign-ins, so someone else can sign in on that browser.
+NOT_ACTIVE_OPEN = (
+    "/api/participant/session",
+    "/api/participant/sign-in",
+    "/api/participant/sign-up",
+    "/api/participant/sign-out",
+    "/api/host/sign-in",
+    "/api/admin/",
+)
 PAUSED_OPEN = ("/api/host/", "/api/admin/")
 PAUSED_READS = {"/api/consent", "/api/settings", "/api/settings/access", "/api/startup"}
 VISITOR_VIDEOS_FROM = 1_000_000  # visitors' reply videos are numbered from here
@@ -800,6 +814,27 @@ def create_app(
         )
         return JSONResponse({"detail": PAUSED_WORDS}, status_code=403)
 
+    def not_allowed_refusal(request: Request, token: str | None) -> JSONResponse | None:
+        """For a signed-in participant the host's policy doesn't let open this site (R262), any
+        call but NOT_ACTIVE_OPEN: refused with NOT_ACTIVE_WORDS, and logged. A host signed in
+        here is never refused."""
+        path = re.sub(r"^/t/[^/]+", "", request.url.path)
+        if not token or not path.startswith("/api/") or path.startswith(NOT_ACTIVE_OPEN):
+            return None
+        found = participants.participant(token)
+        if found is None or participant_allowed(request, found.email):
+            return None
+        logger.warning(
+            "Participant not allowed here",
+            extra={
+                "site": host_site,
+                "email": found.email,
+                "method": request.method,
+                "path": path,
+            },
+        )
+        return JSONResponse({"detail": NOT_ACTIVE_WORDS}, status_code=403)
+
     @app.middleware("http")
     async def log_requests(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -815,7 +850,7 @@ def create_app(
         # host's in its place, keeping the same sign-in.
         token, old_cookie = participants.token_in(request.cookies)
         # A paused site (R66, R69) answers its visitors with a notice; its host still uses it.
-        refused = paused_refusal(request)
+        refused = paused_refusal(request) or not_allowed_refusal(request, token)
         if refused is not None:
             return refused
         if re.sub(r"^/t/[^/]+", "", request.url.path).startswith("/api/chat") and (
@@ -1387,6 +1422,21 @@ def create_app(
             request, host_site, name, service.sites.is_trial, service.sites.subdomain
         )
 
+    def participant_allowed(request: Request, email: str) -> bool:
+        """Whether the host's policy lets the participant open this site (R261, R262), or a
+        host is signed in here. A site with no host, or a policy that can't be read (logged),
+        keeps every site open, as before any policy *(default)*."""
+        if host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is not None:
+            return True
+        host_email = None if participant_home is None else service.sites.host(host_site)
+        if participant_home is None or not host_email:
+            return True
+        try:
+            rule = ParticipantPolicies(participant_home).read().rule_for(email)
+        except PolicyUnreadable:
+            return True
+        return host_site in allowed_sites(rule, host_accounts.sites_in_order(host_email))
+
     def participant_landing(request: Request, email: str) -> str | None:
         """The address of the host's site a participant signing in here is sent to (R261), or
         None to stay: at a site with no host, or when it is this one."""
@@ -1401,7 +1451,9 @@ def create_app(
         return None if to in (None, host_site) else f"{site_at(request, str(to))}/"
 
     app.include_router(
-        participant_router(participants, participant_cookie_domain, participant_landing)
+        participant_router(
+            participants, participant_cookie_domain, participant_landing, participant_allowed
+        )
     )
 
     def host_folder(email: str) -> Path | None:

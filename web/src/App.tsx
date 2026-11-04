@@ -32,6 +32,7 @@ import {
 } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import {
+  NotActivePage,
   ParticipantAccountPage,
   ParticipantLinks,
   ParticipantProvider,
@@ -183,6 +184,32 @@ function Shell() {
   // address, it returns to the first page of the view.
   const back = useRef<string | null>(null);
   if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
+
+  // A participant the host doesn't let open this site (R262) sees only that it is not yet
+  // active, with their own Sign out: nothing of the host or the site, whose calls refuse them.
+  const notHere =
+    participantSession?.signed_in === true &&
+    participantSession.allowed === false &&
+    hostSession?.signed_in !== true;
+  if (notHere) {
+    return (
+      <>
+        <header ref={header}>
+          <a className="brand" href="#/">
+            <Mark />
+            ImageSkinForLLM
+          </a>
+          <span className="header-end">
+            <ParticipantLinks />
+          </span>
+        </header>
+        <main>
+          <NotActivePage />
+        </main>
+        <footer>Photos and recordings stay on the computer that runs this app.</footer>
+      </>
+    );
+  }
 
   let content = <p>Loading…</p>;
   // Forgot password's pages stay open, so a reset link works in a browser still signed in

@@ -1394,6 +1394,8 @@ export interface ParticipantSession {
   email: string | null;
   // After signing in: another of the host's sites the host sends them to (R261).
   go_to?: string;
+  // False when the host doesn't let them open this site (R262).
+  allowed?: boolean;
 }
 
 export async function getParticipantSession(): Promise<ParticipantSession> {

@@ -1326,3 +1326,6 @@ fieldset.participant-rule label.check input { width: 1.1em; height: 1.1em; margi
 fieldset.participant-rule select, .participant-add select { max-width: 100%; }
 .participant-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 form.participant-policy > button[type="submit"] { justify-self: start; }
+
+/* A site a participant may not use (R262): one sentence, nothing else. */
+.not-active { max-width: 40rem; margin: 15vh auto 0; text-align: center; }
