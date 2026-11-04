@@ -239,6 +239,13 @@ class ParticipantAccounts:
             try:
                 part.write_text(text, encoding="utf-8")
                 os.replace(part, folder / f"{participant.id}.json")
+            except OSError as e:
+                # A full disk or a folder that can't be written: said in the log, with whose.
+                logger.error(
+                    "Could not keep a participant's progress",
+                    extra={"email": participant.email, "site": self.site, "error": str(e)},
+                )
+                raise
             finally:
                 part.unlink(missing_ok=True)
         logger.debug(

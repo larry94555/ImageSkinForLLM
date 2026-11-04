@@ -223,3 +223,20 @@ def test_progress_saved_at_once_by_two_browsers_is_all_kept(tmp_path: Path) -> N
     assert errors == []
     assert accounts.progress(pat)["lesson"]["part"] == 19
     assert list((tmp_path / "participant_progress").glob("*.part")) == []
+
+
+def test_progress_that_cant_be_written_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    accounts = ParticipantAccounts(tmp_path, "a")
+    pat = accounts.participant(accounts.sign_up(PAT, PASSWORD))
+    assert pat is not None
+
+    def full(*args: object, **kwargs: object) -> None:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("imageskin.participants.os.replace", full)
+    with caplog.at_level(logging.ERROR), pytest.raises(OSError):
+        accounts.save_progress(pat, {"quiz": {"topic": "Ponds"}})
+    assert "Could not keep a participant's progress" in caplog.text
+    assert list((tmp_path / "participant_progress").glob("*.part")) == []
