@@ -1,13 +1,13 @@
 """The participant sign-up, sign-in and sign-out routes (roadmap R46), under `/api/participant`."""
 
 import logging
+from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Cookie, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from imageskin.participants import (
-    COOKIE,
     COOKIE_MAX_AGE,
     Participant,
     ParticipantAccounts,
@@ -17,28 +17,48 @@ from imageskin.participants import (
 
 logger = logging.getLogger(__name__)
 
-Token = Annotated[str | None, Cookie(alias=COOKIE)]
 Email = Annotated[str, Body(embed=True)]
 Password = Annotated[str, Body(embed=True)]
 NOT_SIGNED_IN = "Sign in to do this."
 
 
-def participant_router(accounts: ParticipantAccounts) -> APIRouter:
+def give_cookie(
+    response: Response,
+    request: Request,
+    accounts: ParticipantAccounts,
+    token: str,
+    domain: str | None,
+) -> None:
+    """Keep the browser signed in: the participant cookie, for `domain` when there is one."""
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    # A trial site's own name and path are given it on the way out (R61a).
+    response.set_cookie(
+        accounts.cookie,
+        token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=https,
+        path="/",
+        domain=domain,
+    )
+
+
+def participant_router(
+    accounts: ParticipantAccounts,
+    cookie_domain: Callable[[Request], str | None] = lambda _: None,
+) -> APIRouter:
+    """The routes. The cookie is `accounts.cookie`, set for `cookie_domain` when it gives one, so
+    a host's participant is signed in on each of their sites (R260)."""
     router = APIRouter(prefix="/api/participant")
+
+    def token_of(request: Request) -> str | None:
+        # A sign-in from before R260 is still good here; the app swaps its cookie on the way out.
+        return accounts.token_in(request.cookies)[0]
 
     def signed_in(request: Request, token: str, email: str) -> JSONResponse:
         response = JSONResponse({"signed_in": True, "email": email})
-        https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-        # A trial site's own name and path are given it on the way out (R61a).
-        response.set_cookie(
-            COOKIE,
-            token,
-            max_age=COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=https,
-            path="/",
-        )
+        give_cookie(response, request, accounts, token, cookie_domain(request))
         return response
 
     def account(request: Request, up: bool, email: str, password: str) -> JSONResponse:
@@ -53,9 +73,9 @@ def participant_router(accounts: ParticipantAccounts) -> APIRouter:
         return signed_in(request, token, found.email if found else email)
 
     @router.get("/session")
-    def session(token: Token = None) -> dict[str, object]:
+    def session(request: Request) -> dict[str, object]:
         """Whether this browser is signed in as a participant of this site, and as whom."""
-        found = accounts.participant(token)
+        found = accounts.participant(token_of(request))
         return {"signed_in": found is not None, "email": found and found.email}
 
     @router.post("/sign-up")
@@ -67,13 +87,13 @@ def participant_router(accounts: ParticipantAccounts) -> APIRouter:
         return account(request, False, email, password)
 
     @router.post("/sign-out")
-    def sign_out(token: Token = None) -> JSONResponse:
+    def sign_out(request: Request) -> JSONResponse:
         try:
-            accounts.sign_out(token)
+            accounts.sign_out(token_of(request))
         except ParticipantsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         response = JSONResponse({"signed_in": False})
-        response.delete_cookie(COOKIE, path="/")
+        response.delete_cookie(accounts.cookie, path="/", domain=cookie_domain(request))
         return response
 
     def require(token: str | None) -> Participant:
@@ -83,14 +103,14 @@ def participant_router(accounts: ParticipantAccounts) -> APIRouter:
         return found
 
     @router.get("/progress")
-    def progress(token: Token = None) -> dict[str, Any]:
+    def progress(request: Request) -> dict[str, Any]:
         """The signed-in participant's Teach me, Quiz me and assessment under way (R46)."""
-        return accounts.progress(require(token))
+        return accounts.progress(require(token_of(request)))
 
     @router.put("/progress", response_model=None)
-    def save_progress(kept: Annotated[dict[str, Any], Body()], token: Token = None) -> Response:
+    def save_progress(request: Request, kept: Annotated[dict[str, Any], Body()]) -> Response:
         try:
-            accounts.save_progress(require(token), kept)
+            accounts.save_progress(require(token_of(request)), kept)
         except ParticipantRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=400)
         return Response(status_code=204)

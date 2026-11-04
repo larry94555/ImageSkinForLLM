@@ -32,7 +32,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 13f | **[Optimize image](#milestone-13f-optimize-image).** Upload a photo that shows the body and the room around it, and get a new picture of just the head and neck, enlarged and framed like the default people on a plain backdrop, which is the one checked and animated, with the original kept; and the administrator decides whether hosts can use a custom photo or voice, with two checkboxes for every host and an Allow or Deny for any one host, found by searching the host list. | R239, R240, R240b, R241, R242, R233 to R238 | 11 | 45.5% | 5 of 11 | 3.4% |
 | 13g | **[Optimize LLM latencies](#milestone-13g-optimize-llm-latencies).** Every task that uses the local LLM is found and timed, with a target for how long users will wait for each and recommendations to meet it; then the tasks with a clear way to answer sooner are made faster, measured before and after. | R245 to R252 | 8 | 0% | 0 | 2.4% |
 | 12 | **[Sign-on and accounts](#milestone-12-sign-on-and-accounts).** On each customer's site: question and answer only without signing in, participant sign-up and login, a setting to require sign-up, a setting to require participants to confirm their email address, and an activity report by email address with each participant's conversations, questions asked and active time. | R45 to R47, R215 to R220 | 9 | 22.2% | 2 of 9 | 2.7% |
-| 20 | **[Many customers on me0.ai](#milestone-20-many-customers-on-me0ai).** A customer signs up for a membership (and can reset a forgotten password), starts a free trial at a path of random characters, picks their own subdomain of me0.ai when they first pay (and can change it), signs in to manage settings that change only their site, which the administrator can also do by acting as them, or make read-only for them, subscribes or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. A host signs in from any address, can have as many sites as they want, shares their PDFs among them, has a display name, and decides which of their sites each of their participants may use. | R214, R61b, R61c, R61d, R61, R61e, R61f, R61a, R62, R62b, R62a, R62c, R44, R44a, R44b, R44c, R44d, R65, R65a, R65b, R66, R67, R255, R63, R64, R69, R69a, R69b, R69c, R256, R257, R258, R258a, R259, R260, R261, R262, R71a, R71 | 39 | 92.3% | 36 of 39 | 11.9% |
+| 20 | **[Many customers on me0.ai](#milestone-20-many-customers-on-me0ai).** A customer signs up for a membership (and can reset a forgotten password), starts a free trial at a path of random characters, picks their own subdomain of me0.ai when they first pay (and can change it), signs in to manage settings that change only their site, which the administrator can also do by acting as them, or make read-only for them, subscribes or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. A host signs in from any address, can have as many sites as they want, shares their PDFs among them, has a display name, and decides which of their sites each of their participants may use. | R214, R61b, R61c, R61d, R61, R61e, R61f, R61a, R62, R62b, R62a, R62c, R44, R44a, R44b, R44c, R44d, R65, R65a, R65b, R66, R67, R255, R63, R64, R69, R69a, R69b, R69c, R256, R257, R258, R258a, R259, R260, R261, R262, R71a, R71 | 39 | 94.9% | 37 of 39 | 11.9% |
 | 30 | **[Resource enforcement](#milestone-30-resource-enforcement).** A free trial at a temporary address gets 100 MB and is closed after 30 days without activity, with a warning on the home page and the days since the last activity on the Resources page; an upload over the limit is refused with the reason; Upgrade to 5 GB for $1.99 a month, with 5 GB more for $1 a month each and no activity rule; Billing and Billing history pages for subscribers; and each host's storage and payment on the admin dashboard, with the totals and the estimated Oracle charges, the prices set in Admin settings. | R201 to R213 | 13 | 0% | 0 | 4.0% |
 | 21 | **[Support at support.me0.ai](#milestone-21-support-at-supportme0ai).** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 0% | 0 | 2.1% |
 | 28 | **[Thinking and quality of response](#milestone-28-thinking-and-quality-of-response).** When thinking takes long, every step is found and timed, described, and shown to the user every 5 to 10 seconds as clear progress, and the slowest steps are made shorter; each answer's level of detail is detected from its question; and the topics offered under the prompt box, through other topics..., cover every important topic in the content; and Tell Me More goes on with another part of the topic, a related topic or a more general one, saying "That's pretty much it" only when the PDFs have nothing more. | R134c, R134d, R134e, R184 to R187 | 7 | 0% | 0 | 2.1% |
@@ -50,9 +50,9 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 24 | **[Phones in the browser](#milestone-24-phones-in-the-browser).** The hosted app works in Safari on an iPhone and Chrome on an Android phone: a phone-sized screen, video and sound that play there, photos and recordings taken on the phone, hold to talk, and an icon on the home screen. | R109 to R113 | 5 | 0% | 0 | 1.5% |
 | 25 | **[iOS and Android apps](#milestone-25-ios-and-android-apps).** One app for each, built from the same web code, that signs in to a site on me0.ai and talks with its person, with the phone's microphone, camera and speech recognition, and built by CI on every change. | R114 to R119 | 6 | 0% | 0 | 1.8% |
 | 26 | **[In the App Store and Google Play](#milestone-26-in-the-app-store-and-google-play).** The privacy details, deleting data and disputes the stores require, signed builds sent to TestFlight and Google Play testing, then the store listings sent for review. | R120 to R122 | 3 | 0% | 0 | 0.9% |
-| | **Total** | | **328** | **63.1%** | **207 of 328** | **100%** |
+| | **Total** | | **328** | **63.4%** | **208 of 328** | **100%** |
 
-Sizes: 86 Simple, 232 Medium, 1 Large (R258, whose PDFs can't move without what deletes and counts them), no Very large. Percentages are rounded to one decimal. % completed is the share of a milestone's PRs that are done (in the Total row, the share of all PRs done); % of PRs is the milestone's share of all PRs. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 86 Simple, 232 Medium, 1 Large (R258, whose PDFs can't move without what deletes and counts them), no Very large. Percentages are rounded to one decimal. Every merged pull request is linked from its PR's entry, or listed under [Other merged PRs](#other-merged-prs). % completed is the share of a milestone's PRs that are done (in the Total row, the share of all PRs done); % of PRs is the milestone's share of all PRs. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -1710,7 +1710,7 @@ On 2026-11-03 Larry added R255 to R262, after signing in at app.me0.ai was refus
 | [R258. A host's PDFs kept once for all their sites](#r258-a-hosts-pdfs-kept-once-for-all-their-sites-large--item-209--done-in-pr-305) | Each host's PDFs and wikis kept once in a folder of theirs, read and built once, each site seeing only those it uses. | Done in [PR #305](https://github.com/larry94555/ImageSkinForLLM/pull/305) |
 | [R258a. A host's PDFs on several of their sites](#r258a-a-hosts-pdfs-on-several-of-their-sites-medium--item-209--done-in-pr-306) | A PDF and its wiki used on any of the host's sites without uploading it again. | Done in [PR #306](https://github.com/larry94555/ImageSkinForLLM/pull/306) |
 | [R259. The host's display name](#r259-the-hosts-display-name-simple--item-210--done-in-pr-307) | A display name for each host, shown to participants and visitors in place of the email. | Done in [PR #307](https://github.com/larry94555/ImageSkinForLLM/pull/307) |
-| [R260. Participants belong to the host](#r260-participants-belong-to-the-host-medium--items-211-32) | A participant account belongs to a host, and one sign-in works on the host's sites. | Not started |
+| [R260. Participants belong to the host](#r260-participants-belong-to-the-host-medium--items-211-32--done-in-pr-310) | A participant account belongs to a host, and one sign-in works on the host's sites. | Done in [PR #310](https://github.com/larry94555/ImageSkinForLLM/pull/310) |
 | [R261. Where each participant may go](#r261-where-each-participant-may-go-medium--item-211) | The host sets which sites each participant may open and where each lands after signing in. | Not started |
 | [R262. The page for a site a participant may not use](#r262-the-page-for-a-site-a-participant-may-not-use-simple--item-212) | A participant on a site the host's policy doesn't allow sees "This subdomain is not yet active". | Not started |
 | [R71a. Each site at its own subdomain on Oracle](#r71a-each-site-at-its-own-subdomain-on-oracle-simple--deployment--done-in-pr-282) | The wildcard DNS record and certificate for `*.me0.ai`, with a step-by-step guide and a checklist. | Done in [PR #282](https://github.com/larry94555/ImageSkinForLLM/pull/282) |
@@ -1983,10 +1983,11 @@ On 2026-11-03 Larry added R255 to R262, after signing in at app.me0.ai was refus
 - **Can show:** set a display name, see it on the participant view, and find the email nowhere in the participant's page or its calls.
 - **Built:** Each account in `hosts.json` may keep a `display_name`; `HostAccounts.display_name_of` answers it, or the email before the @ for a host who has none. Host sign up has an optional **Display name** field (blank is none), and the account page has **Display name** with **Save display name**, which calls `PUT /api/host/display-name` (`Host display name set`). A name with a line break, tab or other special character is refused before its spaces are tidied (Codex's review of PR #307); otherwise its spaces are tidied and it must be 1 to 60 characters, or the server says why (400). `GET /api/host/session` answers `host_name`, the site's host by their display name, to everyone (the host the site was made for, or at the main address its one host, as on a computer of its own); a site whose host can't be read names no one (`Host's display name not read`). The top bar shows **Hosted by** the name for every visitor and in the host's participant view, and the host's own account link shows their display name in place of their email. The email stays the sign-in only: a visitor's page and every call it can make were checked to carry none of it. Changing the email keeps the display name.
 
-### R260. Participants belong to the host (Medium) · items 211, 32
+### R260. Participants belong to the host (Medium) · items 211, 32 · Done in [PR #310](https://github.com/larry94555/ImageSkinForLLM/pull/310)
 - A participant signs up to a host, not to one site: the account R46 makes is kept with the host, and its sign-in works on the host's sites, in place of R46's one site per account. History and Teach me progress stay with each site (R65).
 - **Depends on:** R46 (participant sign-up and login, Milestone 12).
 - **Can show:** sign up as a participant on one of a host's sites, open another of their sites already signed in, and see another host's site not know the account.
+- **Built:** A site with a host keeps its participants in `participants.json` in the host's folder (R258), one file for all their sites; a site with no host, such as the main address, keeps its own as R46 made it. The cookie is named for the host's folder (`imageskin_participant_<folder>`) and set for the address the site is a subdomain of (`Domain=me0.ai` for `ann.me0.ai`; a trial site sets it for the main address), so a sign-in on one of the host's sites is a sign-in on each, and signing out on one signs out on all; each site's app reads only its own host's cookie, and another host's sites don't know the account (401 for its password there). On `localhost` and an address of one name the cookie stays with its address. History and Teach me progress stay with each site, by the account's id in each site's folder. The first time a site opens, the participants it kept itself before R260 join the host's file with their passwords and sign-ins (`Participants moved to the host`, with how many and how long); an email already there keeps its password, and this site's conversation stays theirs (`site_ids`). A host file that can't be read moves nothing and keeps the site's file to try again (`Participants not moved to the host`). One lock per file is shared by every site that uses it.
 
 ### R261. Where each participant may go (Medium) · item 211
 - In the host's settings, a policy for every participant, and for any one participant in its place: which of the host's sites they may open directly, and the site they are sent to after signing in. Until the host sets one, every site is open to every participant and they are sent to the host's first site *(default)*.
@@ -2662,6 +2663,101 @@ After R122, every item in features.md is covered by a PR, R61 to R78, R84 to R95
 - **whisper.cpp speech-to-text** on the server, if browser speech recognition isn't good enough. Medium, 1 PR.
 - **Push notifications** on the phone for an unread message (R102) or a dispute (R106), through Apple's and Google's push services. Medium, 1 PR.
 - **Rendering on the phone**, if phones become fast enough to clone the voice and animate the face at reply speed, so the apps can work without the server. Several Large PRs; not planned.
+
+## Other merged PRs
+
+Every merged pull request is linked from its PR's entry above, or listed here. These changed the plan, the docs, the tests or CI, or fixed something small, and were not PRs of the roadmap, so they are not counted in the milestones. Added at Larry's request on 2026-11-04, so the roadmap accounts for every merged pull request.
+
+| Pull request | What it did |
+|---|---|
+| [#1](https://github.com/larry94555/ImageSkinForLLM/pull/1) | Add planning, requirements and guide docs and the pr-rules skill |
+| [#2](https://github.com/larry94555/ImageSkinForLLM/pull/2) | Add roadmap of PRs to build ImageSkinForLLM |
+| [#4](https://github.com/larry94555/ImageSkinForLLM/pull/4) | pr-rules: require macOS/Linux and Windows 11 manual test steps |
+| [#8](https://github.com/larry94555/ImageSkinForLLM/pull/8) | Photoreal test: LivePortrait on the CPU with pre-rendered mouth shapes |
+| [#10](https://github.com/larry94555/ImageSkinForLLM/pull/10) | Roadmap: add the photoreal engine (R4b, R4c) |
+| [#11](https://github.com/larry94555/ImageSkinForLLM/pull/11) | OpenCV engine: use the softer mouth Larry picked in PR #9 |
+| [#12](https://github.com/larry94555/ImageSkinForLLM/pull/12) | Roadmap: lip-readable mouth as the goal of R4a to R4c |
+| [#25](https://github.com/larry94555/ImageSkinForLLM/pull/25) | Faster prepare: render 60 of the 200 idle-loop frames |
+| [#27](https://github.com/larry94555/ImageSkinForLLM/pull/27) | Roadmap: prove the person's voice before the talking chat |
+| [#28](https://github.com/larry94555/ImageSkinForLLM/pull/28) | Natural blinks: random timing, eased lids and a brow dip |
+| [#29](https://github.com/larry94555/ImageSkinForLLM/pull/29) | Add PDF question and answer features and roadmap milestones 9 to 13 |
+| [#33](https://github.com/larry94555/ImageSkinForLLM/pull/33) | Face follows the voice in every photoreal video |
+| [#40](https://github.com/larry94555/ImageSkinForLLM/pull/40) | Add a FAQ: unexpected photos and recordings (IMAGESKIN_HOME) |
+| [#41](https://github.com/larry94555/ImageSkinForLLM/pull/41) | Docs: student insights features and roadmap (items 38 to 46, R53 to R58) |
+| [#44](https://github.com/larry94555/ImageSkinForLLM/pull/44) | Add interests and personality profile to features and roadmap |
+| [#54](https://github.com/larry94555/ImageSkinForLLM/pull/54) | Roadmap: content, wiki and answers before spoken prompts and hosting |
+| [#65](https://github.com/larry94555/ImageSkinForLLM/pull/65) | Home page: Chat, Manage Content and Setup as equal choices once setup is done |
+| [#66](https://github.com/larry94555/ImageSkinForLLM/pull/66) | Setup: step-by-step recording guide in the app |
+| [#75](https://github.com/larry94555/ImageSkinForLLM/pull/75) | Roadmap: add Milestone 7a, a professional look, before spoken prompts |
+| [#81](https://github.com/larry94555/ImageSkinForLLM/pull/81) | Plan topic hints, teach me, quiz me and the assessment (Milestone 7b) |
+| [#84](https://github.com/larry94555/ImageSkinForLLM/pull/84) | Bring R41e2's design (#83) into main |
+| [#89](https://github.com/larry94555/ImageSkinForLLM/pull/89) | Debug setting: Copy chat |
+| [#92](https://github.com/larry94555/ImageSkinForLLM/pull/92) | Log a clear ready line when imageskin serve has loaded, and quote it in the FAQ |
+| [#93](https://github.com/larry94555/ImageSkinForLLM/pull/93) | Read PDF formulas as one line so the AI can explain them |
+| [#94](https://github.com/larry94555/ImageSkinForLLM/pull/94) | Say formulas so they can be heard only one way |
+| [#95](https://github.com/larry94555/ImageSkinForLLM/pull/95) | Plan Milestone 8a: start now with a default person |
+| [#99](https://github.com/larry94555/ImageSkinForLLM/pull/99) | Roadmap: 60 default people with more varied looks |
+| [#102](https://github.com/larry94555/ImageSkinForLLM/pull/102) | Roadmap: many teachers on me0.ai, support, AI information gathering, and deleting from history |
+| [#104](https://github.com/larry94555/ImageSkinForLLM/pull/104) | Roadmap: Contexts as Milestone 13 (items 77 to 83, R84 to R91) |
+| [#107](https://github.com/larry94555/ImageSkinForLLM/pull/107) | Roadmap: Milestone 13a, Identity and guidelines |
+| [#110](https://github.com/larry94555/ImageSkinForLLM/pull/110) | Roadmap: reorder milestones after Milestone 9 |
+| [#114](https://github.com/larry94555/ImageSkinForLLM/pull/114) | Roadmap: split Milestone 8a; Start now moves after hosting |
+| [#116](https://github.com/larry94555/ImageSkinForLLM/pull/116) | Roadmap: customers' sites right after the default person |
+| [#119](https://github.com/larry94555/ImageSkinForLLM/pull/119) | Host and participant instead of teacher and student |
+| [#121](https://github.com/larry94555/ImageSkinForLLM/pull/121) | Use the app's own confirmation box instead of the browser's |
+| [#123](https://github.com/larry94555/ImageSkinForLLM/pull/123) | Say what a PDF's wiki is waiting for |
+| [#125](https://github.com/larry94555/ImageSkinForLLM/pull/125) | Roadmap: Milestone 10b, speed up and simplify |
+| [#126](https://github.com/larry94555/ImageSkinForLLM/pull/126) | Wiki: wait for a slow answer instead of "Waiting for the AI to be ready" |
+| [#129](https://github.com/larry94555/ImageSkinForLLM/pull/129) | Use your own photo and voice again at once, from a ready-made avatar |
+| [#130](https://github.com/larry94555/ImageSkinForLLM/pull/130) | Stop also stops the thinking |
+| [#132](https://github.com/larry94555/ImageSkinForLLM/pull/132) | Fix CI: the Claude key test after anthropic 2.0 |
+| [#133](https://github.com/larry94555/ImageSkinForLLM/pull/133) | Top bar Setup goes where the home page's Setup goes |
+| [#134](https://github.com/larry94555/ImageSkinForLLM/pull/134) | Shorten the image disclaimer on Before you start |
+| [#135](https://github.com/larry94555/ImageSkinForLLM/pull/135) | Add Milestone 23, Handling disputes, to features and roadmap |
+| [#137](https://github.com/larry94555/ImageSkinForLLM/pull/137) | Roadmap: R96's timing checks cover all ten timings (R96 to R96c) |
+| [#141](https://github.com/larry94555/ImageSkinForLLM/pull/141) | Roadmap: R24e, default voices that fit the faces (Milestone 10b) |
+| [#143](https://github.com/larry94555/ImageSkinForLLM/pull/143) | Roadmap: count the merged R24c4, R24b3, R96, R96d and R24e |
+| [#144](https://github.com/larry94555/ImageSkinForLLM/pull/144) | Roadmap: iOS and Android (Milestones 24 to 26, R109 to R122) |
+| [#149](https://github.com/larry94555/ImageSkinForLLM/pull/149) | Roadmap: count the merged R96a, note R100's first part and add R96e |
+| [#152](https://github.com/larry94555/ImageSkinForLLM/pull/152) | Roadmap: R97 done, with its hosted results |
+| [#157](https://github.com/larry94555/ImageSkinForLLM/pull/157) | Roadmap: Milestone 13b, safe photos; shorter intro moved to the end |
+| [#158](https://github.com/larry94555/ImageSkinForLLM/pull/158) | Roadmap: mark R96e done in PR #153 |
+| [#159](https://github.com/larry94555/ImageSkinForLLM/pull/159) | Roadmap: mark R24, R41j, R96e, R99 and R100 done; 97 of 177 |
+| [#163](https://github.com/larry94555/ImageSkinForLLM/pull/163) | FAQ: start the hosted app with Docker; add the Full Walkthrough guide |
+| [#166](https://github.com/larry94555/ImageSkinForLLM/pull/166) | Roadmap: 10b done; add Milestones 10c (in step and smooth) and 10d (setup wizard) |
+| [#167](https://github.com/larry94555/ImageSkinForLLM/pull/167) | Roadmap: Milestone 10c is Bug fixing, with a reason and a reference when prepare fails; FAQ for support logs |
+| [#169](https://github.com/larry94555/ImageSkinForLLM/pull/169) | Roadmap: R128a, cheeks and face that move with the mouth |
+| [#173](https://github.com/larry94555/ImageSkinForLLM/pull/173) | Roadmap: add Milestone 13c, UI simplification |
+| [#177](https://github.com/larry94555/ImageSkinForLLM/pull/177) | A fix to R134b (PR #170): Prepare again shows the right time left. |
+| [#179](https://github.com/larry94555/ImageSkinForLLM/pull/179) | Roadmap: plan showing what thinking is doing as three PRs (R134c to R134e) |
+| [#182](https://github.com/larry94555/ImageSkinForLLM/pull/182) | Add the Admin view milestone to the roadmap and features |
+| [#190](https://github.com/larry94555/ImageSkinForLLM/pull/190) | CI: install ffmpeg from a static build, with apt as fallback |
+| [#191](https://github.com/larry94555/ImageSkinForLLM/pull/191) | Cancel Prepare, merged into another branch and brought to main by PR #197 (R159). |
+| [#192](https://github.com/larry94555/ImageSkinForLLM/pull/192) | Fix a flaky Prepare timing test from #177 |
+| [#195](https://github.com/larry94555/ImageSkinForLLM/pull/195) | Plan a Clear conversation link in the history (R158, item 128) |
+| [#199](https://github.com/larry94555/ImageSkinForLLM/pull/199) | Roadmap: add R161, Smoothen Voice |
+| [#200](https://github.com/larry94555/ImageSkinForLLM/pull/200) | Roadmap table: link milestones to their sections and add % completed |
+| [#201](https://github.com/larry94555/ImageSkinForLLM/pull/201) | Roadmap: listed laptops for admin sign-in (R162 to R165), and Conversation history management (R166 to R174) |
+| [#202](https://github.com/larry94555/ImageSkinForLLM/pull/202) | Roadmap: move the admin sign-in PRs (R162 to R165) to the Admin view milestone |
+| [#204](https://github.com/larry94555/ImageSkinForLLM/pull/204) | Roadmap: a table of PRs under each milestone instead of the intro paragraph |
+| [#205](https://github.com/larry94555/ImageSkinForLLM/pull/205) | Roadmap: mark R155 done in Milestone 27's PR table |
+| [#212](https://github.com/larry94555/ImageSkinForLLM/pull/212) | Marked R161 done with its part 1 (PR #206). |
+| [#215](https://github.com/larry94555/ImageSkinForLLM/pull/215) | R180: add "Quality of answer to questions" to the roadmap and features |
+| [#220](https://github.com/larry94555/ImageSkinForLLM/pull/220) | Roadmap: add the Thinking and quality of response milestone |
+| [#222](https://github.com/larry94555/ImageSkinForLLM/pull/222) | Roadmap: add R187 Tell Me More to Thinking and quality of response |
+| [#229](https://github.com/larry94555/ImageSkinForLLM/pull/229) | Roadmap: add Host login and resource view, move Thinking after Support |
+| [#234](https://github.com/larry94555/ImageSkinForLLM/pull/234) | Roadmap: move Milestone 13a after host login and add guideline PRs |
+| [#238](https://github.com/larry94555/ImageSkinForLLM/pull/238) | Plan Milestone 30: resource enforcement |
+| [#239](https://github.com/larry94555/ImageSkinForLLM/pull/239) | Roadmap: move Milestone 12 before 20, and add R214 to start Milestone 20 |
+| [#240](https://github.com/larry94555/ImageSkinForLLM/pull/240) | Make the CI check take about 2 minutes instead of 5.5 |
+| [#242](https://github.com/larry94555/ImageSkinForLLM/pull/242) | Roadmap: participant email confirmation and the activity report in Milestone 12 |
+| [#244](https://github.com/larry94555/ImageSkinForLLM/pull/244) | Roadmap: Participant features milestone (13e) |
+| [#246](https://github.com/larry94555/ImageSkinForLLM/pull/246) | Roadmap: remove Milestones 13d and 14, replaced by 13e |
+| [#247](https://github.com/larry94555/ImageSkinForLLM/pull/247) | Hide the reply's text behind a Review text link |
+| [#249](https://github.com/larry94555/ImageSkinForLLM/pull/249) | Roadmap: add Milestone 13f, Optimize image (R233 to R238) |
+| [#256](https://github.com/larry94555/ImageSkinForLLM/pull/256) | Roadmap: host custom image and voice controls (13f) and admin guidelines (13a) |
+| [#257](https://github.com/larry94555/ImageSkinForLLM/pull/257) | Roadmap: add Milestone 13g, Optimize LLM latencies |
+| [#296](https://github.com/larry94555/ImageSkinForLLM/pull/296) | Keep the Stripe price ID in .env, so the server never edits config.toml |
 
 ## About this plan
 

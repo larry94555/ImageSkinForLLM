@@ -137,20 +137,31 @@ def test_the_conversation_follows_the_account_to_another_browser(tmp_path: Path)
     assert "I am Pat." not in said(phone)
 
 
-def test_the_same_email_on_two_sites_is_two_accounts(tmp_path: Path) -> None:
+def cookie_of(client: TestClient) -> tuple[str, str]:
+    """The participant cookie the client was given: the site's own, or its host's (R260)."""
+    found = [c for c in client.cookies.jar if c.name.startswith(COOKIE)]
+    assert len(found) == 1, found
+    return found[0].name, found[0].value or ""
+
+
+def test_another_hosts_site_doesnt_know_the_account(tmp_path: Path) -> None:
     sites, made, service = served(tmp_path)
     a = TestClient(sites, base_url="http://a.localhost")
     main = TestClient(sites, base_url="http://localhost")
     assert sign_up(a) == 200
-    # Site a's sign-in counts as none at the main address, and the email is free there.
-    by_hand = TestClient(sites, base_url="http://localhost", cookies={COOKIE: a.cookies[COOKIE]})
-    assert by_hand.get("/api/participant/session").json()["signed_in"] is False
+    # Site a is Ann's: its cookie is named for her folder, and the main address, which has no
+    # host, neither reads it nor knows the account; the email is free there.
+    name, token = cookie_of(a)
+    assert name != COOKIE
+    for sent in ({name: token}, {COOKIE: token}):
+        by_hand = TestClient(sites, base_url="http://localhost", cookies=sent)
+        assert by_hand.get("/api/participant/session").json()["signed_in"] is False
     assert sign_in(main) == 401
     assert sign_up(main, password="another long one") == 200
     assert sign_in(a, password="another long one") == 401
 
 
-def test_a_trial_sites_participant_cookie_is_its_own(tmp_path: Path) -> None:
+def test_a_trial_sites_participant_is_its_hosts(tmp_path: Path) -> None:
     headers = [(b"cookie", f"{COOKIE}=main; {COOKIE}_k7q2=trial; other=1".encode())]
     assert trial_cookies_in(headers, "k7q2") == [(b"cookie", f"{COOKIE}=trial; other=1".encode())]
     sites, made, service = served(tmp_path, sign_up_makes_site=True)
@@ -161,8 +172,9 @@ def test_a_trial_sites_participant_cookie_is_its_own(tmp_path: Path) -> None:
     joined = visitor.post(
         f"/t/{code}/api/participant/sign-up", json={"email": PAT, "password": PASSWORD}
     )
-    assert f"{COOKIE}_{code}=" in joined.headers["set-cookie"]
-    assert f"Path=/t/{code}/" in joined.headers["set-cookie"]
+    assert joined.status_code == 200
+    name, _ = cookie_of(visitor)
+    assert name == f"{COOKIE}_{service.host_accounts.library_of('dan@example.com')}"
     assert visitor.get(f"/t/{code}/api/participant/session").json()["email"] == PAT
     assert visitor.get("/api/participant/session").json()["signed_in"] is False
 

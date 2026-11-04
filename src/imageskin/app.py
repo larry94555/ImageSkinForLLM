@@ -145,9 +145,9 @@ from imageskin.llm_choice import (
 )
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
-from imageskin.participant_api import participant_router
+from imageskin.participant_api import give_cookie, participant_router
 from imageskin.participants import COOKIE as PARTICIPANT_COOKIE
-from imageskin.participants import ParticipantAccounts
+from imageskin.participants import ParticipantAccounts, move_site_participants
 from imageskin.password_reset import reset_router
 from imageskin.payments import NOT_SET_UP as PAYMENTS_NOT_SET_UP
 from imageskin.payments import (
@@ -695,6 +695,21 @@ def host_of_site(service: Service, name: str) -> str | None:
     return theirs[0] if len(theirs) == 1 else None
 
 
+def participant_cookie_domain(request: Request) -> str | None:
+    """Where a host's participant's cookie is sent (R260): every address under the one this site
+    is a subdomain of, so their sign-in works on each of the host's sites (whose apps read only
+    their host's cookie). A trial site, at a path of the main address, sets it for the main
+    address and its subdomains. None, as for `localhost` and an address of one name, keeps it
+    for this address only."""
+    address = (request.headers.get("host") or "").rsplit(":", 1)[0].lower().strip(".")
+    if not address or address.replace(".", "").isdigit() or address.startswith("["):
+        return None
+    if str(request.scope.get("root_path", "")).startswith("/t/"):
+        return address if "." in address else None
+    parent = address.split(".", 1)[1] if "." in address else ""
+    return parent if "." in parent else None
+
+
 def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
@@ -749,8 +764,6 @@ def create_app(
     site_name = site or data_home.name
     # Whose host signs in here (R61): the site's, or the main address's for an app made alone.
     host_site = site or DEFAULT_SITE
-    # The site's participants (R46), each signed in by a cookie of their own.
-    participants = ParticipantAccounts(data_home, host_site)
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -792,6 +805,9 @@ def create_app(
         # gets one.
         new_visitor = None
         visitor = None
+        # A browser still signed in with the site's own cookie from before R260 is given the
+        # host's in its place, keeping the same sign-in.
+        token, old_cookie = participants.token_in(request.cookies)
         # A paused site (R66, R69) answers its visitors with a notice; its host still uses it.
         refused = paused_refusal(request)
         if refused is not None:
@@ -800,7 +816,7 @@ def create_app(
             host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is None
         ):
             # A signed-in participant's conversation is their account's, on any browser (R46).
-            participant = participants.participant(request.cookies.get(PARTICIPANT_COOKIE))
+            participant = participants.participant(token)
             visitor = participant.id if participant else request.cookies.get(VISITOR_COOKIE)
             if not valid_visitor(visitor):
                 visitor = new_visitor = new_visitor_token()
@@ -815,6 +831,17 @@ def create_app(
             raise
         finally:
             this_visitor.reset(set_visitor)
+        if old_cookie and token:
+            response.delete_cookie(PARTICIPANT_COOKIE, path="/")
+            given = f"{participants.cookie}="
+            # Unless the request signed in, up or out, which gave or took the cookie itself.
+            if not any(
+                c.startswith(given) for c in response.headers.getlist("set-cookie")
+            ) and participants.participant(token, moved_here=True):
+                give_cookie(
+                    response, request, participants, token, participant_cookie_domain(request)
+                )
+                logger.info("Participant cookie moved to the host", extra={"site": host_site})
         if new_visitor is not None:
             https = (
                 request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
@@ -870,6 +897,19 @@ def create_app(
     app.include_router(settings_routes)
     # The administrator is the service's, at the main address only (R44).
     at_main = host_site == DEFAULT_SITE
+    # The site's participants (R46): a host's, kept once for all their sites, with a cookie for
+    # every one of them (R260); a site with no host, such as the main address, keeps its own.
+    participant_home = None if at_main else library_folder_of(service, host_site)
+    if participant_home is None:
+        participants = ParticipantAccounts(data_home, host_site)
+    else:
+        participants = ParticipantAccounts(
+            data_home,
+            host_site,
+            accounts=participant_home,
+            cookie=f"{PARTICIPANT_COOKIE}_{participant_home.name}",
+        )
+        move_site_participants(data_home, participants)
     admin_routes, app.state.require_admin = admin_router(
         admin_sign_ins, [require_settings], here=at_main
     )
@@ -1335,7 +1375,7 @@ def create_app(
 
     custom_kind = [Depends(allowed_kind)]
     app.include_router(host_routes)
-    app.include_router(participant_router(participants))
+    app.include_router(participant_router(participants, participant_cookie_domain))
     # Forgot password (R62a).
     app.include_router(reset_router(host_accounts, service.mailer.send))
     # The administrator acting as a host (R44a): the link made at the main address only.

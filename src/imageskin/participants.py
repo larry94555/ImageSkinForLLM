@@ -1,13 +1,15 @@
 """Participant accounts (roadmap R46, item 32): a participant signs up on a site with an email and
 a password, and a cookie keeps them signed in on that browser.
 
-Each site keeps its own participants in `participants.json` in its folder, so an account belongs
-to one site, as R65 asks: the same email signed up on two sites is two accounts, with two
-histories. Each account records its site, so R260 can widen an account to the host's sites.
+A participant signs up to a host, not to one site (R260): a site with a host keeps its
+participants in `participants.json` in the host's folder (R258), shared by all their sites, so
+one account and one sign-in work on each of them. A site with no host, such as the main address,
+keeps its own in its folder. Another host's sites never know the account.
 
 An account has an `id`, made once and never shown, that names the participant's conversation
 (R65a) in place of a browser's visitor cookie, so their history follows them from browser to
-browser. The file keeps a hash of each sign-in's token, never the token itself."""
+browser. History and Teach me progress stay with each site (R65): each site's folder keeps its
+own, by that id. The file keeps a hash of each sign-in's token, never the token itself."""
 
 import hashlib
 import json
@@ -16,7 +18,7 @@ import os
 import secrets
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -59,7 +61,7 @@ class ParticipantsUnreadable(Exception):
 class Participant:
     email: str
     id: str  # names their conversation (R65a); never sent to the browser
-    site: str  # the site the account belongs to (R46), which R260 widens to the host
+    site: str  # the site they are signed in on; the account is the host's (R260)
     created_at: float
 
 
@@ -67,14 +69,38 @@ def _token_key(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-class ParticipantAccounts:
-    """The site's participants, and who is signed in, by the token in their cookie."""
+# One lock for each file, shared by every site's accounts that use it: a host's sites all read
+# and write the host's one file (R260).
+_locks: dict[Path, threading.Lock] = {}
+_locks_lock = threading.Lock()
 
-    def __init__(self, home: Path, site: str, clock: Callable[[], float] = time.time) -> None:
-        self.path = home / FILENAME
+
+def _lock_for(path: Path) -> threading.Lock:
+    with _locks_lock:
+        return _locks.setdefault(path.resolve(), threading.Lock())
+
+
+class ParticipantAccounts:
+    """The site's participants, and who is signed in, by the token in their cookie. `home` is the
+    site's folder, which keeps their progress; `accounts` the folder whose file keeps the
+    accounts: the host's, shared by their sites (R260), or the site's own by default."""
+
+    def __init__(
+        self,
+        home: Path,
+        site: str,
+        clock: Callable[[], float] = time.time,
+        accounts: Path | None = None,
+        cookie: str = COOKIE,
+    ) -> None:
+        self.home = home
+        # A host's participants have a cookie of their own, named for the host's folder, so the
+        # sign-in another host's sites are sent is never read there (R260).
+        self.cookie = cookie
+        self.path = (accounts or home) / FILENAME
         self.site = site
         self.clock = clock
-        self._lock = threading.Lock()
+        self._lock = _lock_for(self.path)
         self._progress_lock = threading.Lock()
 
     def _load(self) -> dict[str, Any]:
@@ -147,7 +173,7 @@ class ParticipantAccounts:
                 email: {
                     "password_hash": password_hash,
                     "id": secrets.token_urlsafe(24),
-                    "site": self.site,
+                    "site": self.site,  # where it was made; it works on all the host's
                     "created_at": self.clock(),
                 },
             }
@@ -182,9 +208,23 @@ class ParticipantAccounts:
         logger.info("Participant signed in", extra={"email": email, "site": self.site})
         return token
 
-    def participant(self, token: str | None) -> Participant | None:
+    def token_in(self, cookies: Mapping[str, str]) -> tuple[str | None, bool]:
+        """The browser's sign-in token, and whether it came in the site's own cookie from before
+        R260, which then is to be swapped for the host's. That old cookie is taken only for a
+        sign-in made on this very site and moved to the host's file, so it never signs anyone
+        in across sites."""
+        token = cookies.get(self.cookie)
+        if token or self.cookie == COOKIE:
+            return token, False
+        old = cookies.get(COOKIE)
+        if old and self.participant(old, moved_here=True):
+            return old, True
+        return None, False
+
+    def participant(self, token: str | None, moved_here: bool = False) -> Participant | None:
         """Who the token is signed in as on this site, or None (also while the file can't be
-        read, so no one is signed in until it can)."""
+        read, so no one is signed in until it can). `moved_here` takes only a sign-in moved
+        from this site's own file (R260)."""
         if not token:
             return None
         try:
@@ -195,20 +235,25 @@ class ParticipantAccounts:
         session = data["sessions"].get(_token_key(token))
         if not session or self.clock() - float(session.get("at", 0)) >= SESSIONS_KEPT_S:
             return None
+        if moved_here and session.get("moved_from") != self.site:
+            return None
         account = data["participants"].get(session["email"])
         if not account:
             return None
+        # An account joined from two sites (R260) keeps each one's own conversation there.
+        ids = account.get("site_ids")
+        own = ids.get(self.site) if isinstance(ids, dict) else None
         return Participant(
             session["email"],
-            str(account["id"]),
-            str(account.get("site", self.site)),
+            str(own or account["id"]),
+            self.site,
             float(account["created_at"]),
         )
 
     def progress(self, participant: Participant) -> dict[str, Any]:
         """The participant's lesson, quiz and assessment under way, as their browser last sent
         them; none for a file that is missing or can't be read (logged)."""
-        path = self.path.parent / PROGRESS_FOLDER / f"{participant.id}.json"
+        path = self.home / PROGRESS_FOLDER / f"{participant.id}.json"
         try:
             saved = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -229,7 +274,7 @@ class ParticipantAccounts:
         text = json.dumps(progress)
         if set(progress) - PROGRESS_KEYS or len(text.encode()) > MAX_PROGRESS_BYTES:
             raise self._refuse(BAD_PROGRESS, "progress not kept", "progress", participant.email)
-        folder = self.path.parent / PROGRESS_FOLDER
+        folder = self.home / PROGRESS_FOLDER
         # A file of its own for each save, and one save at a time, so two browsers of the same
         # account saving at once never trip over each other; the last one kept wins (Codex's
         # review of PR #308).
@@ -266,3 +311,53 @@ class ParticipantAccounts:
             logger.info(
                 "Participant signed out", extra={"email": session["email"], "site": self.site}
             )
+
+
+def move_site_participants(site_home: Path, accounts: ParticipantAccounts) -> int:
+    """Join the site's own participants from before R260 into the host's file, keeping their
+    passwords and sign-ins, and each one's conversation and progress on this site; then remove
+    the site's file. An email already in the host's file keeps its password there, and this
+    site's conversation stays theirs. Answers how many were moved; nothing when there is no file,
+    and nothing is removed when the host's file can't be read or written, so it is tried again."""
+    old = site_home / FILENAME
+    if not old.exists() or old.resolve() == accounts.path.resolve():
+        return 0
+    start = time.perf_counter()
+    site = ParticipantAccounts(site_home, accounts.site)
+    try:
+        with site._lock:
+            theirs = site._load()
+        with accounts._lock:
+            data = accounts._load()
+            people = {**data["participants"]}
+            joined = 0
+            for email, account in theirs["participants"].items():
+                here = people.get(email)
+                if here is None:
+                    people[email] = {**account, "site": account.get("site", accounts.site)}
+                elif here.get("id") != account.get("id"):
+                    ids = dict(here.get("site_ids") or {})
+                    ids.setdefault(accounts.site, account["id"])
+                    people[email] = {**here, "site_ids": ids}
+                    joined += 1
+            # Each sign-in says where it came from, so the site's old cookie is read only there.
+            moved = {k: {**v, "moved_from": accounts.site} for k, v in theirs["sessions"].items()}
+            sessions = {**moved, **data["sessions"]}
+            accounts._save({**data, "participants": people, "sessions": sessions})
+    except (ParticipantsUnreadable, OSError) as e:
+        logger.error(
+            "Participants not moved to the host",
+            extra={"site": accounts.site, "error": str(e)},
+        )
+        return 0
+    old.unlink(missing_ok=True)
+    logger.info(
+        "Participants moved to the host",
+        extra={
+            "site": accounts.site,
+            "moved": len(theirs["participants"]),
+            "joined": joined,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        },
+    )
+    return len(theirs["participants"])
