@@ -2397,7 +2397,8 @@ var PAGES = {
 	"/host/email-failed": "email-failed",
 	"/host/act-as-failed": "act-as-failed",
 	"/resources": "resources",
-	"/customization": "customization"
+	"/customization": "customization",
+	"/no-longer-active": "no-longer-active"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -11418,6 +11419,57 @@ function ChoiceIcon({ href }) {
 	});
 }
 //#endregion
+//#region src/inactive-account.tsx
+var NO_LONGER_ACTIVE = "This account is no longer active.";
+var INACTIVE_HASH = "#/no-longer-active";
+var inactiveAccount = { shown: false };
+var inactiveNavigation = { show: () => window.location.replace(INACTIVE_HASH) };
+async function saysInactive(response) {
+	if (response.status !== 403) return false;
+	try {
+		return (await response.clone().json()).detail === NO_LONGER_ACTIVE;
+	} catch {
+		return false;
+	}
+}
+function watchForInactiveAccount(target = window) {
+	const original = target.fetch.bind(target);
+	target.fetch = async (input, init) => {
+		const response = await original(input, init);
+		if (!inactiveAccount.shown && await saysInactive(response)) {
+			inactiveAccount.shown = true;
+			const page = pathOf(window.location.hash) || "/";
+			console.warn(`Account no longer active, on ${page}: signing out in this browser`);
+			await forget(original, page);
+			inactiveNavigation.show();
+		}
+		return response;
+	};
+}
+async function forget(send, page) {
+	try {
+		const out = await send("/api/host/sign-out", { method: "POST" });
+		if (!out.ok) console.error(`Host sign-in not forgotten: ${out.status}`);
+		await send("/api/host/inactive-shown", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ page })
+		});
+	} catch (e) {
+		console.error("Host sign-in not forgotten", e);
+	}
+}
+function NoLongerActivePage() {
+	h(() => console.info("Inactive account shown"), []);
+	return /* @__PURE__ */ u("main", { children: /* @__PURE__ */ u("div", {
+		className: "not-active",
+		children: /* @__PURE__ */ u("p", {
+			className: "lead",
+			children: NO_LONGER_ACTIVE
+		})
+	}) });
+}
+//#endregion
 //#region src/participant.tsx
 async function followProgress() {
 	const started = performance.now();
@@ -14240,7 +14292,7 @@ function Shell() {
 	const { use: customUse, fresh } = useCustomUseOf(hash, hostSession === null ? void 0 : !visitor);
 	const route = consented === null || !settingsLoaded || hostSession === null || customUse === null || participantSession === null ? null : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
 	h(() => {
-		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
+		if (route?.redirect && route.redirect !== window.location.hash && !inactiveAccount.shown) window.location.replace(route.redirect);
 	}, [route?.redirect]);
 	const landing = A(pageFor(window.location.hash) === "home");
 	if (route && route.page !== "home") landing.current = false;
@@ -14248,6 +14300,7 @@ function Shell() {
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
+	if (inactiveAccount.shown || pageFor(hash) === "no-longer-active") return /* @__PURE__ */ u(NoLongerActivePage, {});
 	if (participantSession?.signed_in === true && participantSession.allowed === false && hostSession?.signed_in !== true) return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("header", {
 			ref: header,
@@ -14308,6 +14361,7 @@ function Shell() {
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
+		"no-longer-active": /* @__PURE__ */ u(NoLongerActivePage, {}),
 		"host-forgot": /* @__PURE__ */ u(ForgotPasswordPage, {}),
 		"host-reset": /* @__PURE__ */ u(ResetPasswordPage, { token: resetToken(hash) ?? "" }),
 		"host-account": /* @__PURE__ */ u(AccountPage, {}),
@@ -14441,5 +14495,6 @@ function Mark() {
 //#endregion
 //#region src/main.tsx
 sendFetchesUnderSitePath();
+watchForInactiveAccount();
 R(/* @__PURE__ */ u(App, {}), document.getElementById("root"));
 //#endregion

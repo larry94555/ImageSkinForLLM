@@ -56,6 +56,8 @@ Password = Annotated[str, Body(embed=True)]
 DisplayName = Annotated[str | None, Body(embed=True)]
 # The host pages the browser says it opened (R189); anything else is refused, not logged.
 HostPage = Literal["sign-up", "sign-in"]
+# The browser's page that says only NO_LONGER_ACTIVE (R268), as #/no-longer-active.
+INACTIVE_PAGE = "no-longer-active"
 
 
 # The main address, such as app.me0.ai, that a site's own address sends a main-site host to (R255):
@@ -462,7 +464,7 @@ def host_router(
         return JSONResponse({"site": name, "sign_in_at": f"{to}/api/host/sign-in/{link}"})
 
     @router.get("/sign-in/{link}", response_model=None)
-    def open_sign_in_link(request: Request, link: str) -> RedirectResponse | JSONResponse:
+    def open_sign_in_link(request: Request, link: str) -> RedirectResponse:
         """The one-time link from a sign-in at another address (R255): signed in here, the
         host's own site, with the cookie that keeps them so, then its home page. A link that
         doesn't work goes to Host sign in."""
@@ -472,7 +474,8 @@ def host_router(
             return RedirectResponse(f"{root}/#/host/sign-in", status_code=303)
         host = accounts.host(token, site, unconfirmed=True)
         if host is not None and inactive(request, host.email, token):
-            return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
+            # The browser shows only the words (R268), on a page of their own.
+            return RedirectResponse(f"{root}/#/{INACTIVE_PAGE}", status_code=303)
         response = RedirectResponse(f"{root}/#/", status_code=303)
         https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         # The site's own host cookie, renamed for a trial site by `SiteApps`, as at sign-in.
@@ -557,6 +560,12 @@ def host_router(
     def page_opened(request: Request, page: Annotated[HostPage, Body(embed=True)]) -> None:
         """For the log: a host page opened in the browser (R189)."""
         logger.info("Host page opened", extra={"page": page, "address": address(request)})
+
+    @router.post("/inactive-shown", status_code=204)
+    def inactive_shown(page: Annotated[str, Body(embed=True, max_length=200)]) -> None:
+        """For the log: the browser showed "This account is no longer active." (R268), on
+        `page`, the page it was on."""
+        logger.info("Inactive account shown", extra={"site": site, "page": page})
 
     @router.get("/me")
     def me(host: Annotated[Host, Depends(require_host)]) -> dict[str, object]:

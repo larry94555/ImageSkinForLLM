@@ -11,6 +11,7 @@ import { ContentPage } from "./content";
 import { ALLOWED, CustomUseProvider, useCustomUseOf } from "./custom-use";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
+import { inactiveAccount, NoLongerActivePage } from "./inactive-account";
 import {
   ConfirmEmailPage,
   ConfirmFailedPage,
@@ -165,7 +166,8 @@ function Shell() {
       ? null
       : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
   useEffect(() => {
-    if (route?.redirect && route.redirect !== window.location.hash) {
+    // Not once the account is no longer active (R268): only its words stay.
+    if (route?.redirect && route.redirect !== window.location.hash && !inactiveAccount.shown) {
       window.location.replace(route.redirect);
     }
   }, [route?.redirect]);
@@ -184,6 +186,12 @@ function Shell() {
   // address, it returns to the first page of the view.
   const back = useRef<string | null>(null);
   if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
+
+  // The administrator's test account, with the administrator signed out (R268): only the words,
+  // with no top bar, links or anything of the site.
+  if (inactiveAccount.shown || pageFor(hash) === "no-longer-active") {
+    return <NoLongerActivePage />;
+  }
 
   // A participant the host doesn't let open this site (R262) sees only that it is not yet
   // active, with their own Sign out: nothing of the host or the site, whose calls refuse them.
@@ -273,6 +281,7 @@ function Shell() {
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
       "confirm-failed": <ConfirmFailedPage />,
+      "no-longer-active": <NoLongerActivePage />,
       "host-forgot": <ForgotPasswordPage />,
       "host-reset": <ResetPasswordPage token={resetToken(hash) ?? ""} />,
       "host-account": <AccountPage />,

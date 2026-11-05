@@ -384,6 +384,7 @@ INACTIVE_OPEN = (
     "/api/host/sign-out",
     "/api/host/forgot",
     "/api/host/reset",
+    "/api/host/inactive-shown",
     "/api/admin/",
 )
 PAUSED_READS = {"/api/consent", "/api/settings", "/api/settings/access", "/api/startup"}

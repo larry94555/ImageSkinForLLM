@@ -30,6 +30,7 @@ export type Page =
   | "act-as-failed"
   | "resources"
   | "customization"
+  | "no-longer-active"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -68,6 +69,8 @@ const PAGES: Record<string, Page> = {
   "/resources": "resources",
   // The identity and goals (R92), in either view; it checks the sign-in itself.
   "/customization": "customization",
+  // All the administrator's test account shows once the administrator signs out (R268).
+  "/no-longer-active": "no-longer-active",
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and
@@ -89,7 +92,7 @@ export function setupTarget(hash: string): SetupPart | undefined {
   return SETUP_PART.exec(pathOf(hash))?.[1] as SetupPart | undefined;
 }
 
-function pathOf(hash: string): string {
+export function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
 }
 
