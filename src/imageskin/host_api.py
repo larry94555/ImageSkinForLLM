@@ -19,6 +19,7 @@ from imageskin.hosts import (
     DEFAULT_SITE,
     HOST_COOKIE,
     INVALID_EMAIL,
+    NO_LONGER_ACTIVE,
     TOO_SOON,
     TRIAL_USED,
     Host,
@@ -114,6 +115,7 @@ def host_router(
     acting_link: Callable[[str], str | None] = lambda _: None,
     site_host: Callable[[str], str | None] = lambda _: None,
     test_mode: Callable[[Request], str | None] = lambda _: "no test mode here",
+    test_account_refused: Callable[[Request, str], bool] = lambda *_: False,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -128,7 +130,9 @@ def host_router(
     signed in, with a one-time link, made with `acting_link` for the administrator acting as
     them (R44a). `site_host` gives a site's host's email, whose display name (R259) is the only
     way any answer here names the host to someone else. `test_mode` says why a sign-up with
-    "-admin" may not make the administrator's test account (R265), or None when it may."""
+    "-admin" may not make the administrator's test account (R265), or None when it may;
+    `test_account_refused` whether a sign-in to one is refused, with the administrator signed
+    out (R267). Every other call by a test account is refused before it gets here."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -376,6 +380,8 @@ def host_router(
             # The password was right, at another site's address: the browser goes to the host's
             # own site with a one-time link, which signs them in there (R255). A cookie set here
             # wouldn't reach a site at another subdomain.
+            if inactive(request, email):
+                return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
             link = accounts.sign_in_link(email)
             to = site_address(request, site, e.site, is_trial, subdomain)
             logger.info(
@@ -403,7 +409,18 @@ def host_router(
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
+        if inactive(request, email, token):
+            return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
         return signed_in(request, token, email)
+
+    def inactive(request: Request, email: str, token: str | None = None) -> bool:
+        """Whether the right password, or a sign-in link, is for a test account while the
+        administrator is signed out (R267): then the sign-in it made is ended at once."""
+        if not accounts.is_test_account(email) or not test_account_refused(request, email):
+            return False
+        if token is not None:
+            accounts.sign_out(token, address(request))
+        return True
 
     @router.post("/restart")
     def restart_site(request: Request, email: Email, password: Password) -> JSONResponse:
@@ -445,7 +462,7 @@ def host_router(
         return JSONResponse({"site": name, "sign_in_at": f"{to}/api/host/sign-in/{link}"})
 
     @router.get("/sign-in/{link}", response_model=None)
-    def open_sign_in_link(request: Request, link: str) -> RedirectResponse:
+    def open_sign_in_link(request: Request, link: str) -> RedirectResponse | JSONResponse:
         """The one-time link from a sign-in at another address (R255): signed in here, the
         host's own site, with the cookie that keeps them so, then its home page. A link that
         doesn't work goes to Host sign in."""
@@ -453,6 +470,9 @@ def host_router(
         token = accounts.open_sign_in_link(link, site, address(request))
         if token is None:
             return RedirectResponse(f"{root}/#/host/sign-in", status_code=303)
+        host = accounts.host(token, site, unconfirmed=True)
+        if host is not None and inactive(request, host.email, token):
+            return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
         response = RedirectResponse(f"{root}/#/", status_code=303)
         https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         # The site's own host cookie, renamed for a trial site by `SiteApps`, as at sign-in.

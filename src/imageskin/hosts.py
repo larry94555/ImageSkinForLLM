@@ -131,6 +131,8 @@ INVALID_EMAIL = "Invalid email."
 # Said to a sign-up whose email address has had its one free trial (R66).
 TRIAL_USED = "This email address has already had a free trial. Sign up with another address."
 DISABLED_WORDS = "Changes to this site are turned off by the administrator."
+# All a test account is told once the administrator is signed out (R267): nothing else.
+NO_LONGER_ACTIVE = "This account is no longer active."
 CHANGES = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # The changing calls a disabled host still makes: signing in and out, a forgotten password,
 # confirming their email, the administrator's own calls at the main address, acting as a host,
@@ -235,6 +237,7 @@ class Host:
     confirmed: bool = True  # whether they confirmed their email (R62b)
     acting: bool = False  # the administrator acting as the host (R44a)
     disabled: bool = False  # turned off by the administrator: read-only for the host (R44c)
+    test_account: bool = False  # the administrator's: usable only while they are signed in (R267)
 
 
 class HostAccounts:
@@ -589,6 +592,7 @@ class HostAccounts:
             acting or bool(account.get(CONFIRMED, True)),
             acting,
             account.get(DISABLED) is True,
+            account.get(TEST_ACCOUNT) is True,
         )
         if site is not None and site not in theirs:
             logger.warning(

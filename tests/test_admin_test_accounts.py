@@ -1,7 +1,8 @@
 """The administrator's test accounts (roadmap R265 and R266, Milestone 31): signed in as the
 administrator with a test email set, "-admin" added to any email on the host sign-up page makes
 a test account for the email without it; otherwise, and anywhere else, it is an invalid email.
-Every email for a test account goes to the test email (R266)."""
+Every email for a test account goes to the test email (R266), and the account is usable only
+while the administrator is signed in, in the same browser (R267)."""
 
 import json
 import logging
@@ -9,6 +10,7 @@ import re
 from email import message_from_bytes
 from email.policy import default
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,12 +20,15 @@ from test_free_trial import forget_account
 from test_site_addresses import PASSWORD, served
 
 from imageskin import admin
+from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_settings import AdminSettings
 from imageskin.admin_test_email import redirect_to_test_email
 from imageskin.email_sending import Email, EmailFailed
 from imageskin.hosts import (
     INVALID_EMAIL,
+    NO_LONGER_ACTIVE,
     TEST_ACCOUNT,
+    WRONG,
     HostAccounts,
     HostRefused,
     HostsUnreadable,
@@ -318,3 +323,105 @@ def test_unreadable_accounts_send_nothing(caplog: pytest.LogCaptureFixture) -> N
     assert "Email not sent: the accounts can't be read" in caplog.text
     plain = Email(BOB, "Hello", "Words", "test")
     assert redirect_to_test_email(lambda _: False, lambda: AdminSettings())(plain) is plain
+
+
+def confirmed_test_account(tmp_path: Path) -> tuple[object, Path, TestClient, str]:
+    """Joe's test account as in `joe_test_account`, with its email confirmed."""
+    sites, home, browser, code = joe_test_account(tmp_path)
+    browser.get(link_in(outbox(home)[0]["text"], "/api/host/confirm/"), follow_redirects=False)
+    assert browser.get(f"/t/{code}/api/host/me").status_code == 200
+    return sites, home, browser, code
+
+
+def refused(response: Any) -> bool:
+    """The test account's one answer with the administrator signed out (R267): nothing else."""
+    return bool(response.status_code == 403 and response.json() == {"detail": NO_LONGER_ACTIVE})
+
+
+def test_a_test_account_stops_when_the_administrator_signs_out_and_works_again_after(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, browser, code = confirmed_test_account(tmp_path)
+    assert browser.get(f"/t/{code}/api/host/session").json()["email"] == JOE
+    assert browser.post("/api/admin/sign-out").is_success
+    assert ADMIN_COOKIE not in browser.cookies
+    with caplog.at_level(logging.INFO):
+        # The session, the host pages' calls and Settings: all the same few words.
+        for answer in (
+            browser.get(f"/t/{code}/api/host/session"),
+            browser.get(f"/t/{code}/api/host/me"),
+            browser.get(f"/t/{code}/api/host/sites"),
+            browser.get(f"/t/{code}/api/settings"),
+            browser.post(f"/t/{code}/api/host/page", json={"page": "setup"}),
+        ):
+            assert refused(answer), answer.text
+    logged = [r for r in caplog.records if r.message == "Test account refused"]
+    assert len(logged) == 5
+    assert logged[0].__dict__["email"] == JOE
+    assert logged[0].__dict__["path"] == f"/t/{code}/api/host/session"
+    assert logged[0].__dict__["why"] == "no administrator sign-in"
+    # Signing out of it still works, and the administrator's own sign-in is open.
+    assert browser.get("/api/admin/session").is_success
+    assert browser.post("/api/admin/sign-in", json={"password": "secret"}).is_success
+    assert browser.get(f"/t/{code}/api/host/session").json()["email"] == JOE
+    assert browser.get(f"/t/{code}/api/host/me").status_code == 200
+    assert browser.post(f"/t/{code}/api/host/sign-out").is_success
+
+
+def test_signing_in_to_a_test_account_without_the_administrator(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    sites, _, _, code = confirmed_test_account(tmp_path)
+    elsewhere = TestClient(sites, base_url=MAIN)  # type: ignore[arg-type]
+    site = f"/t/{code}/api/host"
+    # A wrong password gets the usual words: no sign that the account is a test account.
+    wrong = elsewhere.post(f"{site}/sign-in", json={"email": JOE, "password": "not it"})
+    assert wrong.status_code == 401 and wrong.json()["detail"] == WRONG
+    with caplog.at_level(logging.INFO):
+        right = elsewhere.post(f"{site}/sign-in", json={"email": JOE, "password": PASSWORD})
+        at_main = elsewhere.post("/api/host/sign-in", json={"email": JOE, "password": PASSWORD})
+    assert refused(right) and refused(at_main)
+    assert not right.cookies and not at_main.cookies
+    assert elsewhere.get(f"{site}/session").json()["signed_in"] is False
+    why = {r.__dict__["why"] for r in caplog.records if r.message == "Test account refused"}
+    assert why == {"no administrator sign-in"}
+
+
+def test_a_sign_in_link_to_a_test_account_needs_the_administrator(tmp_path: Path) -> None:
+    sites, _, browser, code = confirmed_test_account(tmp_path)
+    # Signed in at the main address, the administrator's browser is sent on with a link.
+    sent = browser.post("/api/host/sign-in", json={"email": JOE, "password": PASSWORD}).json()
+    link = str(sent["sign_in_at"]).removeprefix(MAIN)
+    # Opened in a browser where the administrator isn't signed in, it signs in no one.
+    other = TestClient(sites, base_url=MAIN)  # type: ignore[arg-type]
+    assert refused(other.get(link, follow_redirects=False))
+    assert other.get(f"/t/{code}/api/host/session").json()["signed_in"] is False
+    # Another link, opened by the administrator's own browser, works.
+    sent = browser.post("/api/host/sign-in", json={"email": JOE, "password": PASSWORD}).json()
+    opened = browser.get(str(sent["sign_in_at"]).removeprefix(MAIN), follow_redirects=False)
+    assert opened.status_code == 303
+
+
+def test_the_test_accounts_site_is_unchanged_for_visitors(tmp_path: Path) -> None:
+    sites, _, browser, code = confirmed_test_account(tmp_path)
+    assert browser.post("/api/admin/sign-out").is_success
+    visitor = TestClient(sites, base_url=MAIN)  # type: ignore[arg-type]
+    session = visitor.get(f"/t/{code}/api/host/session")
+    assert session.status_code == 200 and session.json()["signed_in"] is False
+    assert visitor.get(f"/t/{code}/api/startup").status_code == 200
+    # Other hosts keep working with the administrator signed out: Bob is signed in here too.
+    assert browser.get("/api/host/me").status_code == 200
+
+
+def test_an_ended_administrator_sign_in_counts_as_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, browser, code = confirmed_test_account(tmp_path)
+    # The browser keeps a cookie whose sign-in has ended, as after a timeout.
+    old = browser.cookies[ADMIN_COOKIE]
+    assert browser.post("/api/admin/sign-out").is_success
+    browser.cookies.set(ADMIN_COOKIE, old)
+    with caplog.at_level(logging.INFO):
+        assert refused(browser.get(f"/t/{code}/api/host/session"))
+    logged = next(r for r in caplog.records if r.message == "Test account refused")
+    assert logged.__dict__["why"] == "administrator sign-in ended"
