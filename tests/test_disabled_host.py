@@ -148,6 +148,7 @@ VISITORS = {
     "POST /api/host/sign-up",  # signing up for an account of one's own
     "POST /api/host/restart",  # a deleted site's host, signed in nowhere, starting it (R69c)
     "POST /api/host/page",  # the log's note that a page opened
+    "POST /api/host/inactive-shown",  # the log's note that the words were shown (R268)
     # A participant's own account and progress (R46), which are not the host's.
     "POST /api/participant/sign-up",
     "POST /api/participant/sign-in",

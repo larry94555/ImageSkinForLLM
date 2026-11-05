@@ -52,6 +52,7 @@ from imageskin.admin_guidelines import value_of as admin_value_of
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import AdminSettingsStore
+from imageskin.admin_test_email import redirect_to_test_email
 from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
@@ -167,6 +168,8 @@ RESTARTED = "started again, not yet paid for"
 # site that was deleted since, its name given again, never pays for the new site of that name
 # (Codex's review of PR #304).
 TOKEN = "token"
+# A test account's trial site (R265), whose host's email isn't recorded as having had one.
+TEST = "test"
 # Why a site a host added to their others (R257) is paused until its first payment, which
 # Stripe's event records (R67), unpausing it; left unpaid, it is deleted as any paused site is.
 ADDED = "added, not yet paid for"
@@ -255,7 +258,9 @@ class SiteDirectory:
         missing = {
             email_key(str(s["host"]))
             for s in self._sites.values()
-            if s.get("trial") and email_key(str(s["host"])) not in self._trials_used
+            if s.get("trial")
+            and not s.get(TEST)  # a test account's trial uses up nothing (R265)
+            and email_key(str(s["host"])) not in self._trials_used
         }
         if not missing:
             return
@@ -1003,7 +1008,9 @@ class SiteDirectory:
             if another and trial:
                 raise SiteError(f"{email} is already the host of {host_site}.")
             used = self._trials_used
-            if trial:
+            # The administrator's test account (R265) neither needs nor uses up a free trial.
+            test = trial and self._hosts.is_test_account(email)
+            if trial and not test:
                 if self._used(email, sites):  # one free trial per email address (R66)
                     logger.warning("Trial refused: email already used", extra={"email": email})
                     raise TrialUsed(TRIAL_USED)
@@ -1026,6 +1033,8 @@ class SiteDirectory:
             }
             if trial:
                 sites[name]["trial"] = True
+            if test:
+                sites[name][TEST] = True
             self._write(sites, used)
             if another:
                 self._hosts.add_site(email, name)
@@ -1270,6 +1279,11 @@ def make_service(
         laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
     )
     host_accounts = HostAccounts(home)
+    mailer = mailer or Mailer(home, None)
+    # Every email for a test account goes to the test email instead (R266).
+    mailer.redirect = redirect_to_test_email(
+        host_accounts.is_test_account, lambda: admin_settings.current
+    )
     acting = ActingAsHost(admin_sign_ins)
     host_accounts.acting = acting.email_of
     # The administrator's guidelines keep a history of each part, as a host's do (R253).
@@ -1286,7 +1300,7 @@ def make_service(
         admin_history=admin_history,
         admin_guidelines=AdminGuidelinesFile(home, admin_history.saved),
         sites=SiteDirectory(home, host_accounts),
-        mailer=mailer or Mailer(home, None),
+        mailer=mailer,
         acting=acting,
         payments=payments,
     )

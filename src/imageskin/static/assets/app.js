@@ -2397,7 +2397,8 @@ var PAGES = {
 	"/host/email-failed": "email-failed",
 	"/host/act-as-failed": "act-as-failed",
 	"/resources": "resources",
-	"/customization": "customization"
+	"/customization": "customization",
+	"/no-longer-active": "no-longer-active"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -5063,134 +5064,155 @@ function AdminSettingsPage() {
 			label
 		]
 	});
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("form", {
-		onSubmit: (e) => {
-			e.preventDefault();
-			save(fields);
-		},
-		children: [
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			saved && /* @__PURE__ */ u("p", {
-				className: "notice",
-				role: "status",
-				children: "Saved. The dashboard, the sign-out and the hosts use them now."
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-sign-out",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-sign-out",
-						children: "Automatic sign-out"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
-							settings.recommended.timeout_minutes,
-							"."
-						]
-					}),
-					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-thresholds",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-thresholds",
-						children: "Colours on the dashboard"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
-							recommended.blue_above,
-							"%, orange below",
-							" ",
-							recommended.orange_below,
-							"%, red below ",
-							recommended.red_below,
-							"%."
-						]
-					}),
-					input("blue", "Blue: more than this % remaining", 1, 99),
-					input("orange", "Orange: less than this % remaining", 1, 99),
-					input("red", "Red: less than this % remaining", 1, 99),
-					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
-						className: "colour-key",
-						children: [
-							/* @__PURE__ */ u("span", {
-								className: `colour-name ${colour}`,
-								children: colour[0].toUpperCase() + colour.slice(1)
-							}),
-							":",
-							" ",
-							meaning,
-							". ",
-							todo
-						]
-					}, colour)),
-					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						disabled: busy,
-						onClick: () => void save({
-							...fields,
-							blue: String(recommended.blue_above),
-							orange: String(recommended.orange_below),
-							red: String(recommended.red_below)
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("form", {
+			onSubmit: (e) => {
+				e.preventDefault();
+				save(fields);
+			},
+			children: [
+				error && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: error
+				}),
+				saved && /* @__PURE__ */ u("p", {
+					className: "notice",
+					role: "status",
+					children: "Saved. The dashboard, the sign-out and the hosts use them now."
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-sign-out",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-sign-out",
+							children: "Automatic sign-out"
 						}),
-						children: "Use the recommended thresholds"
-					}) })
-				]
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
+								settings.recommended.timeout_minutes,
+								"."
+							]
+						}),
+						input("minutes", "Minutes without activity (5 to 240)", 5, 240)
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-thresholds",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-thresholds",
+							children: "Colours on the dashboard"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
+								recommended.blue_above,
+								"%, orange below",
+								" ",
+								recommended.orange_below,
+								"%, red below ",
+								recommended.red_below,
+								"%."
+							]
+						}),
+						input("blue", "Blue: more than this % remaining", 1, 99),
+						input("orange", "Orange: less than this % remaining", 1, 99),
+						input("red", "Red: less than this % remaining", 1, 99),
+						MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+							className: "colour-key",
+							children: [
+								/* @__PURE__ */ u("span", {
+									className: `colour-name ${colour}`,
+									children: colour[0].toUpperCase() + colour.slice(1)
+								}),
+								":",
+								" ",
+								meaning,
+								". ",
+								todo
+							]
+						}, colour)),
+						/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							disabled: busy,
+							onClick: () => void save({
+								...fields,
+								blue: String(recommended.blue_above),
+								orange: String(recommended.orange_below),
+								red: String(recommended.red_below)
+							}),
+							children: "Use the recommended thresholds"
+						}) })
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-hosts",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-hosts",
+							children: "Hosts"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
+						}),
+						/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
+						/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
+					]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "admin-deleting",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "admin-deleting",
+							children: "Deleting paused sites"
+						}),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: [
+								"A site paused because its subscription ended, its trial was cancelled or its host asked to delete it keeps its content this many days, so its host can come back, then everything on it is deleted. Recommended: ",
+								settings.recommended.days_before_deleting,
+								"."
+							]
+						}),
+						input("days", "Days before deleting (1 to 365)", 1, 365)
+					]
+				}),
+				/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+					type: "submit",
+					disabled: busy,
+					children: "Save"
+				}) })
+			]
+		}),
+		/* @__PURE__ */ u(TestEmail, { address: settings.test_email }),
+		/* @__PURE__ */ u(HostProperties, {})
+	] });
+}
+function TestEmail({ address }) {
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-test-email",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-test-email",
+				children: "Test email"
 			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-hosts",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-hosts",
-						children: "Hosts"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
-					}),
-					/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
-					/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-deleting",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-deleting",
-						children: "Deleting paused sites"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"A site paused because its subscription ended, its trial was cancelled or its host asked to delete it keeps its content this many days, so its host can come back, then everything on it is deleted. Recommended: ",
-							settings.recommended.days_before_deleting,
-							"."
-						]
-					}),
-					input("days", "Days before deleting (1 to 365)", 1, 365)
-				]
-			}),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "submit",
-				disabled: busy,
-				children: "Save"
-			}) })
+			/* @__PURE__ */ u("p", { children: ["Test email: ", /* @__PURE__ */ u("strong", { children: address || "not set" })] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Every email for an administrator's test account goes to this address. It is set only in admin-settings.json, in the admin folder on the host, as \"test_email\", and is used as soon as the file is saved."
+			})
 		]
-	}), /* @__PURE__ */ u(HostProperties, {})] });
+	});
 }
 //#endregion
 //#region src/customization.tsx
@@ -11397,6 +11419,57 @@ function ChoiceIcon({ href }) {
 	});
 }
 //#endregion
+//#region src/inactive-account.tsx
+var NO_LONGER_ACTIVE = "This account is no longer active.";
+var INACTIVE_HASH = "#/no-longer-active";
+var inactiveAccount = { shown: false };
+var inactiveNavigation = { show: () => window.location.replace(INACTIVE_HASH) };
+async function saysInactive(response) {
+	if (response.status !== 403) return false;
+	try {
+		return (await response.clone().json()).detail === NO_LONGER_ACTIVE;
+	} catch {
+		return false;
+	}
+}
+function watchForInactiveAccount(target = window) {
+	const original = target.fetch.bind(target);
+	target.fetch = async (input, init) => {
+		const response = await original(input, init);
+		if (!inactiveAccount.shown && await saysInactive(response)) {
+			inactiveAccount.shown = true;
+			const page = pathOf(window.location.hash) || "/";
+			console.warn(`Account no longer active, on ${page}: signing out in this browser`);
+			await forget(original, page);
+			inactiveNavigation.show();
+		}
+		return response;
+	};
+}
+async function forget(send, page) {
+	try {
+		const out = await send("/api/host/sign-out", { method: "POST" });
+		if (!out.ok) console.error(`Host sign-in not forgotten: ${out.status}`);
+		await send("/api/host/inactive-shown", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ page })
+		});
+	} catch (e) {
+		console.error("Host sign-in not forgotten", e);
+	}
+}
+function NoLongerActivePage() {
+	h(() => console.info("Inactive account shown"), []);
+	return /* @__PURE__ */ u("main", { children: /* @__PURE__ */ u("div", {
+		className: "not-active",
+		children: /* @__PURE__ */ u("p", {
+			className: "lead",
+			children: NO_LONGER_ACTIVE
+		})
+	}) });
+}
+//#endregion
 //#region src/participant.tsx
 async function followProgress() {
 	const started = performance.now();
@@ -14219,7 +14292,7 @@ function Shell() {
 	const { use: customUse, fresh } = useCustomUseOf(hash, hostSession === null ? void 0 : !visitor);
 	const route = consented === null || !settingsLoaded || hostSession === null || customUse === null || participantSession === null ? null : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
 	h(() => {
-		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
+		if (route?.redirect && route.redirect !== window.location.hash && !inactiveAccount.shown) window.location.replace(route.redirect);
 	}, [route?.redirect]);
 	const landing = A(pageFor(window.location.hash) === "home");
 	if (route && route.page !== "home") landing.current = false;
@@ -14227,6 +14300,7 @@ function Shell() {
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
+	if (inactiveAccount.shown || pageFor(hash) === "no-longer-active") return /* @__PURE__ */ u(NoLongerActivePage, {});
 	if (participantSession?.signed_in === true && participantSession.allowed === false && hostSession?.signed_in !== true) return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("header", {
 			ref: header,
@@ -14287,6 +14361,7 @@ function Shell() {
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
+		"no-longer-active": /* @__PURE__ */ u(NoLongerActivePage, {}),
 		"host-forgot": /* @__PURE__ */ u(ForgotPasswordPage, {}),
 		"host-reset": /* @__PURE__ */ u(ResetPasswordPage, { token: resetToken(hash) ?? "" }),
 		"host-account": /* @__PURE__ */ u(AccountPage, {}),
@@ -14420,5 +14495,6 @@ function Mark() {
 //#endregion
 //#region src/main.tsx
 sendFetchesUnderSitePath();
+watchForInactiveAccount();
 R(/* @__PURE__ */ u(App, {}), document.getElementById("root"));
 //#endregion

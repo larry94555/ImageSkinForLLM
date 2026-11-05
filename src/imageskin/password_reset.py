@@ -12,7 +12,15 @@ from fastapi.responses import JSONResponse
 from imageskin.admin_api import address
 from imageskin.email_sending import Email, EmailFailed
 from imageskin.host_api import origin_of
-from imageskin.hosts import RESET_HOURS, HostAccounts, HostRefused, HostsUnreadable, normal_email
+from imageskin.hosts import (
+    INVALID_EMAIL,
+    RESET_HOURS,
+    HostAccounts,
+    HostRefused,
+    HostsUnreadable,
+    ends_admin,
+    normal_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,9 @@ def reset_router(accounts: HostAccounts, send_email: Callable[[Email], object]) 
     ) -> JSONResponse:
         """Email a link to set a new password, if the email has an account."""
         start = time.perf_counter()
+        if ends_admin(email):  # only sign-up takes "-admin" (R265)
+            logger.info("Password reset refused", extra={"why": "ends in -admin"})
+            return JSONResponse({"detail": INVALID_EMAIL}, status_code=400)
         try:
             token = accounts.reset_link(email)
         except HostsUnreadable as e:

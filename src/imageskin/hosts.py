@@ -122,9 +122,17 @@ CUSTOM_VOICE = "custom_voice"
 # A host the administrator disabled (R44c): their site is read-only for them, and only the
 # administrator acting as them (R44a) changes it. Kept with the host; hosts from before have none.
 DISABLED = "disabled"
+# The administrator's test accounts (R265, Milestone 31): "-admin" added to an email on the
+# sign-up page, by the signed-in administrator with a test email set, makes one for the email
+# without it. Anywhere else an email ending in it is refused with INVALID_EMAIL.
+TEST_ACCOUNT = "test_account"
+ADMIN_SUFFIX = "-admin"
+INVALID_EMAIL = "Invalid email."
 # Said to a sign-up whose email address has had its one free trial (R66).
 TRIAL_USED = "This email address has already had a free trial. Sign up with another address."
 DISABLED_WORDS = "Changes to this site are turned off by the administrator."
+# All a test account is told once the administrator is signed out (R267): nothing else.
+NO_LONGER_ACTIVE = "This account is no longer active."
 CHANGES = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # The changing calls a disabled host still makes: signing in and out, a forgotten password,
 # confirming their email, the administrator's own calls at the main address, acting as a host,
@@ -186,6 +194,16 @@ def normal_email(email: str) -> str:
     return email.strip().lower()
 
 
+def ends_admin(email: str) -> bool:
+    """Whether an email has "-admin" at its end (R265), ignoring capitals and spaces."""
+    return normal_email(email).endswith(ADMIN_SUFFIX)
+
+
+def without_admin(email: str) -> str:
+    """The email with its "-admin" taken off (R265)."""
+    return normal_email(email).removesuffix(ADMIN_SUFFIX)
+
+
 def default_display_name(email: str) -> str:
     """What a host who hasn't set a display name is called (R259): their email before the @."""
     return normal_email(email).split("@", 1)[0]
@@ -219,6 +237,7 @@ class Host:
     confirmed: bool = True  # whether they confirmed their email (R62b)
     acting: bool = False  # the administrator acting as the host (R44a)
     disabled: bool = False  # turned off by the administrator: read-only for the host (R44c)
+    test_account: bool = False  # the administrator's: usable only while they are signed in (R267)
 
 
 class HostAccounts:
@@ -359,14 +378,19 @@ class HostAccounts:
         address: str,
         confirm: bool = False,
         display_name: str | None = None,
+        test_account: bool = False,
     ) -> str:
         """Make a host account and sign it in, returning the sign-in's token; HostRefused when
         the email isn't one, the password is too short, the display name isn't one (R259) or
         the email is already signed up. With `confirm`, the host is unconfirmed until they use
         a confirmation link (R62b). With no `display_name`, the host is shown by their email
-        before the @ until they set one."""
+        before the @ until they set one. With `test_account`, it is one of the administrator's
+        test accounts (R265); the "-admin" is taken off by the caller, and an email still ending
+        in it is refused."""
         start = time.perf_counter()
         email = normal_email(email)
+        if ends_admin(email):
+            self._refuse(INVALID_EMAIL, "ends in -admin", "sign-up", email, address)
         if not EMAIL.fullmatch(email):
             self._refuse(BAD_EMAIL, "not an email address", "sign-up", email, address)
         if len(password) < MIN_PASSWORD:
@@ -390,6 +414,8 @@ class HostAccounts:
                 data["hosts"][email][DISPLAY_NAME] = shown
             if confirm:
                 data["hosts"][email][CONFIRMED] = False
+            if test_account:
+                data["hosts"][email][TEST_ACCOUNT] = True
             token = self._new_sign_in(data, email)
             self._save(data)
         logger.info(
@@ -408,6 +434,8 @@ class HostAccounts:
         wrong password, when either is wrong, or the host is another site's (R61)."""
         start = time.perf_counter()
         email = normal_email(email)
+        if ends_admin(email):  # only sign-up takes "-admin" (R265)
+            self._refuse(INVALID_EMAIL, "ends in -admin", "sign-in", email, address)
         with self._lock:
             account = self._load()["hosts"].get(email)
         secret = Secret("hash", account["password_hash"]) if account else None
@@ -564,6 +592,7 @@ class HostAccounts:
             acting or bool(account.get(CONFIRMED, True)),
             acting,
             account.get(DISABLED) is True,
+            account.get(TEST_ACCOUNT) is True,
         )
         if site is not None and site not in theirs:
             logger.warning(
@@ -656,6 +685,8 @@ class HostAccounts:
         before; HostRefused when it isn't an email, is theirs already or another host's, or the
         last link was made less than a minute ago."""
         email, new_email = normal_email(email), normal_email(new_email)
+        if ends_admin(new_email):  # only sign-up takes "-admin" (R265)
+            raise HostRefused(INVALID_EMAIL, "ends in -admin")
         if not EMAIL.fullmatch(new_email):
             raise HostRefused(BAD_EMAIL, "not an email address")
         if new_email == email:
@@ -966,6 +997,12 @@ class HostAccounts:
         with self._lock:
             account = self._load()["hosts"].get(normal_email(email), {})
         return account.get(DISABLED) is True
+
+    def is_test_account(self, email: str) -> bool:
+        """Whether the host is one of the administrator's test accounts (R265)."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email), {})
+        return account.get(TEST_ACCOUNT) is True
 
     def set_disabled(self, email: str, disabled: bool) -> bool:
         """Disable the host or enable them again (R44c). False when there is no such host.

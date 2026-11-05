@@ -18,6 +18,8 @@ from imageskin.email_sending import Email as Message
 from imageskin.hosts import (
     DEFAULT_SITE,
     HOST_COOKIE,
+    INVALID_EMAIL,
+    NO_LONGER_ACTIVE,
     TOO_SOON,
     TRIAL_USED,
     Host,
@@ -26,10 +28,12 @@ from imageskin.hosts import (
     HostRefused,
     HostsUnreadable,
     SiteDeleted,
+    ends_admin,
     normal_email,
     refuse_if_disabled,
     site_deleted_words,
     trial_cookie,
+    without_admin,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,8 @@ Password = Annotated[str, Body(embed=True)]
 DisplayName = Annotated[str | None, Body(embed=True)]
 # The host pages the browser says it opened (R189); anything else is refused, not logged.
 HostPage = Literal["sign-up", "sign-in"]
+# The browser's page that says only NO_LONGER_ACTIVE (R268), as #/no-longer-active.
+INACTIVE_PAGE = "no-longer-active"
 
 
 # The main address, such as app.me0.ai, that a site's own address sends a main-site host to (R255):
@@ -110,6 +116,8 @@ def host_router(
     days_before_deleting: Callable[[], int] = lambda: 30,
     acting_link: Callable[[str], str | None] = lambda _: None,
     site_host: Callable[[str], str | None] = lambda _: None,
+    test_mode: Callable[[Request], str | None] = lambda _: "no test mode here",
+    test_account_refused: Callable[[Request, str], bool] = lambda *_: False,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -123,7 +131,10 @@ def host_router(
     their email and returns the new site's name. A host with several sites (R256) opens each
     signed in, with a one-time link, made with `acting_link` for the administrator acting as
     them (R44a). `site_host` gives a site's host's email, whose display name (R259) is the only
-    way any answer here names the host to someone else."""
+    way any answer here names the host to someone else. `test_mode` says why a sign-up with
+    "-admin" may not make the administrator's test account (R265), or None when it may;
+    `test_account_refused` whether a sign-in to one is refused, with the administrator signed
+    out (R267). Every other call by a test account is refused before it gets here."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -282,9 +293,21 @@ def host_router(
                 "Host sign-up refused", extra={"site": site, "why": "the site has its host"}
             )
             return JSONResponse({"detail": SITE_HAS_HOST}, status_code=403)
+        began = time.perf_counter()
+        # "-admin" at the end makes the administrator's test account for the email without it
+        # (R265), only for the signed-in administrator with a test email set. The address with
+        # "-admin" is never logged, stored or answered.
+        test = ends_admin(email)
+        if test:
+            why = test_mode(request)
+            if why is not None:
+                logger.warning("Test sign-up refused", extra={"why": why})
+                return JSONResponse({"detail": INVALID_EMAIL}, status_code=400)
+            email = without_admin(email)
         # One free trial per email address (R66), checked before the account is made. One
-        # signed up already is still told so, or has their site finished, below.
-        if make_site is not None and not accounts.exists(email) and trial_used(email):
+        # signed up already is still told so, or has their site finished, below. A test
+        # account's trial uses up nothing (R265).
+        if make_site is not None and not test and not accounts.exists(email) and trial_used(email):
             logger.warning(
                 "Trial refused: email already used", extra={"email": normal_email(email)}
             )
@@ -296,17 +319,27 @@ def host_router(
                 address(request),
                 confirm=make_site is not None,
                 display_name=display_name,
+                test_account=test,
             )
         except HostRefused as e:
             if e.reason != "email already signed up":
                 return JSONResponse({"detail": str(e)}, status_code=400)
-            if make_site is None or not unfinished(request, email, password):
+            # A test account is never made over an account already there (R265).
+            if make_site is None or test or not unfinished(request, email, password):
                 return JSONResponse({"detail": str(e)}, status_code=409)
             # Signed up before, and making their site stopped partway: it is finished now.
             logger.info("Sign-up finished from before", extra={"email": normal_email(email)})
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         else:
+            if test:
+                logger.info(
+                    "Test account signed up",
+                    extra={
+                        "email": normal_email(email),
+                        "duration_ms": round((time.perf_counter() - began) * 1000, 1),
+                    },
+                )
             if make_site is None:
                 return signed_in(request, token, email)
         start = time.perf_counter()
@@ -349,6 +382,8 @@ def host_router(
             # The password was right, at another site's address: the browser goes to the host's
             # own site with a one-time link, which signs them in there (R255). A cookie set here
             # wouldn't reach a site at another subdomain.
+            if inactive(request, email):
+                return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
             link = accounts.sign_in_link(email)
             to = site_address(request, site, e.site, is_trial, subdomain)
             logger.info(
@@ -376,7 +411,18 @@ def host_router(
             return JSONResponse({"detail": str(e)}, status_code=401)
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
+        if inactive(request, email, token):
+            return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
         return signed_in(request, token, email)
+
+    def inactive(request: Request, email: str, token: str | None = None) -> bool:
+        """Whether the right password, or a sign-in link, is for a test account while the
+        administrator is signed out (R267): then the sign-in it made is ended at once."""
+        if not accounts.is_test_account(email) or not test_account_refused(request, email):
+            return False
+        if token is not None:
+            accounts.sign_out(token, address(request))
+        return True
 
     @router.post("/restart")
     def restart_site(request: Request, email: Email, password: Password) -> JSONResponse:
@@ -426,6 +472,10 @@ def host_router(
         token = accounts.open_sign_in_link(link, site, address(request))
         if token is None:
             return RedirectResponse(f"{root}/#/host/sign-in", status_code=303)
+        host = accounts.host(token, site, unconfirmed=True)
+        if host is not None and inactive(request, host.email, token):
+            # The browser shows only the words (R268), on a page of their own.
+            return RedirectResponse(f"{root}/#/{INACTIVE_PAGE}", status_code=303)
         response = RedirectResponse(f"{root}/#/", status_code=303)
         https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         # The site's own host cookie, renamed for a trial site by `SiteApps`, as at sign-in.
@@ -510,6 +560,12 @@ def host_router(
     def page_opened(request: Request, page: Annotated[HostPage, Body(embed=True)]) -> None:
         """For the log: a host page opened in the browser (R189)."""
         logger.info("Host page opened", extra={"page": page, "address": address(request)})
+
+    @router.post("/inactive-shown", status_code=204)
+    def inactive_shown(page: Annotated[str, Body(embed=True, max_length=200)]) -> None:
+        """For the log: the browser showed "This account is no longer active." (R268), on
+        `page`, the page it was on."""
+        logger.info("Inactive account shown", extra={"site": site, "page": page})
 
     @router.get("/me")
     def me(host: Annotated[Host, Depends(require_host)]) -> dict[str, object]:

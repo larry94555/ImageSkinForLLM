@@ -47,6 +47,9 @@ class Email:
     subject: str
     text: str
     kind: str  # what it is for, for the log: "test", "sign-up confirmation", ...
+    # The host account it is for, when not `to`: changing the email sends to the new address
+    # (R62c), and a test account's email goes to the test email either way (R266).
+    account: str = ""
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,8 @@ class Mailer:
         self.service = service
         self._connect = connect
         self._sleep = sleep
+        # What is sent in place of each email: a test account's goes to the test email (R266).
+        self.redirect: Callable[[Email], Email] = lambda email: email
 
     def message(self, email: Email) -> EmailMessage:
         msg = EmailMessage()
@@ -114,6 +119,7 @@ class Mailer:
         """Send the email, or write it to the outbox with no mail service set: the file, or
         None when sent. Raises EmailFailed when it couldn't be sent, after a second try."""
         start = time.perf_counter()
+        email = self.redirect(email)
         msg = self.message(email)
         if self.service is None:
             return self._write(email, msg, start)

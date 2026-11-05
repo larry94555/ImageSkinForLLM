@@ -5,12 +5,18 @@ Kept in `admin-settings.json` in the app's home folder, apart from the Settings 
 thresholds for the resource dashboard's colours, and whether hosts may use a custom image and a
 custom voice (R239). Delete my data leaves them, as they are the
 site's, not a user's. A change applies at once, to the sign-in going now and to the colours.
+
+The file also holds the test email (R264, Milestone 31): the address that gets every email meant
+for the administrator's test accounts. It is set only in the file, never from the page, and the
+file is read again whenever it changes, so a test email added there works with no restart.
 """
 
 import json
 import logging
 import os
+import re
 import threading
+import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -33,6 +39,13 @@ ORDER = (
 
 CHECKBOXES = ("disable_custom_image", "disable_custom_voice")
 
+# Set only in the file (R264), like the administrator's password, so the page can't change it.
+TEST_EMAIL = "test_email"
+FILE_ONLY = f"The test email is set only in {FILENAME}, in the admin folder."
+# The same check as a host's email (hosts.EMAIL), which can't be imported here: hosts imports
+# this module.
+EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
 
 @dataclass(frozen=True)
 class AdminSettings:
@@ -46,6 +59,8 @@ class AdminSettings:
     # Days a paused site, cancelled or deleted by its host, is kept before its content is
     # deleted (R69a), so a host who missed a payment can come back.
     days_before_deleting: int = DELETE_DAYS
+    # Where every email for a test account goes (R264); empty when not set.
+    test_email: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -61,6 +76,8 @@ def number(value: object) -> bool:
 
 def checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
     """The settings with the changes made; ValueError with a plain message if one is wrong."""
+    if TEST_EMAIL in changes:
+        raise ValueError(FILE_ONLY)
     unknown = sorted(
         set(changes) - {"timeout_minutes", "thresholds", "days_before_deleting", *CHECKBOXES}
     )
@@ -130,37 +147,100 @@ def custom_use(
 
 
 class AdminSettingsStore:
-    """The admin settings, read once and kept in memory, and saved at each change."""
+    """The admin settings, kept in memory, saved at each change, and read again when the file
+    is changed by hand (R264)."""
 
     def __init__(self, home: Path) -> None:
         self.path = home / FILENAME
         self._lock = threading.Lock()
-        self.current = self._load()
+        self._stamp = self._file_stamp()
+        self._current = self._load(fallback=None)
 
-    def _load(self) -> AdminSettings:
+    @property
+    def current(self) -> AdminSettings:
+        """The settings now: read from the file again first if it changed since last read."""
+        if self._file_stamp() != self._stamp:
+            with self._lock:
+                self._refresh()
+        return self._current
+
+    def _refresh(self) -> None:
+        """Read the file again if it changed since last read. Called holding `_lock`."""
+        stamp = self._file_stamp()
+        if stamp != self._stamp:
+            self._stamp = stamp
+            self._current = self._load(fallback=self._current)
+
+    def _file_stamp(self) -> tuple[int, int] | None:
+        try:
+            info = self.path.stat()
+        except OSError:
+            return None
+        return (info.st_mtime_ns, info.st_size)
+
+    def _load(self, fallback: AdminSettings | None) -> AdminSettings:
+        """The file's settings. One that can't be used gives the recommended settings at start,
+        and keeps the ones in use when read again, as a file being edited may be half saved."""
+        start = time.perf_counter()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("The file doesn't hold the admin settings.")
-            return checked(DEFAULTS, data)
+            test_email = self._test_email(data.pop(TEST_EMAIL, ""))
+            settings = replace(checked(DEFAULTS, data), test_email=test_email)
         except FileNotFoundError:
             return DEFAULTS
         except (OSError, ValueError) as e:
+            if fallback is not None:
+                logger.error(
+                    "Admin settings are not valid; keeping the ones in use",
+                    extra={"path": str(self.path), "error": str(e)},
+                )
+                return fallback
             logger.error(
                 "Admin settings are not valid; using the recommended ones",
                 extra={"path": str(self.path), "error": str(e)},
             )
             return DEFAULTS
+        logger.info(
+            "Admin test email read",
+            extra={
+                "path": str(self.path),
+                "test_email_set": bool(settings.test_email),
+                "again": fallback is not None,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return settings
+
+    def _test_email(self, value: object) -> str:
+        """The file's test email (R264), or "" for none; one that isn't an address is never
+        used."""
+        if value is None or value == "":
+            return ""
+        if isinstance(value, str) and EMAIL.fullmatch(value.strip()):
+            return value.strip()
+        logger.warning(
+            "Admin test email ignored",
+            extra={"path": str(self.path), "why": "not an email address"},
+        )
+        return ""
 
     def change(self, changes: dict[str, Any]) -> AdminSettings:
+        """The settings with `changes` saved; the test email in the file is kept as it is."""
         with self._lock:
-            before = self.current
+            # Read again first, so a test email just added is kept; all under the one lock, so
+            # two changes at once each start from the other's result (Codex's review).
+            self._refresh()
+            before = self._current
             after = checked(before, changes)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             part = self.path.with_suffix(".part")
             part.write_text(json.dumps(after.as_dict()), encoding="utf-8")
             os.replace(part, self.path)
-            self.current = after
+            self._current = after
+            # The app's own save isn't read back as a change by hand.
+            self._stamp = self._file_stamp()
         # Each checkbox's old and new value on its own too, so a change of who may use a custom
         # image or voice is easy to find in the log (R239).
         logger.info(
