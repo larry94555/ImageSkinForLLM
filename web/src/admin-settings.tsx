@@ -2,7 +2,7 @@
 // without activity before the administrator is signed out, and the thresholds for the resource
 // dashboard's colours, as the percentage of a resource remaining, and, under Hosts, whether hosts
 // may use a custom image and a custom voice (R239); then Host properties, every host by email
-// (R241). Only the administrator sees them; they apply at once, to the sign-in going now, to the
+// (R241), and the test email for test accounts, set only in the file (R264). Only the administrator sees them; they apply at once, to the sign-in going now, to the
 // dashboard and to each host's next request.
 
 import { useEffect, useState } from "preact/hooks";
@@ -212,8 +212,26 @@ export function AdminSettingsPage() {
           </button>
         </p>
       </form>
+      <TestEmail address={settings.test_email} />
       {/* Not part of the form: the list is only read here, and Save doesn't touch it (R241). */}
       <HostProperties />
     </>
+  );
+}
+
+// The test email (R264): only shown, as it is set in the file on the host, never here.
+function TestEmail({ address }: { address: string }) {
+  return (
+    <section className="panel" aria-labelledby="admin-test-email">
+      <h2 id="admin-test-email">Test email</h2>
+      <p>
+        Test email: <strong>{address || "not set"}</strong>
+      </p>
+      <p className="muted">
+        Every email for an administrator's test account goes to this address. It is set only in
+        admin-settings.json, in the admin folder on the host, as "test_email", and is used as soon
+        as the file is saved.
+      </p>
+    </section>
   );
 }
