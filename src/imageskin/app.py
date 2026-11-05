@@ -984,6 +984,15 @@ def create_app(
         recorder = recorders.pop() if len(recorders) == 1 else None
         return photo or None, recorder
 
+    def test_mode(request: Request) -> str | None:
+        """Why a sign-up with "-admin" may not make a test account (R265): the administrator
+        must be signed in, in this browser at the main address, with a test email set (R264)."""
+        if not at_main or not admin_sign_ins.signed_in(request.cookies.get(ADMIN_COOKIE)):
+            return "administrator not signed in"
+        if not admin_settings.current.test_email:
+            return "no test email"
+        return None
+
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
         host_accounts,
@@ -1002,6 +1011,7 @@ def create_app(
         days_before_deleting=lambda: admin_settings.current.days_before_deleting,
         acting_link=service.acting.again if service.acting else lambda _: None,
         site_host=lambda name: host_of_site(service, name),
+        test_mode=test_mode,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

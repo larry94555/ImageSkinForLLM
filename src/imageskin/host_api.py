@@ -18,6 +18,7 @@ from imageskin.email_sending import Email as Message
 from imageskin.hosts import (
     DEFAULT_SITE,
     HOST_COOKIE,
+    INVALID_EMAIL,
     TOO_SOON,
     TRIAL_USED,
     Host,
@@ -26,10 +27,12 @@ from imageskin.hosts import (
     HostRefused,
     HostsUnreadable,
     SiteDeleted,
+    ends_admin,
     normal_email,
     refuse_if_disabled,
     site_deleted_words,
     trial_cookie,
+    without_admin,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,6 +113,7 @@ def host_router(
     days_before_deleting: Callable[[], int] = lambda: 30,
     acting_link: Callable[[str], str | None] = lambda _: None,
     site_host: Callable[[str], str | None] = lambda _: None,
+    test_mode: Callable[[Request], str | None] = lambda _: "no test mode here",
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -123,7 +127,8 @@ def host_router(
     their email and returns the new site's name. A host with several sites (R256) opens each
     signed in, with a one-time link, made with `acting_link` for the administrator acting as
     them (R44a). `site_host` gives a site's host's email, whose display name (R259) is the only
-    way any answer here names the host to someone else."""
+    way any answer here names the host to someone else. `test_mode` says why a sign-up with
+    "-admin" may not make the administrator's test account (R265), or None when it may."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -282,9 +287,21 @@ def host_router(
                 "Host sign-up refused", extra={"site": site, "why": "the site has its host"}
             )
             return JSONResponse({"detail": SITE_HAS_HOST}, status_code=403)
+        began = time.perf_counter()
+        # "-admin" at the end makes the administrator's test account for the email without it
+        # (R265), only for the signed-in administrator with a test email set. The address with
+        # "-admin" is never logged, stored or answered.
+        test = ends_admin(email)
+        if test:
+            why = test_mode(request)
+            if why is not None:
+                logger.warning("Test sign-up refused", extra={"why": why})
+                return JSONResponse({"detail": INVALID_EMAIL}, status_code=400)
+            email = without_admin(email)
         # One free trial per email address (R66), checked before the account is made. One
-        # signed up already is still told so, or has their site finished, below.
-        if make_site is not None and not accounts.exists(email) and trial_used(email):
+        # signed up already is still told so, or has their site finished, below. A test
+        # account's trial uses up nothing (R265).
+        if make_site is not None and not test and not accounts.exists(email) and trial_used(email):
             logger.warning(
                 "Trial refused: email already used", extra={"email": normal_email(email)}
             )
@@ -296,17 +313,27 @@ def host_router(
                 address(request),
                 confirm=make_site is not None,
                 display_name=display_name,
+                test_account=test,
             )
         except HostRefused as e:
             if e.reason != "email already signed up":
                 return JSONResponse({"detail": str(e)}, status_code=400)
-            if make_site is None or not unfinished(request, email, password):
+            # A test account is never made over an account already there (R265).
+            if make_site is None or test or not unfinished(request, email, password):
                 return JSONResponse({"detail": str(e)}, status_code=409)
             # Signed up before, and making their site stopped partway: it is finished now.
             logger.info("Sign-up finished from before", extra={"email": normal_email(email)})
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         else:
+            if test:
+                logger.info(
+                    "Test account signed up",
+                    extra={
+                        "email": normal_email(email),
+                        "duration_ms": round((time.perf_counter() - began) * 1000, 1),
+                    },
+                )
             if make_site is None:
                 return signed_in(request, token, email)
         start = time.perf_counter()
