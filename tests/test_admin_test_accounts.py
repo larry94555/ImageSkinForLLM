@@ -1,4 +1,4 @@
-"""The administrator's test accounts (roadmap R265 and R266, Milestone 31): signed in as the
+"""The administrator's test accounts (roadmap R265 to R268, Milestone 31): signed in as the
 administrator with a test email set, "-admin" added to any email on the host sign-up page makes
 a test account for the email without it; otherwise, and anywhere else, it is an invalid email.
 Every email for a test account goes to the test email (R266), and the account is usable only
@@ -392,14 +392,18 @@ def test_a_sign_in_link_to_a_test_account_needs_the_administrator(tmp_path: Path
     # Signed in at the main address, the administrator's browser is sent on with a link.
     sent = browser.post("/api/host/sign-in", json={"email": JOE, "password": PASSWORD}).json()
     link = str(sent["sign_in_at"]).removeprefix(MAIN)
-    # Opened in a browser where the administrator isn't signed in, it signs in no one.
+    # Opened in a browser where the administrator isn't signed in, it signs in no one, and the
+    # browser goes to the page that says only that the account is no longer active (R268).
     other = TestClient(sites, base_url=MAIN)  # type: ignore[arg-type]
-    assert refused(other.get(link, follow_redirects=False))
+    gone = other.get(link, follow_redirects=False)
+    assert gone.status_code == 303
+    assert gone.headers["location"] == f"/t/{code}/#/no-longer-active"
+    assert not gone.cookies
     assert other.get(f"/t/{code}/api/host/session").json()["signed_in"] is False
     # Another link, opened by the administrator's own browser, works.
     sent = browser.post("/api/host/sign-in", json={"email": JOE, "password": PASSWORD}).json()
     opened = browser.get(str(sent["sign_in_at"]).removeprefix(MAIN), follow_redirects=False)
-    assert opened.status_code == 303
+    assert opened.status_code == 303 and opened.headers["location"] == f"/t/{code}/#/"
 
 
 def test_the_test_accounts_site_is_unchanged_for_visitors(tmp_path: Path) -> None:
@@ -425,3 +429,49 @@ def test_an_ended_administrator_sign_in_counts_as_none(
         assert refused(browser.get(f"/t/{code}/api/host/session"))
     logged = next(r for r in caplog.records if r.message == "Test account refused")
     assert logged.__dict__["why"] == "administrator sign-in ended"
+
+
+def test_the_whole_test_run(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """R268: the administrator tries the whole sign-up with a made-up account, on the server
+    with the outbox folder, and the account stops and starts with the administrator's sign-in."""
+    sites, _, _ = served(tmp_path, sign_up_makes_site=True)
+    home = tmp_path / "home"
+    browser = administrator(sites, home)
+    # No test email yet: "-admin" is an invalid email. Set in the file, it works at once.
+    assert sign_up(browser, f"{JOE}-admin") == (400, {"detail": INVALID_EMAIL})
+    set_test_email(home, TEST_EMAIL)
+    status, body = sign_up(browser, f"{JOE}-admin")
+    assert status == 200, body
+    site = f"/t/{body['site']}"
+    # The confirmation is in the outbox, to the test email; its link confirms the account.
+    (mail,) = outbox(home)
+    assert mail["to"] == TEST_EMAIL
+    confirmed = browser.get(link_in(mail["text"], "/api/host/confirm/"), follow_redirects=False)
+    assert confirmed.headers["location"] == f"{site}/#/setup"
+    # Setting up the site.
+    assert browser.post(f"{site}/api/consent", json={"agreed": True}).is_success
+    named = browser.put(f"{site}/api/host/display-name", json={"display_name": "Dr. Joe"})
+    assert named.json()["display_name"] == "Dr. Joe"
+    # The administrator signs out: the next call gets only the words. The page then forgets the
+    # sign-in and tells the log it showed them.
+    assert browser.post("/api/admin/sign-out").is_success
+    assert refused(browser.get(f"{site}/api/host/session"))
+    assert browser.post(f"{site}/api/host/sign-out").is_success
+    with caplog.at_level(logging.INFO):
+        shown = browser.post(f"{site}/api/host/inactive-shown", json={"page": "/setup"})
+    assert shown.status_code == 204
+    logged = next(r for r in caplog.records if r.message == "Inactive account shown")
+    assert logged.__dict__["page"] == "/setup"
+    assert browser.get(f"{site}/api/host/session").json()["signed_in"] is False
+    # Signing in to it again, without the administrator: the same words.
+    again = {"email": JOE, "password": PASSWORD}
+    assert refused(browser.post(f"{site}/api/host/sign-in", json=again))
+    # The administrator signs in again, and so can the test account: its site is as it was.
+    assert browser.post("/api/admin/sign-in", json={"password": "secret"}).is_success
+    assert browser.post(f"{site}/api/host/sign-in", json=again).is_success
+    me = browser.get(f"{site}/api/host/session").json()
+    assert me["email"] == JOE and me["display_name"] == "Dr. Joe"
+    assert browser.get(f"{site}/api/consent").json()["agreed"] is True
+    # Every email went to the test email, and "-admin" was never kept.
+    assert {m["to"] for m in outbox(home)} == {TEST_EMAIL}
+    assert "-admin" not in (home / "hosts.json").read_text()
