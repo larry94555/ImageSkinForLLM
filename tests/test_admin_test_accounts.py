@@ -10,6 +10,7 @@ import re
 from email import message_from_bytes
 from email.policy import default
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -332,9 +333,9 @@ def confirmed_test_account(tmp_path: Path) -> tuple[object, Path, TestClient, st
     return sites, home, browser, code
 
 
-def refused(response: object) -> bool:
+def refused(response: Any) -> bool:
     """The test account's one answer with the administrator signed out (R267): nothing else."""
-    return response.status_code == 403 and response.json() == {"detail": NO_LONGER_ACTIVE}  # type: ignore[attr-defined]
+    return bool(response.status_code == 403 and response.json() == {"detail": NO_LONGER_ACTIVE})
 
 
 def test_a_test_account_stops_when_the_administrator_signs_out_and_works_again_after(
