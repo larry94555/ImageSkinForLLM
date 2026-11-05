@@ -86,7 +86,7 @@ def email_router(
             " If you didn't ask, you can ignore this email.\n"
         )
         try:
-            send_email(Email(to, CHANGE_SUBJECT, text, "email change"))
+            send_email(Email(to, CHANGE_SUBJECT, text, "email change", account=host.email))
         except EmailFailed:
             logger.exception("Email change link failed", extra={"email": host.email})
             return JSONResponse({"detail": FAILED}, status_code=503)
@@ -148,7 +148,9 @@ def email_router(
             "If you didn't change it, reply to this email at once.\n"
         )
         try:
-            send_email(Email(email, CHANGED_SUBJECT, text, "email changed"))
+            # The account is the new email's now: a test account's notice goes to the test
+            # email (R266).
+            send_email(Email(email, CHANGED_SUBJECT, text, "email changed", account=new_email))
         except EmailFailed:
             logger.exception("Email change notice failed", extra={"email": email})
         return RedirectResponse(f"{root}/#/host/email-changed", status_code=303)
