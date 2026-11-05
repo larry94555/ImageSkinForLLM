@@ -125,6 +125,7 @@ from imageskin.host_disk import count as count_disk
 from imageskin.hosts import (
     ACT_PREFIX,
     DEFAULT_SITE,
+    NO_LONGER_ACTIVE,
     NO_SITE,
     SITE,
     Host,
@@ -375,6 +376,16 @@ NOT_ACTIVE_OPEN = (
     "/api/admin/",
 )
 PAUSED_OPEN = ("/api/host/", "/api/admin/")
+# A test account's calls with the administrator signed out (R267): all are refused but these,
+# which sign in or out, or start again. Its sign-in and sign-in link check for themselves.
+INACTIVE_OPEN = (
+    "/api/host/sign-in",
+    "/api/host/sign-up",
+    "/api/host/sign-out",
+    "/api/host/forgot",
+    "/api/host/reset",
+    "/api/admin/",
+)
 PAUSED_READS = {"/api/consent", "/api/settings", "/api/settings/access", "/api/startup"}
 VISITOR_VIDEOS_FROM = 1_000_000  # visitors' reply videos are numbered from here
 # A prompt stopped while it was answered: it is dropped, with the reply it would have had.
@@ -835,6 +846,39 @@ def create_app(
         )
         return JSONResponse({"detail": NOT_ACTIVE_WORDS}, status_code=403)
 
+    def test_account_refused(request: Request, email: str) -> bool:
+        """Whether the administrator's test account (R265) is refused here: true unless the
+        administrator is signed in, in this browser (R267). Logged when it is."""
+        admin_token = request.cookies.get(ADMIN_COOKIE)
+        if admin_sign_ins.signed_in(admin_token):
+            return False
+        logger.warning(
+            "Test account refused",
+            extra={
+                "email": email,
+                "site": host_site,
+                "method": request.method,
+                "path": request.url.path,
+                "why": "administrator sign-in ended" if admin_token else "no administrator sign-in",
+            },
+        )
+        return True
+
+    def inactive_refusal(request: Request) -> JSONResponse | None:
+        """For a browser signed in as a test account, any call but INACTIVE_OPEN while the
+        administrator is signed out (R267): refused with NO_LONGER_ACTIVE and nothing else."""
+        path = re.sub(r"^/t/[^/]+", "", request.url.path)
+        token = request.cookies.get(HOST_COOKIE)
+        if not token or not path.startswith("/api/") or path.startswith(INACTIVE_OPEN):
+            return None
+        # Any site's sign-in: the account is a test account wherever it is used.
+        host = host_accounts.host(token, unconfirmed=True)
+        if host is None or not host.test_account or host.acting:
+            return None
+        if not test_account_refused(request, host.email):
+            return None
+        return JSONResponse({"detail": NO_LONGER_ACTIVE}, status_code=403)
+
     @app.middleware("http")
     async def log_requests(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -850,7 +894,11 @@ def create_app(
         # host's in its place, keeping the same sign-in.
         token, old_cookie = participants.token_in(request.cookies)
         # A paused site (R66, R69) answers its visitors with a notice; its host still uses it.
-        refused = paused_refusal(request) or not_allowed_refusal(request, token)
+        refused = (
+            inactive_refusal(request)
+            or paused_refusal(request)
+            or not_allowed_refusal(request, token)
+        )
         if refused is not None:
             return refused
         if re.sub(r"^/t/[^/]+", "", request.url.path).startswith("/api/chat") and (
@@ -1012,6 +1060,7 @@ def create_app(
         acting_link=service.acting.again if service.acting else lambda _: None,
         site_host=lambda name: host_of_site(service, name),
         test_mode=test_mode,
+        test_account_refused=test_account_refused,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
