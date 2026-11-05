@@ -52,6 +52,7 @@ from imageskin.admin_guidelines import value_of as admin_value_of
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import AdminSettingsStore
+from imageskin.admin_test_email import redirect_to_test_email
 from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
@@ -1278,6 +1279,11 @@ def make_service(
         laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
     )
     host_accounts = HostAccounts(home)
+    mailer = mailer or Mailer(home, None)
+    # Every email for a test account goes to the test email instead (R266).
+    mailer.redirect = redirect_to_test_email(
+        host_accounts.is_test_account, lambda: admin_settings.current
+    )
     acting = ActingAsHost(admin_sign_ins)
     host_accounts.acting = acting.email_of
     # The administrator's guidelines keep a history of each part, as a host's do (R253).
@@ -1294,7 +1300,7 @@ def make_service(
         admin_history=admin_history,
         admin_guidelines=AdminGuidelinesFile(home, admin_history.saved),
         sites=SiteDirectory(home, host_accounts),
-        mailer=mailer or Mailer(home, None),
+        mailer=mailer,
         acting=acting,
         payments=payments,
     )

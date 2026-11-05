@@ -1,9 +1,13 @@
-"""The administrator's test accounts (roadmap R265, Milestone 31): signed in as the
+"""The administrator's test accounts (roadmap R265 and R266, Milestone 31): signed in as the
 administrator with a test email set, "-admin" added to any email on the host sign-up page makes
-a test account for the email without it; otherwise, and anywhere else, it is an invalid email."""
+a test account for the email without it; otherwise, and anywhere else, it is an invalid email.
+Every email for a test account goes to the test email (R266)."""
 
 import json
 import logging
+import re
+from email import message_from_bytes
+from email.policy import default
 from pathlib import Path
 
 import pytest
@@ -14,7 +18,17 @@ from test_free_trial import forget_account
 from test_site_addresses import PASSWORD, served
 
 from imageskin import admin
-from imageskin.hosts import INVALID_EMAIL, TEST_ACCOUNT, HostAccounts, HostRefused, ends_admin
+from imageskin.admin_settings import AdminSettings
+from imageskin.admin_test_email import redirect_to_test_email
+from imageskin.email_sending import Email, EmailFailed
+from imageskin.hosts import (
+    INVALID_EMAIL,
+    TEST_ACCOUNT,
+    HostAccounts,
+    HostRefused,
+    HostsUnreadable,
+    ends_admin,
+)
 from imageskin.sites import TEST
 
 pytestmark = pytest.mark.real_hosts
@@ -199,3 +213,108 @@ def test_the_accounts_refuse_admin_at_sign_up_too(tmp_path: Path) -> None:
 )
 def test_ends_admin(email: str, ends: bool) -> None:
     assert ends_admin(email) is ends
+
+
+# Emails for a test account go to the test email (R266).
+
+
+def outbox(home: Path) -> list[dict[str, str]]:
+    """Every email written to the outbox, oldest first: who to, the subject and the words."""
+    files = sorted((home / "outbox").glob("*.eml"), key=lambda p: p.stat().st_mtime_ns)
+    mails = [message_from_bytes(f.read_bytes(), policy=default) for f in files]
+    return [
+        {"to": m["To"], "subject": m["Subject"], "text": m.get_body().get_content()}  # type: ignore[union-attr]
+        for m in mails
+    ]
+
+
+def link_in(text: str, path: str) -> str:
+    found = re.search(rf"https?://\S+{re.escape(path)}\S*", text)
+    assert found is not None, text
+    return found.group(0)
+
+
+def joe_test_account(tmp_path: Path) -> tuple[object, Path, TestClient, str]:
+    """Joe's test account, signed up by the administrator: the app, its home, the browser
+    and the trial site's code."""
+    sites, _, _ = served(tmp_path, sign_up_makes_site=True)
+    home = tmp_path / "home"
+    set_test_email(home, TEST_EMAIL)
+    browser = administrator(sites, home)
+    status, body = sign_up(browser, f"{JOE}-admin")
+    assert status == 200, body
+    return sites, home, browser, str(body["site"])
+
+
+def test_the_confirmation_goes_to_the_test_email_and_confirms_the_account(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO):
+        _, home, browser, code = joe_test_account(tmp_path)
+    sent = outbox(home)
+    assert [m["to"] for m in sent] == [TEST_EMAIL]  # nothing to Joe
+    assert sent[0]["text"].startswith(f"This is for the test account {JOE}.\n\n")
+    redirected = next(r for r in caplog.records if r.message == "Email sent to the test email")
+    assert redirected.__dict__["test_account"] == JOE
+    assert redirected.__dict__["kind"] == "sign-up confirmation"
+    assert "duration_ms" in redirected.__dict__
+    assert browser.get(f"/t/{code}/api/host/me").status_code == 401  # not confirmed yet
+    browser.get(link_in(sent[0]["text"], "/api/host/confirm/"), follow_redirects=False)
+    assert browser.get(f"/t/{code}/api/host/me").status_code == 200
+
+
+def test_forgot_password_goes_to_the_test_email(tmp_path: Path) -> None:
+    sites, home, _, _ = joe_test_account(tmp_path)
+    TestClient(sites, base_url=MAIN).post("/api/host/forgot", json={"email": JOE})  # type: ignore[arg-type]
+    last = outbox(home)[-1]
+    assert last["to"] == TEST_EMAIL and f"test account {JOE}" in last["text"]
+    assert "Set it here" in last["text"]
+
+
+def test_both_emails_of_changing_the_email_go_to_the_test_email(tmp_path: Path) -> None:
+    _, home, browser, code = joe_test_account(tmp_path)
+    browser.get(link_in(outbox(home)[0]["text"], "/api/host/confirm/"), follow_redirects=False)
+    asked = browser.post(
+        f"/t/{code}/api/host/email",
+        json={"new_email": "joe.new@gmail.com", "password": PASSWORD},
+    )
+    assert asked.status_code == 200, asked.text
+    change = outbox(home)[-1]
+    assert change["to"] == TEST_EMAIL and f"test account {JOE}" in change["text"]
+    browser.get(link_in(change["text"], "/api/host/email/confirm/"), follow_redirects=False)
+    changed = outbox(home)[-1]
+    assert changed["to"] == TEST_EMAIL and "was changed" in changed["text"]
+    assert "test account joe.new@gmail.com" in changed["text"]
+    assert all(m["to"] == TEST_EMAIL for m in outbox(home))  # never Joe's old or new address
+
+
+def test_no_test_email_when_sending_sends_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    sites, home, _, _ = joe_test_account(tmp_path)
+    before = len(outbox(home))
+    set_test_email(home, "")
+    with caplog.at_level(logging.INFO):
+        TestClient(sites, base_url=MAIN).post("/api/host/forgot", json={"email": JOE})  # type: ignore[arg-type]
+    assert len(outbox(home)) == before
+    failed = next(r for r in caplog.records if r.message == "Email for a test account not sent")
+    assert failed.__dict__["why"] == "no test email"
+
+
+def test_other_hosts_emails_are_unchanged(tmp_path: Path) -> None:
+    sites, home, _, _ = joe_test_account(tmp_path)
+    TestClient(sites, base_url=MAIN).post("/api/host/forgot", json={"email": BOB})  # type: ignore[arg-type]
+    last = outbox(home)[-1]
+    assert last["to"] == BOB and "test account" not in last["text"]
+
+
+def test_unreadable_accounts_send_nothing(caplog: pytest.LogCaptureFixture) -> None:
+    def unreadable(_: str) -> bool:
+        raise HostsUnreadable()
+
+    redirect = redirect_to_test_email(unreadable, lambda: AdminSettings(test_email=TEST_EMAIL))
+    with pytest.raises(EmailFailed):
+        redirect(Email(JOE, "Hello", "Words", "test"))
+    assert "Email not sent: the accounts can't be read" in caplog.text
+    plain = Email(BOB, "Hello", "Words", "test")
+    assert redirect_to_test_email(lambda _: False, lambda: AdminSettings())(plain) is plain
