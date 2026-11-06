@@ -127,7 +127,7 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
 | What you see | Why, and what to do |
 |---|---|
 | `535 Authentication credentials invalid` | The username or password the app got isn't the one Oracle made. Run the check below this table. The usual causes: the username cut short at its `@` (step 6, it must be whole), a space at the end of either, the password not in single quotes and with a `$` or ` #` in it (step 8), credentials generated less than a few minutes ago, or a password copied wrong, as it is shown only once. If the check looks right, make new credentials (step 6), put both in `.env` again, and run `docker compose up -d`. |
-| `Sender is not authorized` or `not an approved sender` | `IMAGESKIN_MAIL_FROM` isn't the approved sender, or it was approved in another region than the endpoint's. Steps 1 and 5. |
+| `Envelope From address <noreply@me0.ai> not authorized`, `Sender is not authorized` or `not an approved sender` | `IMAGESKIN_MAIL_FROM` isn't the approved sender, or it was approved in another region than the endpoint's. Steps 1 and 5. |
 | A timeout, or `Connection refused` | `IMAGESKIN_SMTP_HOST` is misspelled, or the port isn't 587. Step 7. |
 | `STARTTLS extension not supported` | The port is 25. Use 587. |
 | It is sent, but lands in spam or never arrives | DKIM isn't **Active** or SPF isn't **Yes** yet (steps 3 and 4). Wait for both, then send again. |
