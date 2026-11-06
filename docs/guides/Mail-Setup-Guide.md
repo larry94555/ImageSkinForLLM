@@ -64,7 +64,7 @@ The address doesn't need a mailbox: the app only sends from it.
 
 ## 6. Make a mail user and its SMTP username and password
 
-The app logs in to Email Delivery with SMTP credentials that belong to an Oracle user. Make a user just for this, with permission only to send email. Your own sign-in user often doesn't work for this (Oracle answers `535 Authentication credentials invalid` even with the right password, as in Larry's first try), and a separate user keeps your own sign-in out of the server.
+The app logs in to Email Delivery with SMTP credentials that belong to an Oracle user. Make a user just for this, with permission only to send email. Your own sign-in user often doesn't work for this (Oracle answers `535 Authentication credentials invalid` even with the right password), and a separate user keeps your own sign-in out of the server.
 
 1. **A group.** Open the menu, then **Identity & Security**, then **Domains**, then **Default** (the domain itself, not a user). Open the **User management** tab (or **Groups** on the left in older consoles), and in the **Groups** section click **Create group**. Name it `EmailSenders` and create it.
 2. **The user.** In the same tab's **Users** section, click **Create user**:
