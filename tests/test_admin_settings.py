@@ -144,15 +144,24 @@ def test_delete_my_data_leaves_them(tmp_path: Path) -> None:
     assert AdminSettingsStore(tmp_path).current.timeout_minutes == 10
 
 
-# The test email (R264, Milestone 31): set only in the file, read again when it changes.
+# The test email (R264, Milestone 31): set only in admin.toml, beside the administrator's
+# password (Larry, on PR 313), and read again when it changes.
+
+
+def touched(path: Path, text: str) -> None:
+    """The file changed by hand, with a new modification time even on a fast clock."""
+    path.write_text(text)
+    stamp = path.stat().st_mtime_ns + 1_000_000
+    os.utime(path, ns=(stamp, stamp))
 
 
 def write_settings(home: Path, data: dict[str, Any]) -> None:
-    """The file changed by hand, with a new modification time even on a fast clock."""
-    path = home / FILENAME
-    path.write_text(json.dumps(data))
-    stamp = path.stat().st_mtime_ns + 1_000_000
-    os.utime(path, ns=(stamp, stamp))
+    touched(home / FILENAME, json.dumps(data))
+
+
+def write_admin_file(home: Path, test_email: object) -> None:
+    value = json.dumps(test_email)  # a TOML string, number or list looks the same
+    touched(home / "admin.toml", f'password = "secret"\ntest_email = {value}\n')
 
 
 def test_there_is_no_test_email_to_begin_with(tmp_path: Path) -> None:
@@ -160,10 +169,11 @@ def test_there_is_no_test_email_to_begin_with(tmp_path: Path) -> None:
     assert AdminSettingsStore(tmp_path).current.test_email == ""
 
 
-def test_the_test_email_is_read_from_the_file(
+def test_the_test_email_is_read_from_admin_toml(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    write_settings(tmp_path, {"test_email": " me@example.com ", "timeout_minutes": 10})
+    write_admin_file(tmp_path, " me@example.com ")
+    write_settings(tmp_path, {"timeout_minutes": 10})
     with caplog.at_level(logging.INFO):
         settings = AdminSettingsStore(tmp_path).current
     assert settings.test_email == "me@example.com"
@@ -171,22 +181,38 @@ def test_the_test_email_is_read_from_the_file(
     read = [r for r in caplog.records if r.message == "Admin test email read"]
     assert read[0].__dict__["test_email_set"] is True
     assert read[0].__dict__["again"] is False
+    assert read[0].__dict__["path"] == str(tmp_path / "admin.toml")
+
+
+def test_the_test_email_is_read_from_the_admin_file_given(tmp_path: Path) -> None:
+    elsewhere = tmp_path / "admin"
+    elsewhere.mkdir()
+    write_admin_file(elsewhere, "me@example.com")
+    store = AdminSettingsStore(tmp_path, elsewhere / "admin.toml")
+    assert store.current.test_email == "me@example.com"
+
+
+def test_a_test_email_in_admin_settings_json_is_not_used(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_settings(tmp_path, {"test_email": "me@example.com", "timeout_minutes": 10})
+    settings = AdminSettingsStore(tmp_path).current
+    assert settings.test_email == ""
+    assert settings.timeout_minutes == 10
+    assert "Admin test email in the wrong file; set it in admin.toml" in caplog.text
 
 
 @pytest.mark.parametrize("value", ["not-an-email", "a@b", 5, ["me@example.com"], "a b@c.d"])
 def test_a_test_email_that_isnt_one_is_never_used(
     tmp_path: Path, value: object, caplog: pytest.LogCaptureFixture
 ) -> None:
-    write_settings(tmp_path, {"test_email": value, "timeout_minutes": 10})
-    settings = AdminSettingsStore(tmp_path).current
-    assert settings.test_email == ""
-    assert settings.timeout_minutes == 10  # the rest of the file is still used
+    write_admin_file(tmp_path, value)
+    assert AdminSettingsStore(tmp_path).current.test_email == ""
     assert "Admin test email ignored" in caplog.text
 
 
-@pytest.mark.parametrize("value", ["", None])
-def test_an_empty_test_email_is_not_set(tmp_path: Path, value: object) -> None:
-    write_settings(tmp_path, {"test_email": value})
+def test_an_empty_test_email_is_not_set(tmp_path: Path) -> None:
+    write_admin_file(tmp_path, "")
     assert AdminSettingsStore(tmp_path).current.test_email == ""
 
 
@@ -196,64 +222,76 @@ def test_a_test_email_added_by_hand_works_with_no_restart(
     store = AdminSettingsStore(tmp_path)
     store.change({"timeout_minutes": 10})
     assert store.current.test_email == ""
-    data = json.loads((tmp_path / FILENAME).read_text())
-    write_settings(tmp_path, {**data, "test_email": "me@example.com"})
+    write_admin_file(tmp_path, "me@example.com")
     with caplog.at_level(logging.INFO):
         assert store.current.test_email == "me@example.com"
     assert store.current.timeout_minutes == 10
-    again = [r for r in caplog.records if r.message == "Admin test email read"]
-    assert len(again) == 1 and again[0].__dict__["again"] is True  # read once, not each time
-    write_settings(tmp_path, {**data, "test_email": ""})
+    # Only the reads after the start: the one at the start is caught too when an earlier test
+    # left the app's loggers at INFO.
+    again = [
+        r
+        for r in caplog.records
+        if r.message == "Admin test email read" and r.__dict__["again"] is True
+    ]
+    assert len(again) == 1  # read once, not each time
+    write_admin_file(tmp_path, "")
     assert store.current.test_email == ""
 
 
-def test_a_change_on_the_page_keeps_the_test_email(tmp_path: Path) -> None:
-    write_settings(tmp_path, {"test_email": "me@example.com"})
+def test_a_change_on_the_page_keeps_the_test_email_out_of_admin_settings_json(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_admin_file(tmp_path, "me@example.com")
     store = AdminSettingsStore(tmp_path)
-    store.change({"timeout_minutes": 10})
-    assert store.current.test_email == "me@example.com"
-    assert json.loads((tmp_path / FILENAME).read_text())["test_email"] == "me@example.com"
+    saved = store.change({"timeout_minutes": 10})
+    assert saved.test_email == store.current.test_email == "me@example.com"
+    assert "test_email" not in json.loads((tmp_path / FILENAME).read_text())
+    assert "wrong file" not in caplog.text
     assert AdminSettingsStore(tmp_path).current.test_email == "me@example.com"
 
 
-def test_a_change_keeps_a_test_email_just_added_by_hand(tmp_path: Path) -> None:
-    store = AdminSettingsStore(tmp_path)
-    store.change({"timeout_minutes": 10})
-    data = json.loads((tmp_path / FILENAME).read_text())
-    write_settings(tmp_path, {**data, "test_email": "me@example.com"})
-    store.change({"timeout_minutes": 20})  # without reading the settings first
-    assert json.loads((tmp_path / FILENAME).read_text())["test_email"] == "me@example.com"
-
-
-def test_a_file_half_saved_while_edited_keeps_the_settings_in_use(
+def test_an_admin_toml_half_saved_while_edited_keeps_the_test_email_in_use(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    write_settings(tmp_path, {"test_email": "me@example.com", "timeout_minutes": 10})
+    write_admin_file(tmp_path, "me@example.com")
     store = AdminSettingsStore(tmp_path)
     assert store.current.test_email == "me@example.com"
-    path = tmp_path / FILENAME
-    path.write_text('{"test_email": "me@ex')
-    stamp = path.stat().st_mtime_ns + 2_000_000
-    os.utime(path, ns=(stamp, stamp))
+    touched(tmp_path / "admin.toml", 'test_email = "me@ex')
     assert store.current.test_email == "me@example.com"
+    assert "Admin test email not read" in caplog.text
+
+
+def test_an_admin_toml_not_readable_at_start_gives_no_test_email(tmp_path: Path) -> None:
+    touched(tmp_path / "admin.toml", 'test_email = "me@ex')
+    assert AdminSettingsStore(tmp_path).current.test_email == ""
+
+
+def test_a_settings_file_half_saved_while_edited_keeps_the_settings_in_use(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_settings(tmp_path, {"timeout_minutes": 10})
+    store = AdminSettingsStore(tmp_path)
+    touched(tmp_path / FILENAME, '{"timeout_min')
     assert store.current.timeout_minutes == 10
     assert "Admin settings are not valid; keeping the ones in use" in caplog.text
 
 
-def test_the_file_removed_gives_the_recommended_settings(tmp_path: Path) -> None:
-    write_settings(tmp_path, {"test_email": "me@example.com"})
+def test_the_files_removed_give_the_recommended_settings(tmp_path: Path) -> None:
+    write_settings(tmp_path, {"timeout_minutes": 10})
+    write_admin_file(tmp_path, "me@example.com")
     store = AdminSettingsStore(tmp_path)
     (tmp_path / FILENAME).unlink()
+    (tmp_path / "admin.toml").unlink()
     assert store.current == DEFAULTS
 
 
 def test_the_api_shows_the_test_email_but_never_changes_it(tmp_path: Path) -> None:
-    write_settings(tmp_path, {"test_email": "me@example.com"})
     browser = signed_in(tmp_path)
+    write_admin_file(tmp_path, "me@example.com")
     assert browser.get("/api/admin/settings").json()["test_email"] == "me@example.com"
     refused = browser.put("/api/admin/settings", json={"test_email": "other@example.com"})
     assert refused.status_code == 400 and refused.json()["detail"] == FILE_ONLY
-    assert "admin-settings.json" in FILE_ONLY
+    assert "admin.toml" in FILE_ONLY
     assert browser.get("/api/admin/settings").json()["test_email"] == "me@example.com"
     stranger = TestClient(create_app(tmp_path))
     assert stranger.get("/api/admin/settings").status_code == 401

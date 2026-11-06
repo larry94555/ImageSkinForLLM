@@ -6,9 +6,11 @@ thresholds for the resource dashboard's colours, and whether hosts may use a cus
 custom voice (R239). Delete my data leaves them, as they are the
 site's, not a user's. A change applies at once, to the sign-in going now and to the colours.
 
-The file also holds the test email (R264, Milestone 31): the address that gets every email meant
-for the administrator's test accounts. It is set only in the file, never from the page, and the
-file is read again whenever it changes, so a test email added there works with no restart.
+The test email (R264, Milestone 31), the address that gets every email meant for the
+administrator's test accounts, is not in that file: it is `test_email` in `admin.toml`, beside
+the administrator's password (Larry, on PR 313), where the administrator can edit it on the
+hosted machine. It is set only there, never from the page, and that file is read again whenever
+it changes, so a test email added there works with no restart.
 """
 
 import json
@@ -17,10 +19,12 @@ import os
 import re
 import threading
 import time
+import tomllib
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import TIMEOUT_MINUTES
 from imageskin.resources import RECOMMENDED, Thresholds
 
@@ -39,9 +43,9 @@ ORDER = (
 
 CHECKBOXES = ("disable_custom_image", "disable_custom_voice")
 
-# Set only in the file (R264), like the administrator's password, so the page can't change it.
+# Set only in admin.toml (R264), beside the administrator's password, so the page can't change it.
 TEST_EMAIL = "test_email"
-FILE_ONLY = f"The test email is set only in {FILENAME}, in the admin folder."
+FILE_ONLY = f"The test email is set only in {ADMIN_FILENAME}, in the admin folder."
 # The same check as a host's email (hosts.EMAIL), which can't be imported here: hosts imports
 # this module.
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -146,48 +150,65 @@ def custom_use(
     )
 
 
+Stamp = tuple[int, int] | None
+
+
+def file_stamp(path: Path) -> Stamp:
+    """The file's modification time and size, or None with no file: a change means read it."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size)
+
+
 class AdminSettingsStore:
     """The admin settings, kept in memory, saved at each change, and read again when the file
-    is changed by hand (R264)."""
+    is changed by hand (R264). The test email comes from the administrator's `admin.toml`
+    (`admin_file`), read again when it changes."""
 
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, admin_file: Path | None = None) -> None:
         self.path = home / FILENAME
+        self.admin_file = admin_file or home / ADMIN_FILENAME
         self._lock = threading.Lock()
-        self._stamp = self._file_stamp()
+        self._stamp = file_stamp(self.path)
         self._current = self._load(fallback=None)
+        self._admin_stamp = file_stamp(self.admin_file)
+        self._test_email = self._load_test_email(again=False)
 
     @property
     def current(self) -> AdminSettings:
-        """The settings now: read from the file again first if it changed since last read."""
-        if self._file_stamp() != self._stamp:
+        """The settings now: each file read again first if it changed since last read."""
+        if file_stamp(self.path) != self._stamp or file_stamp(self.admin_file) != self._admin_stamp:
             with self._lock:
                 self._refresh()
-        return self._current
+        return replace(self._current, test_email=self._test_email)
 
     def _refresh(self) -> None:
-        """Read the file again if it changed since last read. Called holding `_lock`."""
-        stamp = self._file_stamp()
+        """Read each file again if it changed since last read. Called holding `_lock`."""
+        stamp = file_stamp(self.path)
         if stamp != self._stamp:
             self._stamp = stamp
             self._current = self._load(fallback=self._current)
-
-    def _file_stamp(self) -> tuple[int, int] | None:
-        try:
-            info = self.path.stat()
-        except OSError:
-            return None
-        return (info.st_mtime_ns, info.st_size)
+        stamp = file_stamp(self.admin_file)
+        if stamp != self._admin_stamp:
+            self._admin_stamp = stamp
+            self._test_email = self._load_test_email(again=True)
 
     def _load(self, fallback: AdminSettings | None) -> AdminSettings:
         """The file's settings. One that can't be used gives the recommended settings at start,
         and keeps the ones in use when read again, as a file being edited may be half saved."""
-        start = time.perf_counter()
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("The file doesn't hold the admin settings.")
-            test_email = self._test_email(data.pop(TEST_EMAIL, ""))
-            settings = replace(checked(DEFAULTS, data), test_email=test_email)
+            if data.pop(TEST_EMAIL, ""):
+                # Where R264 first put it: say where it goes now rather than drop it silently.
+                logger.warning(
+                    "Admin test email in the wrong file; set it in admin.toml",
+                    extra={"path": str(self.path), "admin_file": str(self.admin_file)},
+                )
+            return checked(DEFAULTS, data)
         except FileNotFoundError:
             return DEFAULTS
         except (OSError, ValueError) as e:
@@ -202,45 +223,64 @@ class AdminSettingsStore:
                 extra={"path": str(self.path), "error": str(e)},
             )
             return DEFAULTS
+
+    def _load_test_email(self, again: bool) -> str:
+        """The test email in admin.toml (R264), or "" for none. A file that can't be read when
+        read again keeps the one in use, as a file being edited may be half saved."""
+        start = time.perf_counter()
+        try:
+            with self.admin_file.open("rb") as f:
+                value = tomllib.load(f).get(TEST_EMAIL, "")
+        except FileNotFoundError:
+            value = ""
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            logger.error(
+                "Admin test email not read",
+                extra={"path": str(self.admin_file), "error": str(e), "again": again},
+            )
+            return self._test_email if again else ""
+        test_email = self._checked_test_email(value)
         logger.info(
             "Admin test email read",
             extra={
-                "path": str(self.path),
-                "test_email_set": bool(settings.test_email),
-                "again": fallback is not None,
+                "path": str(self.admin_file),
+                "test_email_set": bool(test_email),
+                "again": again,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        return settings
+        return test_email
 
-    def _test_email(self, value: object) -> str:
-        """The file's test email (R264), or "" for none; one that isn't an address is never
-        used."""
+    def _checked_test_email(self, value: object) -> str:
+        """The test email, or "" for none; one that isn't an address is never used."""
         if value is None or value == "":
             return ""
         if isinstance(value, str) and EMAIL.fullmatch(value.strip()):
             return value.strip()
         logger.warning(
             "Admin test email ignored",
-            extra={"path": str(self.path), "why": "not an email address"},
+            extra={"path": str(self.admin_file), "why": "not an email address"},
         )
         return ""
 
     def change(self, changes: dict[str, Any]) -> AdminSettings:
-        """The settings with `changes` saved; the test email in the file is kept as it is."""
+        """The settings with `changes` saved; the test email, in admin.toml, is not touched."""
         with self._lock:
-            # Read again first, so a test email just added is kept; all under the one lock, so
-            # two changes at once each start from the other's result (Codex's review).
+            # Read again first, all under the one lock, so two changes at once each start from
+            # the other's result (Codex's review).
             self._refresh()
             before = self._current
             after = checked(before, changes)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             part = self.path.with_suffix(".part")
-            part.write_text(json.dumps(after.as_dict()), encoding="utf-8")
+            saved = after.as_dict()
+            del saved[TEST_EMAIL]
+            part.write_text(json.dumps(saved), encoding="utf-8")
             os.replace(part, self.path)
             self._current = after
             # The app's own save isn't read back as a change by hand.
-            self._stamp = self._file_stamp()
+            self._stamp = file_stamp(self.path)
+            test_email = self._test_email
         # Each checkbox's old and new value on its own too, so a change of who may use a custom
         # image or voice is easy to find in the log (R239).
         logger.info(
@@ -254,4 +294,4 @@ class AdminSettingsStore:
                 },
             },
         )
-        return after
+        return replace(after, test_email=test_email)

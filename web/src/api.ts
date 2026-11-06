@@ -1216,7 +1216,7 @@ export interface AdminSettings {
   disable_custom_voice: boolean;
   // Days a paused site is kept before its content is deleted (R69a), 30 to begin with.
   days_before_deleting: number;
-  // Where every email for a test account goes (R264), set only in admin-settings.json; "" for none.
+  // Where every email for a test account goes (R264), set only in admin.toml; "" for none.
   test_email: string;
   recommended: {
     timeout_minutes: number;

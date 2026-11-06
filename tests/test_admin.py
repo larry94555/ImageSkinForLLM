@@ -112,7 +112,11 @@ def test_no_file_or_no_password_in_it_turns_signing_in_off(
 def test_the_committed_template_has_no_password() -> None:
     template = ROOT / "admin.example.toml"
     assert read_secret(template) is None
-    assert tomllib.loads(template.read_text()) == {"password_hash": "", "password": ""}
+    assert tomllib.loads(template.read_text()) == {
+        "password_hash": "",
+        "password": "",
+        "test_email": "",
+    }
     assert "admin.toml" in (ROOT / ".gitignore").read_text().splitlines()
 
 
