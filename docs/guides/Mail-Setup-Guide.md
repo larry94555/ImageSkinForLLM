@@ -69,7 +69,7 @@ The app logs in to Email Delivery with SMTP credentials that belong to an Oracle
 1. Click your profile picture (top right), then **My profile** (or **User settings**).
 2. Under **Resources** (or the **Saved passwords** tab), open **SMTP Credentials** and click **Generate credentials**.
 3. **Description**: `me0.ai app`. Click **Generate credentials**.
-4. Oracle shows a **Username**, a long string that starts `ocid1.user`, and a **Password**. **Copy both now**: the password is shown only once. If you lose it, delete these credentials and make new ones. Treat the password like the administrator's.
+4. Oracle shows a **Username**, a long string that starts `ocid1.user`, and a **Password**. Copy the **whole** username: on newer accounts it goes on past an `@`, such as `ocid1.user.oc1..aaaa...@ocid1.tenancy.oc1..aaaa....xy.com`, and every part of it is needed. It can take a few minutes after you generate the credentials before they work. **Copy both now**: the password is shown only once. If you lose it, delete these credentials and make new ones. Treat the password like the administrator's.
 
 ## 7. Find the SMTP server's name
 
@@ -126,13 +126,23 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
 
 | What you see | Why, and what to do |
 |---|---|
-| `535 Authentication credentials invalid` | The username or password is wrong, or has a space at the end, or the password isn't in single quotes and has a `$` or ` #` in it (step 8). Copy them again from step 6; if the password is lost, make new credentials. |
+| `535 Authentication credentials invalid` | The username or password the app got isn't the one Oracle made. Run the check below this table. The usual causes: the username cut short at its `@` (step 6, it must be whole), a space at the end of either, the password not in single quotes and with a `$` or ` #` in it (step 8), credentials generated less than a few minutes ago, or a password copied wrong, as it is shown only once. If the check looks right, make new credentials (step 6), put both in `.env` again, and run `docker compose up -d`. |
 | `Sender is not authorized` or `not an approved sender` | `IMAGESKIN_MAIL_FROM` isn't the approved sender, or it was approved in another region than the endpoint's. Steps 1 and 5. |
 | A timeout, or `Connection refused` | `IMAGESKIN_SMTP_HOST` is misspelled, or the port isn't 587. Step 7. |
 | `STARTTLS extension not supported` | The port is 25. Use 587. |
 | It is sent, but lands in spam or never arrives | DKIM isn't **Active** or SPF isn't **Yes** yet (steps 3 and 4). Wait for both, then send again. |
 | Some emails arrive, then they stop for the day | The daily limit is reached. **Limits, Quotas and Usage** in the Console shows it; it resets the next day. |
 | Emails still go to the outbox | `IMAGESKIN_SMTP_HOST` is empty, or the app wasn't made again after `.env` changed. Step 8. |
+
+**Check what the app got.** This prints each one's length and its first and last characters, never the whole password, so you can compare them with what Oracle showed you:
+
+```
+docker compose exec app python -c "import os
+for n in ('IMAGESKIN_SMTP_USER', 'IMAGESKIN_SMTP_PASSWORD'):
+    v = os.environ.get(n, ''); print(n, len(v), repr(v[:1]), repr(v[-1:]))"
+```
+
+For the username the length is often over 100. For the password, the first and last characters must match Oracle's, with no `'` and no space: a `'` there means the quotes were kept, and a length of 0 means `.env` has no password or the app wasn't made again after it changed.
 
 ## Turning it off
 
