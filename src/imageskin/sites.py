@@ -57,6 +57,7 @@ from imageskin.chatgpt_signin import CALLBACK_PATH
 from imageskin.config import default_home
 from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
+from imageskin.favicon import FAVICON_LINK
 from imageskin.host_content import Libraries
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
@@ -99,6 +100,7 @@ SITES_FOLDER = "sites"
 DELETED_FOLDER = "deleted-sites"
 NOT_FOUND_PAGE = (
     "<!doctype html><meta charset=utf-8><title>Site not found</title>"
+    f"{FAVICON_LINK}"
     "<p>Site not found. Check the address, or go to the main address.</p>"
 )
 

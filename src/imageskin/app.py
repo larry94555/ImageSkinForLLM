@@ -108,6 +108,7 @@ from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.email_change import WRONG_PASSWORD, email_router
 from imageskin.failure import report
+from imageskin.favicon import FAVICON_LINK
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router, origin_of, site_address
 from imageskin.host_content import (
@@ -699,6 +700,7 @@ def signed_in_page(error: str, status: int) -> HTMLResponse:
     """A plain page saying why signing in with ChatGPT failed, with the way back."""
     return HTMLResponse(
         "<!doctype html><meta charset=utf-8><title>Sign in with ChatGPT</title>"
+        f"{FAVICON_LINK}"
         f"<p>Couldn't sign in with ChatGPT: {html.escape(error)}</p>"
         '<p><a href="/#/settings">Back to Settings</a></p>',
         status_code=status,
