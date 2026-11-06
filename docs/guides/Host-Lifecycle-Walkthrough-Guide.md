@@ -99,7 +99,7 @@ gzip -t ~/before-m20-test.tgz && echo "Backup is whole"
 df -h ~
 ```
 
-`du` lists the biggest folders last; `sites` and `hosts` hold the sites' own files, which is what the restore point is for. `df` should leave room for a second copy, as Part 11 unpacks this one beside the volume's.
+`du` lists the biggest folders last; `sites` and `hosts` hold the sites' own files, which is what the restore point is for. `df` shows the space left on the machine: the backup takes up that much until you delete it in Part 11.
 
 ## Part 1. Sign in as the administrator
 
