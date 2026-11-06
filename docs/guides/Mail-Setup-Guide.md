@@ -15,7 +15,7 @@ It takes about 30 minutes. Most of it is waiting for the DNS records to be check
 Email Delivery is set up per region, and the app must use the same region as everything else here.
 
 1. Sign in at https://cloud.oracle.com.
-2. The region is at the top right of the Console, such as **US West (Phoenix)**. Click it to see its identifier, such as `us-phoenix-1`. Write it down.
+2. Click the region name at the top right of the Console, then **Manage regions**. Find the machine's region in the list (open **Compute**, then **Instances**, if you're not sure which it is; the region at the top right is the one the list is for). Write down its **Region identifier**, such as `us-sanjose-1` or `us-ashburn-1`. It must be marked **Home region** or **Subscribed**.
 
 Do every step below in this region. If the region at the top right changes, switch it back first.
 
@@ -74,7 +74,7 @@ The app logs in to Email Delivery with SMTP credentials that belong to an Oracle
 ## 7. Find the SMTP server's name
 
 1. In **Email Delivery**, open **Configuration**.
-2. Under **SMTP Sending Information**, copy the **Public Endpoint**, such as `smtp.email.us-phoenix-1.oci.oraclecloud.com`. Port **587** is the one to use (the app encrypts the connection with STARTTLS before logging in).
+2. Under **SMTP Sending Information**, copy the **Public Endpoint**. It is `smtp.email.` followed by the region identifier from step 1 and `.oci.oraclecloud.com`, such as `smtp.email.us-ashburn-1.oci.oraclecloud.com` for `us-ashburn-1`. If the region in it isn't the one from step 1, the Console is on another region: switch it at the top right and open **Configuration** again. Port **587** is the one to use (the app encrypts the connection with STARTTLS before logging in).
 
 ## 8. Put them on the server
 
@@ -91,14 +91,14 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
 2. Add these lines (take them from `.env.example` if `.env` doesn't have them yet), with your values after the `=`:
 
    ```
-   IMAGESKIN_SMTP_HOST=smtp.email.us-phoenix-1.oci.oraclecloud.com
+   IMAGESKIN_SMTP_HOST=smtp.email.YOUR-REGION.oci.oraclecloud.com
    IMAGESKIN_SMTP_PORT=587
    IMAGESKIN_SMTP_USER=ocid1.user.oc1..the.username.from.step.6
    IMAGESKIN_SMTP_PASSWORD='the.password.from.step.6'
    IMAGESKIN_MAIL_FROM=me0.ai <noreply@me0.ai>
    ```
 
-   **Put the password in single quotes**, as above. Oracle's passwords often have characters such as `>`, `$`, `#` or `;`, and without quotes Docker reads a `$` as the start of a variable and a ` #` as the start of a comment, so the app would get a different password. In single quotes every character is kept as it is. A `>` or `<` at the start is fine either way, even if the editor colours the line oddly. If the password itself has a `'` in it, make new credentials (step 6) rather than quote it.
+   `IMAGESKIN_SMTP_HOST` is the **Public Endpoint** you copied in step 7, with your region in it; don't keep the example's `YOUR-REGION`. **Put the password in single quotes**, as above. Oracle's passwords often have characters such as `>`, `$`, `#` or `;`, and without quotes Docker reads a `$` as the start of a variable and a ` #` as the start of a comment, so the app would get a different password. In single quotes every character is kept as it is. A `>` or `<` at the start is fine either way, even if the editor colours the line oddly. If the password itself has a `'` in it, make new credentials (step 6) rather than quote it.
 
    `IMAGESKIN_MAIL_FROM` must use the approved sender from step 5. The part before `<` is the name people see, so it can be anything. Save and close (Ctrl+O, Enter, Ctrl+X).
 
