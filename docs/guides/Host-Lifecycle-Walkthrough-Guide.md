@@ -94,7 +94,7 @@ The site is down while this runs, a few minutes for a few GB. The file is in you
 **What to look for:** `ls` prints the file with its size. A few GB is normal: every site's prepared person (its frames, clips and reply videos) and PDFs are in it. To see what takes the space, and to check the file is whole:
 
 ```
-docker run --rm -v imageskin_imageskin-data:/data ubuntu du -sh /data/* | sort -h | tail
+docker run --rm -v imageskin_imageskin-data:/data ubuntu sh -c 'du -sh /data/* | sort -h | tail'
 gzip -t ~/before-m20-test.tgz && echo "Backup is whole"
 df -h ~
 ```
