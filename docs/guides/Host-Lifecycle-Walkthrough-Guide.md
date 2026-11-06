@@ -55,7 +55,7 @@ Each email address gets one free trial only (R66). Part 11's restore puts that r
 
 **Browsers.** You need three separate sign-ins at once: the administrator, a host and a participant. Use one normal window, one private (incognito) window, and a second browser (such as Edge beside Chrome). Each private window starts with no cookies, which is also how you test as a brand-new visitor.
 
-**Where the emails go.** If the server has a mail service set (`smtp_host` in `deploy/config.toml`), emails arrive in your Gmail. If not, the server writes each one to its outbox, and you read the newest one on the server with:
+**Where the emails go.** If the server has a mail service set ([Mail setup guide](Mail-Setup-Guide.md), with Oracle's Email Delivery), emails arrive in your Gmail. If not, the server writes each one to its outbox, and you read the newest one on the server with:
 
 ```
 cd ~/ImageSkinForLLM/deploy
@@ -369,7 +369,7 @@ docker compose exec app imageskin site list
 
 - **Subscribe says subscribing isn't set up:** one of the three Stripe settings is missing. `docker compose logs app | grep "Stripe setting is missing"` names it; see [the deployment guide](../../deploy/README.md), step 9.
 - **After paying, Settings doesn't say Subscribed:** Stripe's event didn't reach the app. On the webhook's page in Stripe, a failed event says why; `Stripe event refused` in the log means the `whsec_` secret in `.env` isn't the test webhook's. The webhook must be at `https://app.me0.ai/api/payments/stripe/events`.
-- **No confirmation or reset email:** with no mail service set, look in the outbox (Before you start). With one set, `Email failed` in the log says why.
+- **No confirmation or reset email:** with no mail service set, look in the outbox (Before you start). With one set, `Email failed` in the log says why; the [Mail setup guide](Mail-Setup-Guide.md#if-it-doesnt-work) lists the reasons.
 - **A subdomain doesn't open:** see the [Subdomain setup checklist](Subdomain-Setup-Checklist.md).
 - **A participant isn't signed in on the host's other site:** both sites must be subdomains of `me0.ai` (`m20-ann` and `m20-ann2`); a trial path's participant sign-in is for `app.me0.ai` only.
 - **Part 10's sites aren't deleted after the restart:** the days must be saved as 1 before the restart, and the name in step 6 must be the inside name from `site list`. A site deleted by Ann but not yet ended in Stripe isn't paused, so it isn't deleted; end it in the Dashboard first.

@@ -27,6 +27,13 @@ services:
       IMAGESKIN_STRIPE_SECRET_KEY: ${IMAGESKIN_STRIPE_SECRET_KEY:-}
       IMAGESKIN_STRIPE_WEBHOOK_SECRET: ${IMAGESKIN_STRIPE_WEBHOOK_SECRET:-}
       IMAGESKIN_STRIPE_PRICE_ID: ${IMAGESKIN_STRIPE_PRICE_ID:-}
+      # The mail service, for sign-up confirmations and every other email (R215,
+      # docs/guides/Mail-Setup-Guide.md). Without IMAGESKIN_SMTP_HOST, emails go to the outbox.
+      IMAGESKIN_SMTP_HOST: ${IMAGESKIN_SMTP_HOST:-}
+      IMAGESKIN_SMTP_PORT: ${IMAGESKIN_SMTP_PORT:-}
+      IMAGESKIN_SMTP_USER: ${IMAGESKIN_SMTP_USER:-}
+      IMAGESKIN_SMTP_PASSWORD: ${IMAGESKIN_SMTP_PASSWORD:-}
+      IMAGESKIN_MAIL_FROM: ${IMAGESKIN_MAIL_FROM:-}
       # Where the LLM's models folder (/models below) is on the machine itself, for the admin
       # dashboard's disk (R175): Docker keeps the llama-models volume there.
       IMAGESKIN_LLM_MODELS_ON_HOST: /models:/var/lib/docker/volumes/imageskin_llama-models/_data
