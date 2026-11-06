@@ -94,9 +94,11 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
    IMAGESKIN_SMTP_HOST=smtp.email.us-phoenix-1.oci.oraclecloud.com
    IMAGESKIN_SMTP_PORT=587
    IMAGESKIN_SMTP_USER=ocid1.user.oc1..the.username.from.step.6
-   IMAGESKIN_SMTP_PASSWORD=the.password.from.step.6
+   IMAGESKIN_SMTP_PASSWORD='the.password.from.step.6'
    IMAGESKIN_MAIL_FROM=me0.ai <noreply@me0.ai>
    ```
+
+   **Put the password in single quotes**, as above. Oracle's passwords often have characters such as `>`, `$`, `#` or `;`, and without quotes Docker reads a `$` as the start of a variable and a ` #` as the start of a comment, so the app would get a different password. In single quotes every character is kept as it is. A `>` or `<` at the start is fine either way, even if the editor colours the line oddly. If the password itself has a `'` in it, make new credentials (step 6) rather than quote it.
 
    `IMAGESKIN_MAIL_FROM` must use the approved sender from step 5. The part before `<` is the name people see, so it can be anything. Save and close (Ctrl+O, Enter, Ctrl+X).
 
@@ -124,7 +126,7 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
 
 | What you see | Why, and what to do |
 |---|---|
-| `535 Authentication credentials invalid` | The username or password is wrong, or has a space at the end. Copy them again from step 6; if the password is lost, make new credentials. |
+| `535 Authentication credentials invalid` | The username or password is wrong, or has a space at the end, or the password isn't in single quotes and has a `$` or ` #` in it (step 8). Copy them again from step 6; if the password is lost, make new credentials. |
 | `Sender is not authorized` or `not an approved sender` | `IMAGESKIN_MAIL_FROM` isn't the approved sender, or it was approved in another region than the endpoint's. Steps 1 and 5. |
 | A timeout, or `Connection refused` | `IMAGESKIN_SMTP_HOST` is misspelled, or the port isn't 587. Step 7. |
 | `STARTTLS extension not supported` | The port is 25. Use 587. |
