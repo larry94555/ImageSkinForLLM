@@ -62,14 +62,27 @@ Email Delivery sends only from addresses you approve, and the app's emails come 
 
 The address doesn't need a mailbox: the app only sends from it.
 
-## 6. Make the SMTP username and password
+## 6. Make a mail user and its SMTP username and password
 
-The app logs in to Email Delivery with SMTP credentials that belong to an Oracle user. Your own user works. A separate user with only this permission is safer, but more steps; your own user is fine to start.
+The app logs in to Email Delivery with SMTP credentials that belong to an Oracle user. Make a user just for this, with permission only to send email. Your own sign-in user often doesn't work for this (Oracle answers `535 Authentication credentials invalid` even with the right password, as in Larry's first try), and a separate user keeps your own sign-in out of the server.
 
-1. Click your profile picture (top right), then **My profile** (or **User settings**).
-2. Under **Resources** (or the **Saved passwords** tab), open **SMTP Credentials** and click **Generate credentials**.
-3. **Description**: `me0.ai app`. Click **Generate credentials**.
-4. Oracle shows a **Username**, a long string that starts `ocid1.user`, and a **Password**. Copy the **whole** username: on newer accounts it goes on past an `@`, such as `ocid1.user.oc1..aaaa...@ocid1.tenancy.oc1..aaaa....xy.com`, and every part of it is needed. It can take a few minutes after you generate the credentials before they work. **Copy both now**: the password is shown only once. If you lose it, delete these credentials and make new ones. Treat the password like the administrator's.
+1. **A group.** Open the menu, then **Identity & Security**, then **Domains**, then **Default** (the domain itself, not a user). Open the **User management** tab (or **Groups** on the left in older consoles), and in the **Groups** section click **Create group**. Name it `EmailSenders` and create it.
+2. **The user.** In the same tab's **Users** section, click **Create user**:
+   - **First name** `me0`, **Last name** `Mail`
+   - **Username / Email**: an address no other user has. A Gmail plus address works, such as `you+me0mail@gmail.com`: it still reaches your inbox. If there's a box to use the email as the username, you can uncheck it and enter `me0-mail`.
+   - Add the user to the `EmailSenders` group, there or afterwards from the group's **Users** tab (**Assign users to group**). It doesn't need to be activated.
+3. **The permission.** Open **Identity & Security**, then **Policies**, and pick the **root** compartment (named after your tenancy) on the left. Click **Create Policy**:
+   - **Name** `EmailSendersPolicy` (no spaces), **Description** `Lets the mail user send email through Email Delivery`
+   - Click **Show Manual Editor**, ignore the use cases and templates, and paste:
+
+     ```
+     Allow group 'Default'/'EmailSenders' to use email-family in tenancy
+     ```
+
+   - Click **Create**.
+4. **The credentials.** Back in **Domains**, **Default**, **User management**, click the new user's name. Open **SMTP credentials** (a tab, or under **Resources**), click **Generate credentials**, enter `me0.ai app`, and generate.
+5. Oracle shows a **Username**, a long string that starts `ocid1.user`, and a **Password**. Click the copy button next to the username and paste it into Notepad, then **⋯ → Copy** next to the password and paste it on the next line. The copy buttons copy the **whole** username, which on newer accounts goes on past an `@`, such as `ocid1.user.oc1..aaaa...@ocid1.tenancy.oc1..aaaa....xy.com`. **Copy both now**: the password is shown only once. If you lose it, delete these credentials and make new ones. Treat the password like the administrator's.
+6. Wait about 5 minutes: new credentials, groups and policies take a few minutes to work.
 
 ## 7. Find the SMTP server's name
 
@@ -127,12 +140,18 @@ Everything goes in `deploy/.env`, so `config.toml`, which `git pull` updates, is
 | What you see | Why, and what to do |
 |---|---|
 | `535 Authentication credentials invalid` | The username or password the app got isn't the one Oracle made. Run the check below this table. The usual causes: the username cut short at its `@` (step 6, it must be whole), a space at the end of either, the password not in single quotes and with a `$` or ` #` in it (step 8), credentials generated less than a few minutes ago, or a password copied wrong, as it is shown only once. If the check looks right, make new credentials (step 6), put both in `.env` again, and run `docker compose up -d`. |
-| `Envelope From address <noreply@me0.ai> not authorized`, `Sender is not authorized` or `not an approved sender` | `IMAGESKIN_MAIL_FROM` isn't the approved sender, or it was approved in another region than the endpoint's. Steps 1 and 5. |
+| `Envelope From address <noreply@me0.ai> not authorized`, `Sender is not authorized` or `not an approved sender` | The login worked, but Oracle won't send as this address. Either the approved sender is in another region than the endpoint (its OCID names its region, such as `us-sanjose-1`, and the endpoint must name the same one: steps 1, 5 and 7), or the mail user isn't allowed to send: it must be in `EmailSenders`, and `EmailSendersPolicy` must be in the root compartment (step 6). Group and policy changes take a few minutes. `IMAGESKIN_MAIL_FROM` must be the approved sender, but the error shows the address the app used, so compare them there. |
 | A timeout, or `Connection refused` | `IMAGESKIN_SMTP_HOST` is misspelled, or the port isn't 587. Step 7. |
 | `STARTTLS extension not supported` | The port is 25. Use 587. |
 | It is sent, but lands in spam or never arrives | DKIM isn't **Active** or SPF isn't **Yes** yet (steps 3 and 4). Wait for both, then send again. |
 | Some emails arrive, then they stop for the day | The daily limit is reached. **Limits, Quotas and Usage** in the Console shows it; it resets the next day. |
 | Emails still go to the outbox | `IMAGESKIN_SMTP_HOST` is empty, or the app wasn't made again after `.env` changed. Step 8. |
+
+**Test the login alone.** This logs in with a username and password you paste, leaving `.env` out of it. `Login OK` means Oracle's side is right and `.env` passes the app something else; a 535 means the credentials or the user are the problem (step 6).
+
+```
+docker compose exec -it app python -c "import smtplib,getpass,os; s=smtplib.SMTP(os.environ['IMAGESKIN_SMTP_HOST'],587,timeout=20); s.starttls(); s.login(input('Username: ').strip(), getpass.getpass('Password: ')); print('Login OK')"
+```
 
 **Check what the app got.** This prints each one's length and its first and last characters, never the whole password, so you can compare them with what Oracle showed you:
 
