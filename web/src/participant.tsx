@@ -1,7 +1,7 @@
-// A participant's account with this site's host (roadmap R46, R260): Sign up and Sign in in the top bar for anyone
-// not signed in as a host, or the participant's email and Sign out, and the two pages at
-// #/sign-up and #/sign-in. A signed-in participant's conversation is their account's, so it
-// follows them to another browser; the server picks it by their cookie.
+// A participant's account with this site's host (roadmap R46, R260): the top bar's one Sign in
+// link (R269) for anyone not signed in, or the participant's display name and Sign out. The
+// Sign in page is in sign-in.tsx. A signed-in participant's conversation is their account's, so
+// it follows them to another browser; the server picks it by their cookie.
 
 import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
@@ -12,12 +12,10 @@ import {
   getParticipantSession,
   putParticipantProgress,
   ParticipantSession,
-  ServerRefusal,
   signInAsParticipant,
   signOutAsParticipant,
   signUpAsParticipant,
 } from "./api";
-import { MIN_PASSWORD } from "./host";
 import {
   clearProgress,
   type Kept,
@@ -46,7 +44,7 @@ async function followProgress(): Promise<void> {
 
 interface Shared {
   session: ParticipantSession | null; // null until the server has answered
-  signUp: (email: string, password: string) => Promise<ParticipantSession>;
+  signUp: (email: string, password: string, displayName?: string) => Promise<ParticipantSession>;
   signIn: (email: string, password: string) => Promise<ParticipantSession>;
   signOut: () => Promise<void>;
 }
@@ -96,11 +94,11 @@ export function ParticipantProvider({
     return () => syncProgress(null);
   }, []);
 
-  async function account(kind: "up" | "in", email: string, password: string) {
+  async function account(kind: "up" | "in", email: string, password: string, name?: string) {
     const started = performance.now();
-    const signedIn = await (
-      kind === "up" ? signUpAsParticipant : signInAsParticipant
-    )(email, password);
+    const signedIn = await (kind === "up"
+      ? signUpAsParticipant(email, password, name)
+      : signInAsParticipant(email, password));
     console.info(
       `Participant signed ${kind} (${Math.round(performance.now() - started)} ms)`,
     );
@@ -120,7 +118,7 @@ export function ParticipantProvider({
 
   const shared: Shared = {
     session,
-    signUp: (email, password) => account("up", email, password),
+    signUp: (email, password, name) => account("up", email, password, name),
     signIn: (email, password) => account("in", email, password),
     signOut: async () => {
       await signOutAsParticipant();
@@ -138,7 +136,8 @@ export function ParticipantProvider({
   );
 }
 
-// The top bar's participant links: Sign up and Sign in, or the participant's email and Sign out.
+// The top bar's links for anyone not signed in as a host: the one Sign in link (R269), or the
+// participant's display name and Sign out.
 // Signing in or out starts the chat again, as the conversation is the account's, or the browser's.
 export function ParticipantLinks({ page }: { page?: string }) {
   const { session, signOut } = useParticipant();
@@ -159,7 +158,7 @@ export function ParticipantLinks({ page }: { page?: string }) {
     return (
       <span className="host-links participant-links">
         <span className="host-email" title="You are signed in">
-          {session.email}
+          {session.display_name || session.email}
         </span>
         <button
           type="button"
@@ -172,18 +171,14 @@ export function ParticipantLinks({ page }: { page?: string }) {
       </span>
     );
   }
-  const link = (to: string, href: string, label: string) => (
-    <a
-      href={href}
-      className={page === to ? "settings-link current" : "settings-link"}
-    >
-      {label}
-    </a>
-  );
   return (
     <span className="host-links participant-links">
-      {link("participant-sign-up", "#/sign-up", "Sign up")}
-      {link("participant-sign-in", "#/sign-in", "Sign in")}
+      <a
+        href="#/sign-in"
+        className={page === "sign-in" ? "settings-link current" : "settings-link"}
+      >
+        Sign in
+      </a>
     </span>
   );
 }
@@ -199,136 +194,6 @@ export function NotActivePage() {
   return (
     <div className="not-active">
       <p className="lead">{NOT_ACTIVE}</p>
-    </div>
-  );
-}
-
-// Sign up and Sign in for participants (R46). Once signed in, the chat opens again with the
-// account's own conversation.
-export function ParticipantAccountPage({ kind }: { kind: "up" | "in" }) {
-  const { session, signUp, signIn } = useParticipant();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [again, setAgain] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const up = kind === "up";
-
-  useEffect(() => {
-    setError(null);
-    console.info(`Participant ${up ? "sign-up" : "sign-in"} page shown`);
-  }, [up]);
-
-  function problem(): string | null {
-    if (!up) return null;
-    if (password.length < MIN_PASSWORD) {
-      return `The password must be at least ${MIN_PASSWORD} characters.`;
-    }
-    if (password !== again) return "The two passwords are different.";
-    return null;
-  }
-
-  async function submit(e: Event) {
-    e.preventDefault();
-    const found = problem();
-    setError(found);
-    if (found) return;
-    setBusy(true);
-    try {
-      const signedIn = await (up ? signUp : signIn)(email, password);
-      if (signedIn.go_to) {
-        // The host sends them to another of their sites (R261), where they are signed in too.
-        console.info(`Participant sent to ${signedIn.go_to}`);
-        reloading.goTo(signedIn.go_to);
-        return;
-      }
-      // The chat is read again, as the account's conversation.
-      window.location.hash = "#/chat";
-      reloading.reload();
-    } catch (err) {
-      console.error(`Could not sign ${kind} as participant`, err);
-      setError(
-        err instanceof ServerRefusal
-          ? err.message
-          : "That didn't work. Please try again.",
-      );
-      setBusy(false);
-    }
-  }
-
-  const title = up ? "Sign up" : "Sign in";
-  if (session?.signed_in) {
-    return (
-      <div className="host-page host-account">
-        <h1>{title}</h1>
-        <p>
-          You are signed in with {session.email}.{" "}
-          <a href="#/chat">Go to the chat</a>
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="host-page host-account">
-      <h1>{title}</h1>
-      <p className="lead">
-        {up
-          ? "Make an account, so your conversation is kept for you on any browser. It works on every site of this host."
-          : "Sign in with the email and password of your account with this host."}
-      </p>
-      <form onSubmit={(e) => void submit(e)} noValidate>
-        <label>
-          Email
-          <input
-            type="email"
-            autoComplete="email"
-            value={email}
-            onInput={(e) => setEmail(e.currentTarget.value)}
-          />
-        </label>
-        <label>
-          Password{up && ` (at least ${MIN_PASSWORD} characters)`}
-          <input
-            type="password"
-            autoComplete={up ? "new-password" : "current-password"}
-            value={password}
-            onInput={(e) => setPassword(e.currentTarget.value)}
-          />
-        </label>
-        {up && (
-          <label>
-            Password again
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={again}
-              onInput={(e) => setAgain(e.currentTarget.value)}
-            />
-          </label>
-        )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={busy || email.trim() === "" || password === ""}
-        >
-          {title}
-        </button>
-      </form>
-      <p className="muted">
-        {up ? (
-          <>
-            Have an account? <a href="#/sign-in">Sign in</a>
-          </>
-        ) : (
-          <>
-            New here? <a href="#/sign-up">Sign up</a>
-          </>
-        )}
-      </p>
     </div>
   );
 }

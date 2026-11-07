@@ -106,8 +106,8 @@ export function PausedPage() {
       <h1>This site is paused</h1>
       <p className="lead">It isn't taking visitors just now.</p>
       <p>
-        <a className="button" href="#/host/sign-in">
-          Host sign in
+        <a className="button" href="#/sign-in">
+          Sign in
         </a>
       </p>
     </div>

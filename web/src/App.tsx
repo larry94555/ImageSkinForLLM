@@ -20,7 +20,6 @@ import {
   AccountPage,
   ActAsFailedPage,
   ActingBar,
-  HostAccountPage,
   HostedBy,
   HostLinks,
   HostOnlyPage,
@@ -34,11 +33,11 @@ import {
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import {
   NotActivePage,
-  ParticipantAccountPage,
   ParticipantLinks,
   ParticipantProvider,
   useParticipant,
 } from "./participant";
+import { SignInPage } from "./sign-in";
 import { StartNowPage } from "./start-now";
 import {
   adminTarget,
@@ -100,7 +99,7 @@ const READ_ONLY_PAGES: Page[] = [
 // The pages a customer who hasn't confirmed their email can still open (R62a).
 const ACCOUNT_PAGES: Page[] = ["host-forgot", "host-reset"];
 // What a visitor of a paused site can still open (R66): the host's sign-in and account pages.
-const PAUSED_OPEN: Page[] = ["host-sign-in", ...ACCOUNT_PAGES];
+const PAUSED_OPEN: Page[] = ["sign-in", ...ACCOUNT_PAGES];
 
 export function App() {
   return (
@@ -275,10 +274,7 @@ function Shell() {
         />
       ),
       admin: <AdminPage section={adminTarget(hash)} />,
-      "participant-sign-up": <ParticipantAccountPage kind="up" />,
-      "participant-sign-in": <ParticipantAccountPage kind="in" />,
-      "host-sign-up": <HostAccountPage kind="up" />,
-      "host-sign-in": <HostAccountPage kind="in" />,
+      "sign-in": <SignInPage />,
       "host-only": <HostOnlyPage />,
       "confirm-failed": <ConfirmFailedPage />,
       "no-longer-active": <NoLongerActivePage />,

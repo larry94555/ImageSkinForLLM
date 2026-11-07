@@ -67,7 +67,7 @@ def test_a_host_signs_in_at_the_main_address_and_lands_on_their_site(
     caplog.clear()
     with caplog.at_level(logging.WARNING):
         used = again.get(link.removeprefix("http://a.localhost"), follow_redirects=False)
-    assert used.headers["location"] == "/#/host/sign-in" and "set-cookie" not in used.headers
+    assert used.headers["location"] == "/#/sign-in" and "set-cookie" not in used.headers
     refused = next(r for r in caplog.records if r.message == "Host sign-in link refused")
     assert refused.__dict__["why"] == "unknown link"
 
@@ -114,7 +114,7 @@ def test_a_link_works_only_on_the_hosts_own_site_and_for_a_minute(
     link = sent_to(main, ANN).removeprefix("http://a.localhost")
     with caplog.at_level(logging.WARNING):
         elsewhere = main.get(link, follow_redirects=False)
-    assert elsewhere.headers["location"] == "/#/host/sign-in"
+    assert elsewhere.headers["location"] == "/#/sign-in"
     assert main.get("/api/host/session").json()["signed_in"] is False
     why = [r.__dict__["why"] for r in caplog.records if r.message == "Host sign-in link refused"]
     assert why == ["another site's host"]
@@ -123,7 +123,7 @@ def test_a_link_works_only_on_the_hosts_own_site_and_for_a_minute(
     link = sent_to(main, ANN).removeprefix("http://a.localhost")
     clock.now += SIGN_IN_LINK_S + 1
     with caplog.at_level(logging.WARNING):
-        assert a.get(link, follow_redirects=False).headers["location"] == "/#/host/sign-in"
+        assert a.get(link, follow_redirects=False).headers["location"] == "/#/sign-in"
     assert a.get("/api/host/session").json()["signed_in"] is False
     why = [r.__dict__["why"] for r in caplog.records if r.message == "Host sign-in link refused"]
     assert why == ["link too old"]
@@ -188,7 +188,7 @@ def test_a_password_reset_ends_a_link_not_yet_opened(
         assert accounts.reset_password(ANN, "n" * 12)
     a = TestClient(sites, base_url="http://a.localhost")
     with caplog.at_level(logging.WARNING):
-        assert a.get(link, follow_redirects=False).headers["location"] == "/#/host/sign-in"
+        assert a.get(link, follow_redirects=False).headers["location"] == "/#/sign-in"
     assert a.get("/api/host/session").json()["signed_in"] is False
     why = [r.__dict__["why"] for r in caplog.records if r.message == "Host sign-in link refused"]
     assert why == ["password changed"]

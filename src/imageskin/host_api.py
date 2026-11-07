@@ -30,6 +30,7 @@ from imageskin.hosts import (
     SiteDeleted,
     ends_admin,
     normal_email,
+    numbered_display_name,
     refuse_if_disabled,
     site_deleted_words,
     trial_cookie,
@@ -118,6 +119,7 @@ def host_router(
     site_host: Callable[[str], str | None] = lambda _: None,
     test_mode: Callable[[Request], str | None] = lambda _: "no test mode here",
     test_account_refused: Callable[[Request, str], bool] = lambda *_: False,
+    other_names: Callable[[], set[str]] = set,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -134,7 +136,9 @@ def host_router(
     way any answer here names the host to someone else. `test_mode` says why a sign-up with
     "-admin" may not make the administrator's test account (R265), or None when it may;
     `test_account_refused` whether a sign-in to one is refused, with the administrator signed
-    out (R267). Every other call by a test account is refused before it gets here."""
+    out (R267). `other_names` gives the display names of the site's participants, which a new
+    account's suggested display name is unlike too (R269). Every other call by a test account is
+    refused before it gets here."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -467,11 +471,11 @@ def host_router(
     def open_sign_in_link(request: Request, link: str) -> RedirectResponse:
         """The one-time link from a sign-in at another address (R255): signed in here, the
         host's own site, with the cookie that keeps them so, then its home page. A link that
-        doesn't work goes to Host sign in."""
+        doesn't work goes to Sign in."""
         root = request.scope.get("root_path", "")
         token = accounts.open_sign_in_link(link, site, address(request))
         if token is None:
-            return RedirectResponse(f"{root}/#/host/sign-in", status_code=303)
+            return RedirectResponse(f"{root}/#/sign-in", status_code=303)
         host = accounts.host(token, site, unconfirmed=True)
         if host is not None and inactive(request, host.email, token):
             # The browser shows only the words (R268), on a page of their own.
@@ -580,6 +584,25 @@ def host_router(
             "disabled": host.disabled,
             "display_name": accounts.display_name_of(host.email),
         }
+
+    @router.get("/display-name/suggestion")
+    def suggest_display_name(email: str = "") -> JSONResponse:
+        """The display name the Sign in page fills in for a new account (R269): the email
+        before the @ and a number, unlike every host's and this site's participants'."""
+        began = time.perf_counter()
+        try:
+            taken = accounts.display_names() | other_names()
+        except HostsUnreadable as e:
+            return JSONResponse({"detail": str(e)}, status_code=503)
+        name = numbered_display_name(without_admin(email), taken)
+        logger.info(
+            "Display name suggested",
+            extra={
+                "display_name": name,
+                "duration_ms": round((time.perf_counter() - began) * 1000, 1),
+            },
+        )
+        return JSONResponse({"display_name": name})
 
     @router.put("/display-name")
     def set_display_name(

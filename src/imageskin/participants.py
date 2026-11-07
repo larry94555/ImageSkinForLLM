@@ -24,7 +24,16 @@ from pathlib import Path
 from typing import Any
 
 from imageskin.admin import Secret, check_password, hash_password
-from imageskin.hosts import BAD_EMAIL, EMAIL, MIN_PASSWORD, SHORT_PASSWORD, WRONG, normal_email
+from imageskin.hosts import (
+    BAD_EMAIL,
+    EMAIL,
+    MIN_PASSWORD,
+    SHORT_PASSWORD,
+    WRONG,
+    HostRefused,
+    checked_display_name,
+    normal_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,7 @@ class Participant:
     id: str  # names their conversation (R65a); never sent to the browser
     site: str  # the site they are signed in on; the account is the host's (R260)
     created_at: float
+    display_name: str | None = None  # chosen on the Sign in page (R269); None from before it
 
 
 def _token_key(token: str) -> str:
@@ -153,16 +163,22 @@ class ParticipantAccounts:
         )
         return ParticipantRefused(message, reason)
 
-    def sign_up(self, email: str, password: str) -> str:
+    def sign_up(self, email: str, password: str, display_name: str | None = None) -> str:
         """Make an account on this site and sign it in, returning the sign-in's token;
-        ParticipantRefused when the email isn't one, the password is too short or the email
-        already has an account here."""
+        ParticipantRefused when the email isn't one, the password is too short, the display name
+        isn't one (R269) or the email already has an account here."""
         start = time.perf_counter()
         email = normal_email(email)
         if not EMAIL.fullmatch(email):
             raise self._refuse(BAD_EMAIL, "not an email address", "sign-up", email)
         if len(password) < MIN_PASSWORD:
             raise self._refuse(SHORT_PASSWORD, "password too short", "sign-up", email)
+        shown = None
+        if display_name is not None and display_name.strip(" "):
+            try:
+                shown = checked_display_name(display_name)
+            except HostRefused as e:
+                raise self._refuse(str(e), e.reason, "sign-up", email) from e
         password_hash = hash_password(password)  # before the lock, as it takes about 50 ms
         with self._lock:
             data = self._load()
@@ -175,6 +191,7 @@ class ParticipantAccounts:
                     "id": secrets.token_urlsafe(24),
                     "site": self.site,  # where it was made; it works on all the host's
                     "created_at": self.clock(),
+                    **({"display_name": shown} if shown else {}),
                 },
             }
             token = self._new_sign_in(data, email)
@@ -248,7 +265,18 @@ class ParticipantAccounts:
             str(own or account["id"]),
             self.site,
             float(account["created_at"]),
+            account.get("display_name"),
         )
+
+    def display_names(self) -> set[str]:
+        """Every participant's display name (R269), for a new account's to be unlike; none while
+        the file can't be read."""
+        try:
+            with self._lock:
+                found = self._load()["participants"].values()
+        except ParticipantsUnreadable:
+            return set()
+        return {str(a["display_name"]) for a in found if a.get("display_name")}
 
     def emails(self) -> set[str]:
         """Every participant's email, for the host's policy (R261); none while the file can't

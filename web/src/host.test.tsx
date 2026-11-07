@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { hostPageOpened } from "./api";
 import { navigation } from "./host";
+import { NO_MATCH } from "./sign-in";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -54,6 +55,14 @@ function server(signedIn: string | null = null) {
         );
       }
       return Response.json({ sent: true });
+    }
+    // No participant accounts here: the Sign in page tries one after a host's (R269).
+    if (url === "/api/participant/session") return Response.json({ signed_in: false, email: null });
+    if (url === "/api/participant/sign-in") {
+      return Response.json({ detail: "The email address or password is wrong." }, { status: 401 });
+    }
+    if (url.startsWith("/api/host/display-name/suggestion")) {
+      return Response.json({ display_name: "new1" });
     }
     if (url === "/api/host/page") {
       pages.push(body.page);
@@ -110,55 +119,74 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-test("the top bar has Host sign up and Host sign in while no host is signed in", async () => {
+test("the top bar has one Sign in link while no one is signed in (R269)", async () => {
   server();
   window.location.hash = "#/chat";
   render(<App />);
   const bar = topBar();
-  expect(await within(bar).findByRole("link", { name: "Host sign up" })).toHaveProperty(
+  expect(await within(bar).findByRole("link", { name: "Sign in" })).toHaveProperty(
     "hash",
-    "#/host/sign-up",
+    "#/sign-in",
   );
-  expect(within(bar).getByRole("link", { name: "Host sign in" })).toHaveProperty(
-    "hash",
-    "#/host/sign-in",
-  );
+  expect(within(bar).queryByRole("link", { name: /sign up/i })).toBeNull();
+  expect(within(bar).queryByRole("link", { name: /host sign/i })).toBeNull();
   expect(within(bar).queryByRole("button", { name: "Sign out" })).toBeNull();
 });
 
 test("signing up checks the fields, says the server's message, and signs in", async () => {
-  const { pages } = server();
-  window.location.hash = "#/host/sign-up";
+  const { pages, fetchMock } = server();
+  window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign up" });
-  await vi.waitFor(() => expect(pages).toEqual(["sign-up"]));
+  await screen.findByRole("heading", { name: "Sign in" });
+  await vi.waitFor(() => expect(pages).toEqual(["sign-in"]));
 
   fill(/^Email/, "new@example.com");
-  fill(/^Password \(/, "short");
+  fireEvent.blur(screen.getByLabelText(/^Email/));
+  await vi.waitFor(() =>
+    expect((screen.getByLabelText(/^Display name/) as HTMLInputElement).value).toBe("new1"),
+  );
+  fill(/^Password$/, "short");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  // Not an account, and the password not typed twice: it says how to make one.
+  expect((await screen.findByRole("alert")).textContent).toBe(NO_MATCH);
+
   fill(/^Password again/, "short");
-  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
-  expect(await screen.findByRole("alert")).toHaveProperty(
-    "textContent",
-    "The password must be at least 10 characters.",
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await vi.waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The password must be at least 10 characters.",
+    ),
   );
 
-  fill(/^Password \(/, "a long secret");
+  fill(/^Password$/, "a long secret");
   fill(/^Password again/, "a different one");
-  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("The two passwords are different.");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await vi.waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe("The two passwords are different."),
+  );
 
   fill(/^Email/, "host@example.com");
-  fill(/^Password again/, "a long secret");
-  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+  fill(/^Password$/, "not the one");
+  fill(/^Password again/, "not the one");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(
     await screen.findByText("That email address is already signed up. Sign in instead."),
   ).toBeTruthy();
 
   fill(/^Email/, "new@example.com");
-  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+  fill(/^Password$/, "a long secret");
+  fill(/^Password again/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await within(topBar()).findByText("new@example.com")).toBeTruthy();
   await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
-  expect(within(topBar()).queryByRole("link", { name: "Host sign up" })).toBeNull();
+  // With the display name filled in from the email.
+  const signUp = fetchMock.mock.calls.filter(([url]) => url === "/api/host/sign-up").at(-1)!;
+  expect(JSON.parse(String(signUp[1]!.body))).toEqual({
+    email: "new@example.com",
+    password: "a long secret",
+    display_name: "new1",
+  });
+  expect(within(topBar()).queryByRole("link", { name: "Sign in" })).toBeNull();
 });
 
 test("signing up at the main address goes to the new site's setup at its trial path (R62)", async () => {
@@ -179,16 +207,16 @@ test("signing up at the main address goes to the new site's setup at its trial p
   vi.spyOn(navigation, "goTo").mockImplementation((url: string) => {
     went.push(url);
   });
-  window.location.hash = "#/host/sign-up";
+  window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign up" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fill(/^Email/, "new@example.com");
-  fill(/^Password \(/, "a long secret");
+  fill(/^Password$/, "a long secret");
   fill(/^Password again/, "a long secret");
-  fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await vi.waitFor(() => expect(went).toEqual(["/t/k7q2x9mf3a8w/#/setup"]));
   // Left as it was: the browser is on its way to the new site.
-  expect(window.location.hash).toBe("#/host/sign-up");
+  expect(window.location.hash).toBe("#/sign-in");
   expect(state.email).toBeNull();
 });
 
@@ -211,11 +239,11 @@ test("signing in at another site's address goes to the host's own site (R255)", 
   vi.spyOn(navigation, "goTo").mockImplementation((url: string) => {
     went.push(url);
   });
-  window.location.hash = "#/host/sign-in";
+  window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fill(/^Email/, "host@example.com");
-  fill(/^Password/, "a long secret");
+  fill(/^Password$/, "a long secret");
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   // The link as it is: its own page sends the host on to their site's home page.
   await vi.waitFor(() => expect(went).toEqual([link]));
@@ -223,24 +251,60 @@ test("signing in at another site's address goes to the host's own site (R255)", 
   expect(state.email).toBeNull();
 });
 
-test("a wrong password is refused with its message, then the right one signs in", async () => {
-  const { pages } = server();
-  window.location.hash = "#/host/sign-in";
+test("a wrong password is refused, then the right one signs in", async () => {
+  const { pages, fetchMock } = server();
+  window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   await vi.waitFor(() => expect(pages).toEqual(["sign-in"]));
-  expect(screen.queryByLabelText(/^Password again/)).toBeNull();
 
   fill(/^Email/, "host@example.com");
-  fill(/^Password/, "wrong one");
+  fill(/^Password$/, "wrong one");
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-  expect((await screen.findByRole("alert")).textContent).toBe(
-    "The email address or password is wrong.",
-  );
+  expect((await screen.findByRole("alert")).textContent).toBe(NO_MATCH);
+  // Neither a host's nor a participant's account, and no account made.
+  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/sign-up"))).toBe(false);
 
-  fill(/^Password/, "a long secret");
+  fill(/^Password$/, "a long secret");
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await within(topBar()).findByText("host@example.com")).toBeTruthy();
+  // A host's sign-in needs no participant's.
+  expect(
+    fetchMock.mock.calls.filter(([url]) => url === "/api/participant/sign-in"),
+  ).toHaveLength(1);
+});
+
+test("a sign-in the server can't answer says so, without trying more", async () => {
+  const { fetchMock } = server();
+  const real = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    url === "/api/host/sign-in"
+      ? Response.json({ detail: "Accounts can't be read right now." }, { status: 503 })
+      : real(url, init),
+  );
+  window.location.hash = "#/sign-in";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Sign in" });
+  fill(/^Email/, "host@example.com");
+  fill(/^Password$/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Accounts can't be read right now.");
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/participant/sign-in")).toBe(false);
+});
+
+test("the administrator's -admin email only signs up, as a host (R265)", async () => {
+  const { fetchMock } = server();
+  window.location.hash = "#/sign-in";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Sign in" });
+  fill(/^Email/, "joe@example.com-admin");
+  fill(/^Password$/, "a long secret");
+  fill(/^Password again/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/host/sign-up")).toBe(true),
+  );
+  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/sign-in"))).toBe(false);
 });
 
 test("signing out returns to the participant view's chat", async () => {
@@ -257,18 +321,20 @@ test("signing out returns to the participant view's chat", async () => {
 
   state.signOutFails = false;
   fireEvent.click(within(bar).getByRole("button", { name: "Sign out" }));
-  expect(await within(bar).findByRole("link", { name: "Host sign in" })).toBeTruthy();
+  expect(await within(bar).findByRole("link", { name: "Sign in" })).toBeTruthy();
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"));
 });
 
-test("the sign-in pages say so when a host is already signed in", async () => {
+test("the Sign in page says so when a host is already signed in", async () => {
   server("host@example.com");
+  // An old Host sign in address opens it too.
   window.location.hash = "#/host/sign-in";
   render(<App />);
-  expect(await screen.findByText(/You are signed in as host with host@example.com/)).toBeTruthy();
+  expect(await screen.findByText(/You are signed in as host@example.com/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Go on" })).toHaveProperty("hash", "#/");
 });
 
-test("a host sign-in that can't be read shows the sign-in links", async () => {
+test("a host sign-in that can't be read shows the Sign in link", async () => {
   const { fetchMock } = server();
   const answer = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
@@ -276,7 +342,7 @@ test("a host sign-in that can't be read shows the sign-in links", async () => {
   );
   window.location.hash = "#/chat";
   render(<App />);
-  expect(await within(topBar()).findByRole("link", { name: "Host sign in" })).toBeTruthy();
+  expect(await within(topBar()).findByRole("link", { name: "Sign in" })).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not read the host sign-in", expect.anything());
 });
 
@@ -290,12 +356,12 @@ test("logging a host page opened resolves on the server's 204 and throws on an e
 
 test("opening a host page logs no error about logging it", async () => {
   server();
-  window.location.hash = "#/host/sign-in";
+  window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   await new Promise((r) => setTimeout(r, 50));
   expect(console.error).not.toHaveBeenCalledWith(
-    "Could not log the host page opened",
+    "Could not log the sign-in page opened",
     expect.anything(),
   );
 });
@@ -343,10 +409,7 @@ test("a failed confirmation link opened while signed out says to sign in (R62b)"
   await screen.findByRole("heading", { name: "Confirm your email" });
   expect(screen.getByRole("alert").textContent).toContain("more than 7 days old");
   const main = document.querySelector(".host-page") as HTMLElement;
-  expect(within(main).getByRole("link", { name: "Host sign in" })).toHaveProperty(
-    "hash",
-    "#/host/sign-in",
-  );
+  expect(within(main).getByRole("link", { name: "Sign in" })).toHaveProperty("hash", "#/sign-in");
 });
 
 test("Forgot password asks for a link and shows the server's answer (R62a)", async () => {

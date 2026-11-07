@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
 import { navigation } from "./host";
+import { NO_MATCH } from "./sign-in";
 
 vi.unmock("./api");
 
@@ -31,6 +32,9 @@ function server(restart: { status: number; body: object } = { status: 200, body:
         }
         return Response.json({ detail: DELETED, deleted: true }, { status: 401 });
       }
+      if (url === "/api/participant/sign-in") {
+        return Response.json({ detail: "The email address or password is wrong." }, { status: 401 });
+      }
       if (url === "/api/host/restart") return Response.json(restart.body, { status: restart.status });
       return new Response("", { status: 404 });
     }),
@@ -53,9 +57,9 @@ afterEach(() => {
 async function signIn(password = "a long secret") {
   window.location.hash = "#/host/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText(/^Email/), { target: { value: "dan@example.com" } });
-  fireEvent.input(screen.getByLabelText(/^Password/), { target: { value: password } });
+  fireEvent.input(screen.getByLabelText(/^Password$/), { target: { value: password } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 }
 
@@ -78,9 +82,8 @@ test("A deleted site's host is offered Start my site again, which goes to the ne
 test("A wrong password offers nothing more", async () => {
   server();
   await signIn("wrong one");
-  expect((await screen.findByRole("alert")).textContent).toBe(
-    "The email address or password is wrong.",
-  );
+  // Neither a host's account nor a participant's: it says so, never which (R269).
+  expect((await screen.findByRole("alert")).textContent).toBe(NO_MATCH);
   expect(screen.queryByRole("button", { name: "Start my site again" })).toBeNull();
 });
 

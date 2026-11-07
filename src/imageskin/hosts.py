@@ -209,6 +209,21 @@ def default_display_name(email: str) -> str:
     return normal_email(email).split("@", 1)[0]
 
 
+def numbered_display_name(email: str, taken: set[str]) -> str:
+    """The display name the Sign in page suggests for a new account (R269): the email before
+    the @ and the smallest number from 1 that makes it unlike every name in `taken`, ignoring
+    case. Cut short to fit, so it is always a name the account may keep."""
+    base = default_display_name(email) or "user"
+    taken = {name.casefold() for name in taken}
+    n = 1
+    while True:
+        suffix = str(n)
+        name = base[: MAX_DISPLAY_NAME - len(suffix)] + suffix
+        if name.casefold() not in taken:
+            return name
+        n += 1
+
+
 def checked_display_name(name: str) -> str:
     """The display name as kept, with its spaces tidied (R259); HostRefused when it is empty or
     too long, or holds a line break or other control character."""
@@ -856,6 +871,16 @@ class HostAccounts:
         if account is None:
             return None
         return str(account.get(DISPLAY_NAME) or default_display_name(email))
+
+    def display_names(self) -> set[str]:
+        """Every host's display name (R259), as shown, for a new account's to be unlike (R269);
+        HostsUnreadable when the file can't be read."""
+        with self._lock:
+            hosts = self._load()["hosts"]
+        return {
+            str(account.get(DISPLAY_NAME) or default_display_name(email))
+            for email, account in hosts.items()
+        }
 
     def set_display_name(self, email: str, name: str) -> str | None:
         """Change the host's display name (R259), returning it as kept; HostRefused when it

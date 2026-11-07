@@ -79,11 +79,11 @@ test("signing in as host shows Settings", async () => {
   server();
   window.location.hash = "#/host/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   await vi.waitFor(() => expect(console.info).toHaveBeenCalledWith("Settings hidden"));
   expect(within(topBar()).queryByRole("link", { name: "Settings" })).toBeNull();
   fireEvent.input(screen.getByLabelText(/^Email/), { target: { value: "host@example.com" } });
-  fireEvent.input(screen.getByLabelText(/^Password/), { target: { value: "a long secret" } });
+  fireEvent.input(screen.getByLabelText(/^Password$/), { target: { value: "a long secret" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await within(topBar()).findByRole("link", { name: "Settings" })).toHaveProperty(
     "hash",
