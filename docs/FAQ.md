@@ -211,3 +211,67 @@ df -h /
 **On a laptop (`imageskin serve`),** the log is the terminal the app runs in. Look there for the same `Prepare job failed` line, or save the log while trying again: `imageskin serve 2>&1 | tee imageskin.log` (Windows PowerShell: `imageskin serve 2>&1 | Tee-Object imageskin.log`).
 
 **When reporting it,** copy the whole `Prepare job failed` line, with the `Prepare step finished` lines before it, into the support ticket.
+
+## The hosted server's disk is filling up. How do I find what takes the space, and clear it?
+
+**Most often it is Docker's build cache.** Every `docker compose up -d --build` keeps the layers it built (Python, torch and the models' libraries) so the next build is faster. The app never uses them while it runs, and after many deploys they add up: Larry's server had 55 GB of it on a 146 GB disk (2026-11-06).
+
+Connect with SSH as in [deploy/README.md](../deploy/README.md) step 4. Nothing in steps 1 to 3 deletes anything.
+
+**1. How full the disk is:**
+
+```
+df -h /
+```
+
+`Use%` above about 80% is worth a look.
+
+**2. Where the space is, biggest folders last:**
+
+```
+sudo du -xh --max-depth=1 / 2>/dev/null | sort -h | tail
+```
+
+Run it again on the biggest folder to go one level down, such as `sudo du -xh --max-depth=1 /var 2>/dev/null | sort -h | tail`. Docker keeps everything under `/var/lib/docker`, so `/var` is usually the biggest. To list single large files anywhere on the disk:
+
+```
+sudo find / -xdev -type f -size +500M -exec ls -lh {} + 2>/dev/null | sort -k5 -h
+```
+
+**3. Docker's share:**
+
+```
+docker system df
+```
+
+| Line | What it is | What to expect |
+|---|---|---|
+| **Images** | the app, the LLM's server and Caddy, as built or downloaded | about 11 GB, little of it reclaimable |
+| **Containers** | the running containers' own changes | a few MB |
+| **Local Volumes** | the app's data (`imageskin-data`: every site's people, PDFs and settings) and the LLM's model (`llama-models`) | tens of GB, never reclaimable: it is the site's data |
+| **Build Cache** | layers saved by `--build` | can grow by GB with each deploy; almost all of it reclaimable |
+
+**RECLAIMABLE** is what can be cleared without stopping anything. To see each volume's size: `docker system df -v | grep -A5 "VOLUME NAME"`. To see the app's data by folder (the `*` must be read inside the container, so the command is quoted):
+
+```
+docker run --rm -v imageskin_imageskin-data:/data ubuntu sh -c 'du -sh /data/* | sort -h | tail'
+```
+
+`sites` and `hosts` are the sites' own files, `models` and `huggingface` the downloaded models, and `default-people` the ready-made people.
+
+**4. Clear the build cache:**
+
+```
+docker builder prune -f
+docker system df
+```
+
+The Build Cache line drops to about zero. It doesn't touch the images, containers or volumes, so the site and its data stay as they are; the next `docker compose up -d --build` takes as long as a first build, then is quick again. Run it now and then after a deploy, so the cache doesn't grow back.
+
+**Other things that can be cleared, with care:**
+
+- **Old images:** `docker image prune -f` removes images no container uses, usually little (the Images line's RECLAIMABLE).
+- **A backup file** left in the home folder, such as `~/before-m20-test.tgz` from a walkthrough's restore point, once it isn't needed: `rm ~/before-m20-test.tgz`.
+- **Never** `docker volume prune` or `docker compose down -v`: they delete the data volumes, with every site, upload, setting and key.
+
+All of these are permanent, so run step 3 first and clear only what it shows.
