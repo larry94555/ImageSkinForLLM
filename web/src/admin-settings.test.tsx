@@ -249,7 +249,7 @@ test("the test email is shown, and not set when it isn't (R264)", async () => {
   await openSettings();
   const section = screen.getByRole("region", { name: "Test email" });
   expect(section.textContent).toContain("Test email: not set");
-  expect(section.textContent).toContain("admin-settings.json");
+  expect(section.textContent).toContain("admin.toml");
   expect(section.querySelector("input")).toBeNull(); // set only in the file
 });
 

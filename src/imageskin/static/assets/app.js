@@ -5209,7 +5209,7 @@ function TestEmail({ address }) {
 			/* @__PURE__ */ u("p", { children: ["Test email: ", /* @__PURE__ */ u("strong", { children: address || "not set" })] }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Every email for an administrator's test account goes to this address. It is set only in admin-settings.json, in the admin folder on the host, as \"test_email\", and is used as soon as the file is saved."
+				children: "Every email for an administrator's test account goes to this address. It is set only in admin.toml, beside the administrator's password, as \"test_email\", and is used as soon as the file is saved."
 			})
 		]
 	});

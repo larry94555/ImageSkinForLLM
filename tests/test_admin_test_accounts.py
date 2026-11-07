@@ -52,13 +52,15 @@ def quick_hashes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def set_test_email(home: Path, address: str) -> None:
-    (home / "admin-settings.json").write_text(json.dumps({"test_email": address}))
+    """The test email in admin.toml, beside the administrator's password (R264)."""
+    (home / "admin.toml").write_text(f'password = "secret"\ntest_email = "{address}"\n')
 
 
 def administrator(sites: object, home: Path) -> TestClient:
     """Signed in as the administrator at the main address (and as its host, which R191 asks
     for before an admin sign-in)."""
-    (home / "admin.toml").write_text('password = "secret"\n')
+    if not (home / "admin.toml").exists():  # set_test_email writes the same password
+        (home / "admin.toml").write_text('password = "secret"\n')
     browser = TestClient(sites, base_url=MAIN)  # type: ignore[arg-type]
     assert browser.post("/api/host/sign-in", json={"email": BOB, "password": PASSWORD}).is_success
     assert browser.post("/api/admin/sign-in", json={"password": "secret"}).is_success

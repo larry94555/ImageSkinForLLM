@@ -84,3 +84,66 @@ def test_default_home_follows_environment(monkeypatch: pytest.MonkeyPatch) -> No
     assert default_home() == Path("/data/skin")
     monkeypatch.delenv("IMAGESKIN_HOME")
     assert default_home() == Path.home() / ".imageskin"
+
+
+# The mail service from the environment (R215), so the hosted site sets it in deploy/.env.
+MAIL = {
+    "IMAGESKIN_SMTP_HOST": "smtp.email.us-ashburn-1.oci.oraclecloud.com",
+    "IMAGESKIN_SMTP_PORT": "587",
+    "IMAGESKIN_SMTP_USER": "ocid1.user.oc1..aaaa@ocid1.tenancy.oc1..bbbb.xy.com",
+    "IMAGESKIN_MAIL_FROM": "me0.ai <noreply@me0.ai>",
+}
+
+
+def test_the_mail_service_comes_from_the_environment_over_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    for name, value in MAIL.items():
+        monkeypatch.setenv(name, value)
+    path = write(tmp_path, 'smtp_host = "smtp.example.com"\nsmtp_port = 465\n')
+    with caplog.at_level("INFO"):
+        settings = load_settings(path)
+    assert settings.smtp_host == MAIL["IMAGESKIN_SMTP_HOST"]
+    assert settings.smtp_port == 587
+    assert settings.smtp_user == MAIL["IMAGESKIN_SMTP_USER"]
+    assert settings.mail_from == MAIL["IMAGESKIN_MAIL_FROM"]
+    told = [r for r in caplog.records if r.message == "Mail service set in the environment"]
+    assert told[0].__dict__["keys"] == ["mail_from", "smtp_host", "smtp_port", "smtp_user"]
+
+
+def test_the_mail_service_from_the_environment_needs_no_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in MAIL.items():
+        monkeypatch.setenv(name, value)
+    assert load_settings(None) == Settings(
+        smtp_host=MAIL["IMAGESKIN_SMTP_HOST"],
+        smtp_user=MAIL["IMAGESKIN_SMTP_USER"],
+        mail_from=MAIL["IMAGESKIN_MAIL_FROM"],
+    )
+
+
+def test_empty_mail_variables_leave_the_file_as_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in MAIL:
+        monkeypatch.setenv(name, "")
+    path = write(tmp_path, 'smtp_host = "smtp.example.com"\nmail_from = "a@b.c"\n')
+    assert load_settings(path).smtp_host == "smtp.example.com"
+    assert load_settings(None) == Settings()
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "said"),
+    [
+        ("IMAGESKIN_SMTP_PORT", "five", "IMAGESKIN_SMTP_PORT must be a number"),
+        ("IMAGESKIN_SMTP_PORT", "70000", "smtp_port in the environment"),
+        ("IMAGESKIN_SMTP_HOST", "smtp.example.com", "mail_from in the environment"),
+    ],
+)
+def test_wrong_mail_variables_are_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str, said: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+    with pytest.raises(ConfigError, match=said):
+        load_settings(None)

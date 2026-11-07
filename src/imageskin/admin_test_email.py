@@ -2,7 +2,7 @@
 
 A test account (R265) is a host signed up by the administrator with "-admin", for any address,
 real or made up. Every email meant for one goes instead to the test email set in
-`admin-settings.json` (R264), so the account's own address never gets anything. This is done
+`admin.toml` (R264), so the account's own address never gets anything. This is done
 in one place, as the mailer sends, so every email, from the sign-up confirmation to any added
 later, is covered with no change to each.
 """

@@ -280,6 +280,7 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
 | Serve each site at its own subdomain, such as `anna.me0.ai` | [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md), then the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | Turn on subscribing, or change Stripe's keys | step 9 above; a changed `.env` needs `docker compose up -d` |
+| Send real email (sign-up confirmations, password resets) instead of writing it to the outbox | [Mail setup guide](../docs/guides/Mail-Setup-Guide.md): Oracle's Email Delivery, set in `.env` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |
 | Host the default people for Start now | copy the packs to `default-people` here, as [tools/default_people/README.md](../tools/default_people/README.md#uploading-the-packs-to-the-hosted-site-r32a) says |

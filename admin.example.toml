@@ -13,3 +13,9 @@ password_hash = ""
 
 # Or the password as it is. Used only when password_hash is empty.
 password = ""
+
+# The test email (roadmap R264): every email for one of the administrator's test accounts, made
+# by signing up a host with "-admin" added to an email address, goes to this address instead.
+# Left empty, no test account can be made. Like the password, it is used as soon as the file is
+# saved.
+test_email = ""

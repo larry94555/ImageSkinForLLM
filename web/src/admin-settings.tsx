@@ -229,8 +229,8 @@ function TestEmail({ address }: { address: string }) {
       </p>
       <p className="muted">
         Every email for an administrator's test account goes to this address. It is set only in
-        admin-settings.json, in the admin folder on the host, as "test_email", and is used as soon
-        as the file is saved.
+        admin.toml, beside the administrator's password, as "test_email", and is used as soon as
+        the file is saved.
       </p>
     </section>
   );

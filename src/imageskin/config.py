@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 # Moved to the Settings page in roadmap R42 (Larry, 2026-10-19).
 MOVED_TO_SETTINGS = ("llm_provider", "llm_api_key")
+# The mail service can be set in the environment too, over config.toml, so the hosted site sets
+# it in deploy/.env and its config.toml stays as `git pull` leaves it (Larry, on PR 313).
+MAIL_VARIABLES = {
+    "smtp_host": "IMAGESKIN_SMTP_HOST",
+    "smtp_port": "IMAGESKIN_SMTP_PORT",
+    "smtp_user": "IMAGESKIN_SMTP_USER",
+    "mail_from": "IMAGESKIN_MAIL_FROM",
+}
 
 
 def default_home() -> Path:
@@ -60,10 +68,32 @@ class Settings:
     mail_from: str = ""
 
 
+def mail_from_environment() -> dict[str, object]:
+    """The mail service's settings set in the environment (MAIL_VARIABLES), each over the file's."""
+    found: dict[str, object] = {}
+    for key, variable in MAIL_VARIABLES.items():
+        value = os.environ.get(variable, "").strip()
+        if not value:
+            continue
+        if key == "smtp_port":
+            if not value.isdigit():
+                raise ConfigError(f"{variable} must be a number from 1 to 65535")
+            found[key] = int(value)
+        else:
+            found[key] = value
+    if found:
+        logger.info("Mail service set in the environment", extra={"keys": sorted(found)})
+    return found
+
+
 def load_settings(path: Path | None) -> Settings:
-    """Return defaults when path is None, otherwise the values in the TOML file."""
+    """The defaults when path is None, otherwise the values in the TOML file; either way with
+    the mail service's settings from the environment over them."""
     if path is None:
-        return Settings()
+        mail = mail_from_environment()
+        if not mail:
+            return Settings()
+        return checked_settings(Settings(**mail), "the environment")  # type: ignore[arg-type]
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
@@ -90,7 +120,13 @@ def load_settings(path: Path | None) -> Settings:
     if unknown:
         raise ConfigError(f"Unknown keys in {path}: {', '.join(unknown)}")
 
-    settings = Settings(**data)
+    settings = checked_settings(Settings(**{**data, **mail_from_environment()}), path)
+    logger.info("Loaded config", extra={"path": str(path)})
+    return settings
+
+
+def checked_settings(settings: Settings, path: object) -> Settings:
+    """The settings, or ConfigError naming the first wrong one and where it was set."""
     if not isinstance(settings.host, str):
         raise ConfigError(f"host in {path} must be a string")
     # type() rather than isinstance(): bool is a subclass of int, so `port = true` must fail here.
@@ -128,5 +164,4 @@ def load_settings(path: Path | None) -> Settings:
         )
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
-    logger.info("Loaded config", extra={"path": str(path)})
     return settings

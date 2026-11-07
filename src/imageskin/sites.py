@@ -1270,8 +1270,9 @@ def make_service(
     """The shared part, kept in `home`. The administrator's password file is admin.toml there
     unless `admin_file` says otherwise (R149), and the laptops file is beside it (R163). Without
     a `mailer`, emails go to the outbox in `home`."""
-    admin_settings = AdminSettingsStore(home)
     admin_file = admin_file or home / ADMIN_FILENAME
+    # The test email is in the administrator's password file (R264).
+    admin_settings = AdminSettingsStore(home, admin_file)
     admin_sign_ins = AdminSignIns(
         admin_file,
         # The minutes before an inactive administrator is signed out (R155), read at each check.
