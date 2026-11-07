@@ -1607,9 +1607,9 @@ Added by Larry on 2026-11-07, built right after the administrator's test mode (M
 
 | PR | Description | Status |
 |---|---|---|
-| [R269. One Sign in for hosts and participants](#r269-one-sign-in-for-hosts-and-participants-medium--item-220--done-in-pr-pr_number) | One link and page that signs a host or a participant in, or makes a new account, with a suggested display name. | Done in [PR #PR_NUMBER](https://github.com/larry94555/ImageSkinForLLM/pull/PR_NUMBER) |
+| [R269. One Sign in for hosts and participants](#r269-one-sign-in-for-hosts-and-participants-medium--item-220--done-in-pr-pr-322) | One link and page that signs a host or a participant in, or makes a new account, with a suggested display name. | Done in [PR #322](https://github.com/larry94555/ImageSkinForLLM/pull/322) |
 
-### R269. One Sign in for hosts and participants (Medium) · item 220 · Done in [PR #PR_NUMBER](https://github.com/larry94555/ImageSkinForLLM/pull/PR_NUMBER)
+### R269. One Sign in for hosts and participants (Medium) · item 220 · Done in [PR #322](https://github.com/larry94555/ImageSkinForLLM/pull/322)
 - The top bar has one **Sign in** link for anyone not signed in. Its page, `#/sign-in`, has Email, Display name, Password and Password again. `#/sign-up`, `#/host/sign-up` and `#/host/sign-in` open it too, and every link that said Host sign in now says Sign in.
 - Signing in tries the host's sign-in first, then the participant's; a refusal other than a wrong email or password (a deleted site, an inactive test account, the server unable to read the accounts) is said at once. With neither matching and the password typed again, it signs up: as a participant where the site has a host, as a host where it has none. An email ending in "-admin" only signs up, as a host (R265).
 - `GET /api/host/display-name/suggestion?email=` gives the email before the @ and the smallest number from 1 unlike every host's display name and this site's participants'. The page asks for it when the email field is left, unless a display name has been typed.
