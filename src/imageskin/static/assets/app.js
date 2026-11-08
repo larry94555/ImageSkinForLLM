@@ -11451,6 +11451,7 @@ function SignInPage() {
 	const [deleted, setDeleted] = d(false);
 	const named = A(false);
 	const suggestedFor = A("");
+	const asked = A(0);
 	h(() => {
 		hostPageOpened("sign-in").catch((e) => console.error("Could not log the sign-in page opened", e));
 	}, []);
@@ -11458,11 +11459,17 @@ function SignInPage() {
 		const typed = email.trim();
 		if (named.current || !typed.includes("@") || typed === suggestedFor.current) return;
 		suggestedFor.current = typed;
+		const ask = ++asked.current;
 		try {
 			const name = await suggestDisplayName(typed);
+			if (ask !== asked.current) {
+				console.info("Display name suggestion left out: the email changed");
+				return;
+			}
 			if (!named.current) setDisplayName(name);
 		} catch (e) {
 			console.error("Could not suggest a display name", e);
+			if (ask === asked.current) suggestedFor.current = "";
 		}
 	}
 	function finish(err) {

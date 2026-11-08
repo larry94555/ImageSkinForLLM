@@ -110,6 +110,51 @@ test("a suggestion that fails leaves the display name blank, and says so in the 
   expect(nameField().value).toBe("");
 });
 
+test("an answer for an email since changed doesn't fill in the display name", async () => {
+  server();
+  const answers = new Map<string, (name: string) => void>();
+  const real = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) => {
+      if (!url.startsWith("/api/host/display-name/suggestion")) return real(url, init);
+      const email = new URL(url, "http://x").searchParams.get("email") ?? "";
+      return new Promise<Response>((done) =>
+        answers.set(email, (name) => done(Response.json({ display_name: name }))),
+      );
+    }),
+  );
+  await page();
+  const email = screen.getByLabelText("Email");
+  fireEvent.input(email, { target: { value: "alice@example.com" } });
+  fireEvent.blur(email);
+  fireEvent.input(email, { target: { value: "bob@example.com" } });
+  fireEvent.blur(email);
+  await waitFor(() => expect(answers.size).toBe(2));
+  answers.get("bob@example.com")?.("bob1");
+  await waitFor(() => expect(nameField().value).toBe("bob1"));
+  answers.get("alice@example.com")?.("alice1");
+  await waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith(
+      "Display name suggestion left out: the email changed",
+    ),
+  );
+  expect(nameField().value).toBe("bob1");
+});
+
+test("a suggestion that failed is asked again once the email is left again", async () => {
+  const s = server({ suggestion: "fails" });
+  await page();
+  const email = screen.getByLabelText("Email");
+  fireEvent.input(email, { target: { value: PAT } });
+  fireEvent.blur(email);
+  await waitFor(() => expect(console.error).toHaveBeenCalled());
+  s.suggestion = "pat1";
+  fireEvent.blur(email);
+  await waitFor(() => expect(nameField().value).toBe("pat1"));
+  expect(s.asked.filter((a) => a.includes("/display-name/suggestion"))).toHaveLength(2);
+});
+
 test("a participant sign-in the server can't answer says why, and makes no account", async () => {
   const s = server({ participantSignIn: 503 });
   await page();

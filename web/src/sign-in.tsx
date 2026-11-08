@@ -50,6 +50,8 @@ export function SignInPage() {
   const named = useRef(false);
   // The email the display name was last filled in for, so it is asked once per email.
   const suggestedFor = useRef("");
+  // Counts the suggestions asked for, so an answer for an email since changed is left out.
+  const asked = useRef(0);
 
   useEffect(() => {
     hostPageOpened("sign-in").catch((e: unknown) =>
@@ -62,12 +64,19 @@ export function SignInPage() {
     const typed = email.trim();
     if (named.current || !typed.includes("@") || typed === suggestedFor.current) return;
     suggestedFor.current = typed;
+    const ask = ++asked.current;
     try {
       const name = await suggestDisplayName(typed);
+      if (ask !== asked.current) {
+        console.info("Display name suggestion left out: the email changed");
+        return;
+      }
       if (!named.current) setDisplayName(name);
     } catch (e) {
-      // Left blank, the server names the account by the email before the @.
+      // Left blank, the server names the account by the email before the @. Leaving the email
+      // and coming back asks again.
       console.error("Could not suggest a display name", e);
+      if (ask === asked.current) suggestedFor.current = "";
     }
   }
 
