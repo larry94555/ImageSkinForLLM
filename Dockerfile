@@ -25,13 +25,20 @@ COPY src ./src
 # The app with every extra and what Chatterbox (the person's own voice) needs, resolved together
 # so the versions agree, then Chatterbox itself without its old pins, as in the README's "Your
 # own voice". MediaPipe also installs the full OpenCV, which must stay on 4.x as the app's does.
+RUN pip install --no-cache-dir --retries 10 ".[voice,photoreal,faces,heic]" \
+        -r clone-requirements.txt "opencv-contrib-python>=4.8,<5" \
+    && pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7
 # Kokoro's English model is installed here too: Kokoro would install it on first use, and the app
 # can't write to the installed packages. Loading it once here stops the build when a new release of
 # spaCy or what it uses can't, rather than prepare failing later on the site (R134a: preshed).
-RUN pip install --no-cache-dir --retries 10 ".[voice,photoreal,faces,heic]" \
-        -r clone-requirements.txt "opencv-contrib-python>=4.8,<5" \
-    && pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 \
-    && python -m spacy download en_core_web_sm \
+# It comes from GitHub's release downloads, which have answered 504 Gateway Time-out for minutes
+# at a time (Larry, 2026-11-08): it is tried 5 times over about 4 minutes, in a step of its own so
+# a failed build tried again keeps the install above.
+RUN for wait in 0 15 30 60 120; do \
+        sleep "$wait"; \
+        python -m spacy download en_core_web_sm && break; \
+        echo "spaCy English model not downloaded; trying again"; \
+    done \
     && python -c "import spacy; spacy.load('en_core_web_sm'); print('spaCy English model loads')"
 # Pocket TTS (roadmap R22f) speaks the person's own voice about ten times faster than Chatterbox,
 # faster than the clips play, so a reply has no long pauses (R160: Chatterbox took 11 to 32 s a
