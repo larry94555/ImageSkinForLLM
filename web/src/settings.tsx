@@ -154,11 +154,14 @@ export function SettingsLink({ current }: { current: boolean }) {
 }
 
 // The Settings page. `back` is the page it was opened from, which Return to the app goes back to.
+// `section` is set when the page was opened at Delete my data (the footer's link).
 export function SettingsPage({
   back,
+  section,
   onDataDeleted,
 }: {
   back: string;
+  section?: "delete";
   onDataDeleted?: () => void;
 }) {
   const { settings, change } = useContext(SettingsContext);
@@ -166,6 +169,16 @@ export function SettingsPage({
   const page = useRef<HTMLDivElement>(null);
 
   useEffect(() => console.info(`Settings page opened, returning to ${back}`), [back]);
+  useEffect(() => {
+    if (section !== "delete") return;
+    const target = document.getElementById("settings-delete");
+    if (!target) {
+      console.warn("Settings opened at Delete my data, but it isn't on the page");
+      return;
+    }
+    console.info("Settings opened at Delete my data");
+    target.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [section]);
 
   // Saves the change; if it can't be saved, says so and `undo` puts the box back as it was.
   async function save(changes: Partial<UiSettings>, undo: () => void) {

@@ -46,6 +46,8 @@ const PAGES: Record<string, Page> = {
   "/guide": "guide",
   "/wiki": "wiki",
   "/settings": "settings", // in both views, so a participant view can be switched back (R27)
+  // The footer's link for a signed-in host: Settings, scrolled to Delete my data.
+  "/settings/delete": "settings",
   "/admin": "admin", // the admin view (R150), apart from the host and participant views
   "/admin/settings": "admin", // its second page, the admin settings (R155)
   "/admin/guidelines": "admin", // its third, the administrator's own guidelines (R244)
@@ -100,6 +102,12 @@ export function pathOf(hash: string): string {
 const RESET = /^\/host\/reset\/([A-Za-z0-9_-]+)$/;
 export function resetToken(hash: string): string | undefined {
   return RESET.exec(pathOf(hash))?.[1];
+}
+
+// The Settings page at its Delete my data section, which the host's footer links to.
+export const SETTINGS_DELETE = "#/settings/delete";
+export function settingsTarget(hash: string): "delete" | undefined {
+  return pathOf(hash) === "/settings/delete" ? "delete" : undefined;
 }
 
 export type AdminSection = "resources" | "settings" | "guidelines";
