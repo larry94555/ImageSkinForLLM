@@ -11593,7 +11593,11 @@ function SignInPage() {
 						type: "email",
 						autoComplete: "email",
 						value: email,
-						onInput: (e) => setEmail(e.currentTarget.value),
+						onInput: (e) => {
+							asked.current++;
+							suggestedFor.current = "";
+							setEmail(e.currentTarget.value);
+						},
 						onBlur: () => void suggest()
 					})] }),
 					/* @__PURE__ */ u("label", { children: [

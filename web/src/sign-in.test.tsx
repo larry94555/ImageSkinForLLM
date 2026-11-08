@@ -142,6 +142,34 @@ test("an answer for an email since changed doesn't fill in the display name", as
   expect(nameField().value).toBe("bob1");
 });
 
+test("an answer that comes after the email is typed over doesn't fill in the display name", async () => {
+  server();
+  const pending: { answer?: (name: string) => void } = {};
+  const real = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) => {
+      if (!url.startsWith("/api/host/display-name/suggestion")) return real(url, init);
+      return new Promise<Response>((done) => {
+        pending.answer = (name) => done(Response.json({ display_name: name }));
+      });
+    }),
+  );
+  await page();
+  const email = screen.getByLabelText("Email");
+  fireEvent.input(email, { target: { value: "alice@example.com" } });
+  fireEvent.blur(email);
+  await waitFor(() => expect(pending.answer).toBeDefined());
+  fireEvent.input(email, { target: { value: "bob@example.com" } });
+  pending.answer?.("alice1");
+  await waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith(
+      "Display name suggestion left out: the email changed",
+    ),
+  );
+  expect(nameField().value).toBe("");
+});
+
 test("a suggestion that failed is asked again once the email is left again", async () => {
   const s = server({ suggestion: "fails" });
   await page();
