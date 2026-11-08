@@ -57,8 +57,9 @@ function server(state: Partial<Server> = {}): Server {
         return Response.json({
           signed_in: s.host,
           email: s.host ? "host@example.com" : null,
-          // The site has its host, so a new account is a participant's (R269).
           host_name: "Dr. Smith",
+          // A host's site, so a new account is a participant's (R270).
+          participant_only: true,
         });
       }
       if (url === "/api/host/sign-in") {

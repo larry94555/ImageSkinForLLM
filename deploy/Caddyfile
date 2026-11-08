@@ -28,6 +28,15 @@
 	import site
 }
 
+# The bare domain, me0.ai, with its own certificate: it goes to www.me0.ai, where the main
+# address's home is (R270), keeping the path. www.me0.ai itself is served by *.me0.ai below.
+# A 302, so it can be changed later without browsers remembering it.
+# docs/guides/Setting-up-www-Guide.md says how to point me0.ai and www at the machine.
+{$MAIN_DOMAIN} {
+	redir https://www.{$MAIN_DOMAIN}{uri} 302
+	log
+}
+
 # Every site's own subdomain, such as anna.me0.ai (roadmap R61, R71a): one certificate for all
 # of them, *.me0.ai, which Let's Encrypt gives only after a DNS check that Caddy does through
 # Cloudflare's API (caddy/Dockerfile, docs/guides/Subdomain-Setup-Guide.md). The main address above is matched first.

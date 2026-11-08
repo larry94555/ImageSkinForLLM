@@ -1387,6 +1387,9 @@ export interface HostSession {
   host_name?: string | null;
   // The signed-in host's own display name (R259).
   display_name?: string | null;
+  // True on a host's site, not the main address: its Sign in page signs up participants only,
+  // and says nothing of a host (R270).
+  participant_only?: boolean;
 }
 
 // A participant's account on this site (R46): sign up, sign in and sign out. The cookie that keeps

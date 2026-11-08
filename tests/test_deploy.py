@@ -240,6 +240,24 @@ def test_every_subdomain_is_served_with_the_wildcard_certificate() -> None:
     assert "CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?" in caddy
 
 
+def test_the_bare_domain_goes_to_www() -> None:
+    # me0.ai has its own block, so it gets a certificate, and sends people to www.me0.ai, the
+    # main address's home (R270); www itself is matched by *.me0.ai.
+    caddyfile = text(DEPLOY / "Caddyfile")
+    bare = caddyfile.split("\n{$MAIN_DOMAIN} {")[1].split("\n}")[0]
+    assert "redir https://www.{$MAIN_DOMAIN}{uri} 302" in bare
+    assert "import site" not in bare
+
+
+def test_the_setting_up_www_guide_is_there_and_linked() -> None:
+    guides = ROOT / "docs" / "guides"
+    guide = text(guides / "Setting-up-www-Guide.md")
+    for part in ("Squarespace", "Default Security List", "nslookup www.me0.ai", "caddy validate"):
+        assert part in guide, part
+    assert (guides / "Setting-up-www-Guide.pdf").read_bytes().startswith(b"%PDF")
+    assert "(../docs/guides/Setting-up-www-Guide.md)" in text(DEPLOY / "README.md")
+
+
 def test_the_main_domain_is_the_same_for_caddy_and_the_app() -> None:
     example = re.search(r"^MAIN_DOMAIN=(.+)$", text(DEPLOY / ".env.example"), re.MULTILINE)
     assert example is not None

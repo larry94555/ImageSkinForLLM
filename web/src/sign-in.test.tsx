@@ -203,3 +203,47 @@ test("a signed-in participant is named by their display name, and the page says 
   expect(bar.getByText("Pat Lee")).toBeTruthy();
   expect(bar.queryByText(PAT)).toBeNull();
 });
+
+test("on a host's site the page names no host, and a new account is a participant's (R270)", async () => {
+  const s = server();
+  vi.mocked(fetch).mockImplementation(
+    (
+      (real) => async (url: string | URL | Request, init?: RequestInit) =>
+        url === "/api/host/session"
+          ? Response.json({ signed_in: false, email: null, participant_only: true })
+          : url === "/api/participant/sign-up"
+            ? (s.asked.push("POST /api/participant/sign-up"),
+              Response.json({ signed_in: true, email: PAT }))
+            : real(url as string, init)
+    )(vi.mocked(fetch).getMockImplementation()! as (u: string, i?: RequestInit) => Promise<Response>),
+  );
+  await page();
+  expect(screen.queryByRole("link", { name: /forgot/i })).toBeNull();
+  expect(document.querySelector("main")!.textContent).not.toMatch(/host/i);
+  fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
+  fireEvent.input(screen.getByLabelText(/^Password$/), { target: { value: "a long secret" } });
+  fireEvent.input(screen.getByLabelText(/^Password again/), { target: { value: "a long secret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await waitFor(() => expect(s.asked).toContain("POST /api/participant/sign-up"));
+  expect(s.asked).not.toContain("POST /api/host/sign-up");
+  // Its host still signs in on the same page: the host's sign-in is tried first.
+  expect(s.asked.indexOf("POST /api/host/sign-in")).toBeLessThan(
+    s.asked.indexOf("POST /api/participant/sign-in"),
+  );
+});
+
+test("on a host's site a host page is not found, rather than saying it is a host's (R270)", async () => {
+  server();
+  vi.mocked(fetch).mockImplementation(
+    (
+      (real) => async (url: string | URL | Request, init?: RequestInit) =>
+        url === "/api/host/session"
+          ? Response.json({ signed_in: false, email: null, participant_only: true })
+          : real(url as string, init)
+    )(vi.mocked(fetch).getMockImplementation()! as (u: string, i?: RequestInit) => Promise<Response>),
+  );
+  window.location.hash = "#/content";
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "Page not found" })).toBeTruthy();
+  expect(screen.queryByText("For the host only")).toBeNull();
+});

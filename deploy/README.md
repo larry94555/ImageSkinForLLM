@@ -277,6 +277,7 @@ A site's host subscribes from **Settings** for 5 GB at $1.99 a month (roadmap R6
 | Set or change the administrator password | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Let only your own laptops sign in as the administrator | list each laptop's ID, from its Settings page, in `admin/admin-laptops.toml` here; no restart (see "Only the laptops you list" in [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Find out why an admin sign-in failed ("Admin login failed with error code A-…") | `docker compose logs app --since 24h \| grep A-…` with the page's code; the reasons are in the [FAQ](../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why) |
+| Make `me0.ai` and `www.me0.ai` open the app instead of Squarespace's page | [Setting up www guide](../docs/guides/Setting-up-www-Guide.md) |
 | Serve each site at its own subdomain, such as `anna.me0.ai` | [Subdomain setup guide](../docs/guides/Subdomain-Setup-Guide.md), then the [Subdomain setup checklist](../docs/guides/Subdomain-Setup-Checklist.md) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | Turn on subscribing, or change Stripe's keys | step 9 above; a changed `.env` needs `docker compose up -d` |
