@@ -640,20 +640,24 @@ async function reportRecording(report) {
 async function getParticipantSession() {
 	return json(await fetch("/api/participant/session"));
 }
-async function participantAccount(route, email, password) {
+async function participantAccount(route, email, password, displayName) {
 	const response = await fetch(`/api/participant/${route}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
+		body: JSON.stringify(displayName === void 0 ? {
 			email,
 			password
+		} : {
+			email,
+			password,
+			display_name: displayName
 		})
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
-function signUpAsParticipant(email, password) {
-	return participantAccount("sign-up", email, password);
+function signUpAsParticipant(email, password, displayName) {
+	return participantAccount("sign-up", email, password, displayName);
 }
 function signInAsParticipant(email, password) {
 	return participantAccount("sign-in", email, password);
@@ -791,6 +795,9 @@ async function restartSite(email, password) {
 }
 function signUpAsHost(email, password, displayName) {
 	return hostAccount("sign-up", email, password, displayName);
+}
+async function suggestDisplayName(email) {
+	return (await json(await fetch(`/api/host/display-name/suggestion?email=${encodeURIComponent(email)}`))).display_name;
 }
 async function setDisplayName(displayName) {
 	const response = await fetch("/api/host/display-name", {
@@ -2314,8 +2321,8 @@ function PausedPage() {
 			}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
-				href: "#/host/sign-in",
-				children: "Host sign in"
+				href: "#/sign-in",
+				children: "Sign in"
 			}) })
 		]
 	});
@@ -2386,10 +2393,10 @@ var PAGES = {
 	"/admin": "admin",
 	"/admin/settings": "admin",
 	"/admin/guidelines": "admin",
-	"/sign-up": "participant-sign-up",
-	"/sign-in": "participant-sign-in",
-	"/host/sign-up": "host-sign-up",
-	"/host/sign-in": "host-sign-in",
+	"/sign-in": "sign-in",
+	"/sign-up": "sign-in",
+	"/host/sign-up": "sign-in",
+	"/host/sign-in": "sign-in",
 	"/host/confirm-failed": "confirm-failed",
 	"/host/forgot": "host-forgot",
 	"/host/account": "host-account",
@@ -3976,15 +3983,7 @@ function HostLinks({ page }) {
 			]
 		});
 	}
-	const link = (to, href, label) => /* @__PURE__ */ u("a", {
-		href,
-		className: page === to ? "settings-link current" : "settings-link",
-		children: label
-	});
-	return /* @__PURE__ */ u("span", {
-		className: "host-links",
-		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
-	});
+	return null;
 }
 function HostedBy() {
 	const name = useHost().session?.host_name;
@@ -4123,164 +4122,6 @@ function ActAsFailedPage() {
 		})]
 	});
 }
-function HostAccountPage({ kind }) {
-	const { session, signUp, signIn } = useHost();
-	const [email, setEmail] = d("");
-	const [displayName, setDisplayName] = d("");
-	const [password, setPassword] = d("");
-	const [again, setAgain] = d("");
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d(null);
-	const [deleted, setDeleted] = d(false);
-	const up = kind === "up";
-	h(() => {
-		setError(null);
-		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
-	}, [up]);
-	function problem() {
-		if (!up) return null;
-		if (password.length < 10) return `The password must be at least 10 characters.`;
-		if (password !== again) return "The two passwords are different.";
-		return null;
-	}
-	async function submit(e) {
-		e.preventDefault();
-		const found = problem();
-		setError(found);
-		if (found) return;
-		setBusy(true);
-		setDeleted(false);
-		try {
-			if (!await (up ? signUp(email, password, displayName) : signIn(email, password))) window.location.hash = "#/";
-		} catch (err) {
-			console.error(`Could not sign ${kind} as host`, err);
-			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-			setDeleted(err instanceof SiteWasDeleted);
-		} finally {
-			setBusy(false);
-		}
-	}
-	async function startAgain() {
-		setBusy(true);
-		try {
-			const link = await restartSite(email, password);
-			console.info("Site started again: going there");
-			navigation.goTo(link);
-		} catch (err) {
-			console.error("Could not start the site again", err);
-			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-			setDeleted(false);
-			setBusy(false);
-		}
-	}
-	const title = up ? "Host sign up" : "Host sign in";
-	if (session?.signed_in) return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
-			"You are signed in as host with ",
-			session.email,
-			". ",
-			/* @__PURE__ */ u("a", {
-				href: "#/",
-				children: "Go to the home page"
-			})
-		] })]
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [
-			/* @__PURE__ */ u("h1", { children: title }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
-			}),
-			/* @__PURE__ */ u("form", {
-				onSubmit: (e) => void submit(e),
-				noValidate: true,
-				children: [
-					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
-						type: "email",
-						autoComplete: "email",
-						value: email,
-						onInput: (e) => setEmail(e.currentTarget.value)
-					})] }),
-					up && /* @__PURE__ */ u("label", { children: [
-						"Display name",
-						/* @__PURE__ */ u("input", {
-							type: "text",
-							autoComplete: "name",
-							maxLength: 60,
-							placeholder: "Dr. Smith",
-							value: displayName,
-							onInput: (e) => setDisplayName(e.currentTarget.value)
-						}),
-						/* @__PURE__ */ u("span", {
-							className: "muted",
-							children: "What participants and visitors see you called. Your email is never shown to them."
-						})
-					] }),
-					/* @__PURE__ */ u("label", { children: [
-						"Password",
-						up && ` (at least 10 characters)`,
-						/* @__PURE__ */ u("input", {
-							type: "password",
-							autoComplete: up ? "new-password" : "current-password",
-							value: password,
-							onInput: (e) => setPassword(e.currentTarget.value)
-						})
-					] }),
-					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
-						type: "password",
-						autoComplete: "new-password",
-						value: again,
-						onInput: (e) => setAgain(e.currentTarget.value)
-					})] }),
-					error && /* @__PURE__ */ u("p", {
-						className: "error",
-						role: "alert",
-						children: error
-					}),
-					deleted && /* @__PURE__ */ u("div", {
-						className: "switch",
-						children: [/* @__PURE__ */ u("button", {
-							type: "button",
-							disabled: busy,
-							onClick: () => void startAgain(),
-							children: "Start my site again"
-						}), /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "A new, empty site, at your old address if it is still free. It starts once you resume your subscription there."
-						})]
-					}),
-					/* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: busy || email.trim() === "" || password === "",
-						children: up ? "Sign up" : "Sign in"
-					})
-				]
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-in",
-					children: "Host sign in"
-				})] }) : /* @__PURE__ */ u(S, { children: [
-					"New here? ",
-					/* @__PURE__ */ u("a", {
-						href: "#/host/sign-up",
-						children: "Host sign up"
-					}),
-					" ·",
-					" ",
-					/* @__PURE__ */ u("a", {
-						href: "#/host/forgot",
-						children: "Forgot your password?"
-					})
-				] })
-			})
-		]
-	});
-}
 function HostOnlyPage() {
 	h(() => console.info(`Host page refused: ${window.location.hash}`), []);
 	return /* @__PURE__ */ u("div", {
@@ -4294,8 +4135,8 @@ function HostOnlyPage() {
 			/* @__PURE__ */ u("p", { children: [
 				/* @__PURE__ */ u("a", {
 					className: "button",
-					href: "#/host/sign-in",
-					children: "Host sign in"
+					href: "#/sign-in",
+					children: "Sign in"
 				}),
 				" ",
 				"or ",
@@ -4377,8 +4218,8 @@ function ConfirmFailedPage() {
 			/* @__PURE__ */ u("p", { children: [
 				/* @__PURE__ */ u("a", {
 					className: "button",
-					href: "#/host/sign-in",
-					children: "Host sign in"
+					href: "#/sign-in",
+					children: "Sign in"
 				}),
 				" ",
 				"to send a new one."
@@ -4444,8 +4285,8 @@ function ForgotPasswordPage() {
 			/* @__PURE__ */ u("p", {
 				className: "muted",
 				children: ["Remembered it? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-in",
-					children: "Host sign in"
+					href: "#/sign-in",
+					children: "Sign in"
 				})]
 			})
 		]
@@ -4491,8 +4332,8 @@ function ResetPasswordPage({ token }) {
 			}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
-				href: "#/host/sign-in",
-				children: "Host sign in"
+				href: "#/sign-in",
+				children: "Sign in"
 			}) })
 		]
 	});
@@ -11509,9 +11350,9 @@ function ParticipantProvider({ children }) {
 		});
 		return () => syncProgress(null);
 	}, []);
-	async function account(kind, email, password) {
+	async function account(kind, email, password, name) {
 		const started = performance.now();
-		const signedIn = await (kind === "up" ? signUpAsParticipant : signInAsParticipant)(email, password);
+		const signedIn = await (kind === "up" ? signUpAsParticipant(email, password, name) : signInAsParticipant(email, password));
 		console.info(`Participant signed ${kind} (${Math.round(performance.now() - started)} ms)`);
 		if (kind === "up") {
 			const here = readProgress();
@@ -11522,7 +11363,7 @@ function ParticipantProvider({ children }) {
 	}
 	const shared = {
 		session,
-		signUp: (email, password) => account("up", email, password),
+		signUp: (email, password, name) => account("up", email, password, name),
 		signIn: (email, password) => account("in", email, password),
 		signOut: async () => {
 			await signOutAsParticipant();
@@ -11558,7 +11399,7 @@ function ParticipantLinks({ page }) {
 			children: [/* @__PURE__ */ u("span", {
 				className: "host-email",
 				title: "You are signed in",
-				children: session.email
+				children: session.display_name || session.email
 			}), /* @__PURE__ */ u("button", {
 				type: "button",
 				className: "secondary",
@@ -11568,14 +11409,13 @@ function ParticipantLinks({ page }) {
 			})]
 		});
 	}
-	const link = (to, href, label) => /* @__PURE__ */ u("a", {
-		href,
-		className: page === to ? "settings-link current" : "settings-link",
-		children: label
-	});
 	return /* @__PURE__ */ u("span", {
 		className: "host-links participant-links",
-		children: [link("participant-sign-up", "#/sign-up", "Sign up"), link("participant-sign-in", "#/sign-in", "Sign in")]
+		children: /* @__PURE__ */ u("a", {
+			href: "#/sign-in",
+			className: page === "sign-in" ? "settings-link current" : "settings-link",
+			children: "Sign in"
+		})
 	});
 }
 var NOT_ACTIVE = "This subdomain is not yet active -- check with the host on its status.";
@@ -11589,66 +11429,161 @@ function NotActivePage() {
 		})
 	});
 }
-function ParticipantAccountPage({ kind }) {
-	const { session, signUp, signIn } = useParticipant();
+//#endregion
+//#region src/sign-in.tsx
+var NO_MATCH = "That email and password don't match an account. New here? Type the password again below to make one.";
+var FAILED = "That didn't work. Please try again.";
+function wrongPassword(err) {
+	return err instanceof ServerRefusal && err.status === 401 && !(err instanceof SiteWasDeleted);
+}
+function testSignUp(email) {
+	return email.trim().toLowerCase().endsWith("-admin");
+}
+function SignInPage() {
+	const host = useHost();
+	const participant = useParticipant();
 	const [email, setEmail] = d("");
+	const [displayName, setDisplayName] = d("");
 	const [password, setPassword] = d("");
 	const [again, setAgain] = d("");
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
-	const up = kind === "up";
+	const [deleted, setDeleted] = d(false);
+	const named = A(false);
+	const suggestedFor = A("");
+	const asked = A(0);
 	h(() => {
-		setError(null);
-		console.info(`Participant ${up ? "sign-up" : "sign-in"} page shown`);
-	}, [up]);
-	function problem() {
-		if (!up) return null;
-		if (password.length < 10) return `The password must be at least 10 characters.`;
-		if (password !== again) return "The two passwords are different.";
-		return null;
+		hostPageOpened("sign-in").catch((e) => console.error("Could not log the sign-in page opened", e));
+	}, []);
+	async function suggest() {
+		const typed = email.trim();
+		if (named.current || !typed.includes("@") || typed === suggestedFor.current) return;
+		suggestedFor.current = typed;
+		const ask = ++asked.current;
+		try {
+			const name = await suggestDisplayName(typed);
+			if (ask !== asked.current) {
+				console.info("Display name suggestion left out: the email changed");
+				return;
+			}
+			if (!named.current) setDisplayName(name);
+		} catch (e) {
+			console.error("Could not suggest a display name", e);
+			if (ask === asked.current) suggestedFor.current = "";
+		}
+	}
+	function finish(err) {
+		console.error("Could not sign in", err);
+		setError(err instanceof ServerRefusal ? err.message : FAILED);
+		setDeleted(err instanceof SiteWasDeleted);
+		setBusy(false);
+	}
+	function participantIn(goTo) {
+		if (goTo) {
+			console.info(`Participant sent to ${goTo}`);
+			reloading.goTo(goTo);
+			return;
+		}
+		window.location.hash = "#/chat";
+		reloading.reload();
+	}
+	async function signIn() {
+		try {
+			if (!await host.signIn(email, password)) window.location.hash = "#/";
+			setBusy(false);
+			return true;
+		} catch (err) {
+			if (!wrongPassword(err)) {
+				finish(err);
+				return true;
+			}
+		}
+		try {
+			participantIn((await participant.signIn(email, password)).go_to);
+			return true;
+		} catch (err) {
+			if (!wrongPassword(err)) {
+				finish(err);
+				return true;
+			}
+		}
+		return false;
+	}
+	async function signUp() {
+		if (password.length < 10) {
+			setError(`The password must be at least 10 characters.`);
+			setBusy(false);
+			return;
+		}
+		if (password !== again) {
+			setError("The two passwords are different.");
+			setBusy(false);
+			return;
+		}
+		const asParticipant = Boolean(host.session?.host_name) && !testSignUp(email);
+		console.info(`New account: ${asParticipant ? "participant" : "host"}`);
+		try {
+			if (asParticipant) participantIn((await participant.signUp(email, password, displayName)).go_to);
+			else {
+				if (!await host.signUp(email, password, displayName)) window.location.hash = "#/";
+				setBusy(false);
+			}
+		} catch (err) {
+			finish(err);
+		}
 	}
 	async function submit(e) {
 		e.preventDefault();
-		const found = problem();
-		setError(found);
-		if (found) return;
+		setBusy(true);
+		setError(null);
+		setDeleted(false);
+		const started = performance.now();
+		if (!testSignUp(email) && await signIn()) {
+			console.info(`Sign in done (${Math.round(performance.now() - started)} ms)`);
+			return;
+		}
+		if (again === "") {
+			setError(NO_MATCH);
+			setBusy(false);
+			return;
+		}
+		await signUp();
+		console.info(`Sign up done (${Math.round(performance.now() - started)} ms)`);
+	}
+	async function startAgain() {
 		setBusy(true);
 		try {
-			const signedIn = await (up ? signUp : signIn)(email, password);
-			if (signedIn.go_to) {
-				console.info(`Participant sent to ${signedIn.go_to}`);
-				reloading.goTo(signedIn.go_to);
-				return;
-			}
-			window.location.hash = "#/chat";
-			reloading.reload();
+			const link = await restartSite(email, password);
+			console.info("Site started again: going there");
+			navigation.goTo(link);
 		} catch (err) {
-			console.error(`Could not sign ${kind} as participant`, err);
-			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+			console.error("Could not start the site again", err);
+			setError(err instanceof ServerRefusal ? err.message : FAILED);
+			setDeleted(false);
 			setBusy(false);
 		}
 	}
-	const title = up ? "Sign up" : "Sign in";
-	if (session?.signed_in) return /* @__PURE__ */ u("div", {
+	const who = host.session?.signed_in ? host.session.display_name || host.session.email : participant.session?.signed_in ? participant.session.display_name || participant.session.email : null;
+	if (who) return /* @__PURE__ */ u("div", {
 		className: "host-page host-account",
-		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
-			"You are signed in with ",
-			session.email,
+		children: [/* @__PURE__ */ u("h1", { children: "Sign in" }), /* @__PURE__ */ u("p", { children: [
+			"You are signed in as ",
+			who,
 			".",
 			" ",
 			/* @__PURE__ */ u("a", {
-				href: "#/chat",
-				children: "Go to the chat"
+				href: host.session?.signed_in ? "#/" : "#/chat",
+				children: "Go on"
 			})
 		] })]
 	});
 	return /* @__PURE__ */ u("div", {
 		className: "host-page host-account",
 		children: [
-			/* @__PURE__ */ u("h1", { children: title }),
+			/* @__PURE__ */ u("h1", { children: "Sign in" }),
 			/* @__PURE__ */ u("p", {
 				className: "lead",
-				children: up ? "Make an account, so your conversation is kept for you on any browser. It works on every site of this host." : "Sign in with the email and password of your account with this host."
+				children: "Sign in with your email and password. New here? Type the password twice to make an account."
 			}),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => void submit(e),
@@ -11658,45 +11593,77 @@ function ParticipantAccountPage({ kind }) {
 						type: "email",
 						autoComplete: "email",
 						value: email,
-						onInput: (e) => setEmail(e.currentTarget.value)
+						onInput: (e) => {
+							asked.current++;
+							suggestedFor.current = "";
+							setEmail(e.currentTarget.value);
+						},
+						onBlur: () => void suggest()
 					})] }),
 					/* @__PURE__ */ u("label", { children: [
-						"Password",
-						up && ` (at least 10 characters)`,
+						"Display name",
 						/* @__PURE__ */ u("input", {
-							type: "password",
-							autoComplete: up ? "new-password" : "current-password",
-							value: password,
-							onInput: (e) => setPassword(e.currentTarget.value)
+							type: "text",
+							autoComplete: "nickname",
+							maxLength: 60,
+							value: displayName,
+							onInput: (e) => {
+								named.current = true;
+								setDisplayName(e.currentTarget.value);
+							}
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: "For a new account: what others see you called. Your email is never shown to them."
 						})
 					] }),
-					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
+					/* @__PURE__ */ u("label", { children: ["Password", /* @__PURE__ */ u("input", {
 						type: "password",
-						autoComplete: "new-password",
-						value: again,
-						onInput: (e) => setAgain(e.currentTarget.value)
+						autoComplete: "current-password",
+						value: password,
+						onInput: (e) => setPassword(e.currentTarget.value)
 					})] }),
+					/* @__PURE__ */ u("label", { children: [
+						"Password again (new accounts only, at least ",
+						10,
+						" characters)",
+						/* @__PURE__ */ u("input", {
+							type: "password",
+							autoComplete: "new-password",
+							value: again,
+							onInput: (e) => setAgain(e.currentTarget.value)
+						})
+					] }),
 					error && /* @__PURE__ */ u("p", {
 						className: "error",
 						role: "alert",
 						children: error
 					}),
+					deleted && /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: busy,
+							onClick: () => void startAgain(),
+							children: "Start my site again"
+						}), /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "A new, empty site, at your old address if it is still free. It starts once you resume your subscription there."
+						})]
+					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",
 						disabled: busy || email.trim() === "" || password === "",
-						children: title
+						children: "Sign in"
 					})
 				]
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: up ? /* @__PURE__ */ u(S, { children: ["Have an account? ", /* @__PURE__ */ u("a", {
-					href: "#/sign-in",
-					children: "Sign in"
-				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
-					href: "#/sign-up",
-					children: "Sign up"
-				})] })
+				children: /* @__PURE__ */ u("a", {
+					href: "#/host/forgot",
+					children: "Forgot your password?"
+				})
 			})
 		]
 	});
@@ -14266,7 +14233,7 @@ var READ_ONLY_PAGES = [
 	"host-account"
 ];
 var ACCOUNT_PAGES = ["host-forgot", "host-reset"];
-var PAUSED_OPEN = ["host-sign-in", ...ACCOUNT_PAGES];
+var PAUSED_OPEN = ["sign-in", ...ACCOUNT_PAGES];
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(ParticipantProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) }) });
 }
@@ -14355,10 +14322,7 @@ function Shell() {
 			onDataDeleted: () => setConsented(false)
 		}),
 		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
-		"participant-sign-up": /* @__PURE__ */ u(ParticipantAccountPage, { kind: "up" }),
-		"participant-sign-in": /* @__PURE__ */ u(ParticipantAccountPage, { kind: "in" }),
-		"host-sign-up": /* @__PURE__ */ u(HostAccountPage, { kind: "up" }),
-		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
+		"sign-in": /* @__PURE__ */ u(SignInPage, {}),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
 		"no-longer-active": /* @__PURE__ */ u(NoLongerActivePage, {}),

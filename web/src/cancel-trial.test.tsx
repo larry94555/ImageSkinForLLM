@@ -94,17 +94,15 @@ test("a paused trial's host sees it is paused, and a site that isn't a trial has
   expect(screen.queryByRole("region", { name: "Free trial" })).toBeNull();
 });
 
-test("a visitor of a paused site sees that it is paused, and can open the host's sign-in", async () => {
+test("a visitor of a paused site sees that it is paused, and can open Sign in", async () => {
   server({ host: false, paused: true });
   window.location.hash = "#/chat";
   render(<App />);
   expect(await screen.findByRole("heading", { name: "This site is paused" })).toBeTruthy();
   const page = within(document.querySelector("main") as HTMLElement);
-  expect(page.getByRole("link", { name: "Host sign in" }).getAttribute("href")).toBe(
-    "#/host/sign-in",
-  );
+  expect(page.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("#/sign-in");
   cleanup();
-  window.location.hash = "#/host/sign-in";
+  window.location.hash = "#/sign-in";
   render(<App />);
   expect(await screen.findByLabelText(/Email/)).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "This site is paused" })).toBeNull();

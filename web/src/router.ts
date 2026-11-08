@@ -16,10 +16,7 @@ export type Page =
   | "wiki-page"
   | "settings"
   | "admin"
-  | "participant-sign-up"
-  | "participant-sign-in"
-  | "host-sign-up"
-  | "host-sign-in"
+  | "sign-in"
   | "host-only"
   | "confirm-failed"
   | "host-forgot"
@@ -49,12 +46,12 @@ const PAGES: Record<string, Page> = {
   "/admin": "admin", // the admin view (R150), apart from the host and participant views
   "/admin/settings": "admin", // its second page, the admin settings (R155)
   "/admin/guidelines": "admin", // its third, the administrator's own guidelines (R244)
-  // A participant's sign up and sign in (R46), for anyone not signed in as a host.
-  "/sign-up": "participant-sign-up",
-  "/sign-in": "participant-sign-in",
-  // Host sign up and sign in (R189), in both views, as anyone not signed in may become a host.
-  "/host/sign-up": "host-sign-up",
-  "/host/sign-in": "host-sign-in",
+  // The one Sign in page (R269), for hosts and participants, signing in or up. The addresses of
+  // the four pages it replaced open it too, so old links and bookmarks still work.
+  "/sign-in": "sign-in",
+  "/sign-up": "sign-in",
+  "/host/sign-up": "sign-in",
+  "/host/sign-in": "sign-in",
   // Where a confirmation link that didn't work goes (R62b).
   "/host/confirm-failed": "confirm-failed",
   // Forgot password (R62a): asking for a link, and #/host/reset/<token> from its email.

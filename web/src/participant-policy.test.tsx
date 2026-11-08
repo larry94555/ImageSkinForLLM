@@ -223,6 +223,8 @@ test("signing in goes to the site the host sends them to", async () => {
         return Response.json({ signed_in: false, email: null });
       if (url === "/api/participant/session")
         return Response.json({ signed_in: false, email: null });
+      if (url === "/api/host/sign-in")
+        return Response.json({ detail: "Wrong." }, { status: 401 });
       if (url === "/api/participant/sign-in") {
         return Response.json({
           signed_in: true,
@@ -238,7 +240,7 @@ test("signing in goes to the site the host sends them to", async () => {
   render(<App />);
   await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText("Password"), {
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
   await act(async () => {

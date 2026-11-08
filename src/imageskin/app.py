@@ -1064,6 +1064,7 @@ def create_app(
         site_host=lambda name: host_of_site(service, name),
         test_mode=test_mode,
         test_account_refused=test_account_refused,
+        other_names=participants.display_names,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,

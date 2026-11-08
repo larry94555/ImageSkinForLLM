@@ -60,6 +60,9 @@ function server(host = false, view: Server["view"] = "host"): Server {
           custom_voice: true,
         });
       }
+      if (url === "/api/host/sign-in" || url === "/api/participant/sign-in") {
+        return Response.json({ detail: "Wrong." }, { status: 401 });
+      }
       if (url === "/api/host/sign-up") {
         const sent = JSON.parse(body) as { display_name?: string };
         state.host = true;
@@ -138,22 +141,29 @@ test("the host's own view has no Hosted by, and names them by their display name
 
 test("sign-up asks for a display name and sends it", async () => {
   const state = server();
+  state.name = ""; // the main address: no host yet, so a new account is a host's (R269)
   window.location.hash = "#/host/sign-up";
   render(<App />);
   const name = await screen.findByLabelText(/^Display name/);
+  // Typed before the email, it is kept: the email doesn't fill it in (R269).
   fireEvent.input(name, { target: { value: "Dr. Jones" } });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: EMAIL } });
-  fireEvent.input(screen.getByLabelText(/^Password \(at least/), {
+  fireEvent.blur(screen.getByLabelText("Email"));
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long password" },
   });
-  fireEvent.input(screen.getByLabelText("Password again"), {
+  fireEvent.input(screen.getByLabelText(/^Password again/), {
     target: { value: "a long password" },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
+  await waitFor(() =>
+    expect(state.asked.some((a) => a.startsWith("POST /api/host/sign-up"))).toBe(true),
+  );
   const sent = state.asked.find((a) => a.startsWith("POST /api/host/sign-up"));
   expect(sent).toContain('"display_name":"Dr. Jones"');
+  expect((name as HTMLInputElement).value).toBe("Dr. Jones");
   expect(
     await within(topBar()).findByRole("link", { name: "Dr. Jones" }),
   ).toBeTruthy();

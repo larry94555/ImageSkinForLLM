@@ -63,7 +63,7 @@ test("a visitor gets the participant view: only the chat", async () => {
   server();
   window.location.hash = "#/";
   render(<App />);
-  await within(topBar()).findByRole("link", { name: "Host sign in" });
+  await within(topBar()).findByRole("link", { name: "Sign in" });
   await vi.waitFor(() => expect(navLinks()).toEqual(["Chat"]));
   // The home page is the host's, so a visitor lands on the chat.
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"));
@@ -75,9 +75,9 @@ test("a host page says it is for the host, with a link to sign in", async () => 
   render(<App />);
   expect(await screen.findByRole("heading", { name: "For the host only" })).toBeTruthy();
   const main = document.querySelector("main") as HTMLElement;
-  expect(within(main).getByRole("link", { name: "Host sign in" })).toHaveProperty(
+  expect(within(main).getByRole("link", { name: "Sign in" })).toHaveProperty(
     "hash",
-    "#/host/sign-in",
+    "#/sign-in",
   );
   expect(window.location.hash).toBe("#/content");
   await vi.waitFor(() =>
@@ -89,9 +89,9 @@ test("signing in as host gives the host view, and signing out the participant vi
   server();
   window.location.hash = "#/host/sign-in";
   render(<App />);
-  await screen.findByRole("heading", { name: "Host sign in" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText(/^Email/), { target: { value: "host@example.com" } });
-  fireEvent.input(screen.getByLabelText(/^Password/), { target: { value: "a long secret" } });
+  fireEvent.input(screen.getByLabelText(/^Password$/), { target: { value: "a long secret" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await vi.waitFor(() =>
     expect(navLinks()).toEqual(["Home", "Setup", "Chat", "Manage Content"]),

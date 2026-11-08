@@ -1398,6 +1398,8 @@ export interface ParticipantSession {
   go_to?: string;
   // False when the host doesn't let them open this site (R262).
   allowed?: boolean;
+  // The name chosen on the Sign in page (R269); none for an account from before it.
+  display_name?: string | null;
 }
 
 export async function getParticipantSession(): Promise<ParticipantSession> {
@@ -1406,18 +1408,29 @@ export async function getParticipantSession(): Promise<ParticipantSession> {
 
 // Throws a ServerRefusal with the server's plain message when a field is wrong, the email has an
 // account here already or the sign-in fails.
-async function participantAccount(route: "sign-up" | "sign-in", email: string, password: string) {
+async function participantAccount(
+  route: "sign-up" | "sign-in",
+  email: string,
+  password: string,
+  displayName?: string,
+) {
   const response = await fetch(`/api/participant/${route}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(
+      displayName === undefined ? { email, password } : { email, password, display_name: displayName },
+    ),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as ParticipantSession;
 }
 
-export function signUpAsParticipant(email: string, password: string): Promise<ParticipantSession> {
-  return participantAccount("sign-up", email, password);
+export function signUpAsParticipant(
+  email: string,
+  password: string,
+  displayName?: string,
+): Promise<ParticipantSession> {
+  return participantAccount("sign-up", email, password, displayName);
 }
 
 export function signInAsParticipant(email: string, password: string): Promise<ParticipantSession> {
@@ -1681,6 +1694,15 @@ export function signUpAsHost(
   displayName?: string,
 ): Promise<HostSession> {
   return hostAccount("sign-up", email, password, displayName);
+}
+
+// The display name the Sign in page fills in for a new account (R269): the email before the @
+// and a number that makes it unlike every other.
+export async function suggestDisplayName(email: string): Promise<string> {
+  const response = await fetch(
+    `/api/host/display-name/suggestion?email=${encodeURIComponent(email)}`,
+  );
+  return (await json<{ display_name: string }>(response)).display_name;
 }
 
 // Change the name participants and visitors see for the host (R259): the name as kept, or a

@@ -1,5 +1,6 @@
-// Participant sign-up and login (roadmap R46): Sign up and Sign in in the top bar for anyone not
-// signed in as a host, the two pages, and Teach me's progress kept for the account.
+// Participant sign-up and login (roadmap R46): the one Sign in link and page (R269) for anyone
+// not signed in as a host, which signs a participant in, or up on a site with a host, and Teach
+// me's progress kept for the account.
 
 import {
   act,
@@ -24,6 +25,8 @@ const LESSON = { topic: "Ponds", part: 2, active: true };
 interface Server {
   host: boolean;
   participant: boolean;
+  // Whether PAT has an account with the password "a long secret".
+  account: boolean;
   kept: Record<string, unknown>;
   asked: string[];
   refuse?: string;
@@ -33,6 +36,7 @@ function server(state: Partial<Server> = {}): Server {
   const s: Server = {
     host: false,
     participant: false,
+    account: false,
     kept: {},
     asked: [],
     ...state,
@@ -53,7 +57,15 @@ function server(state: Partial<Server> = {}): Server {
         return Response.json({
           signed_in: s.host,
           email: s.host ? "host@example.com" : null,
+          // The site has its host, so a new account is a participant's (R269).
+          host_name: "Dr. Smith",
         });
+      }
+      if (url === "/api/host/sign-in") {
+        return Response.json({ detail: "Wrong." }, { status: 401 });
+      }
+      if (url.startsWith("/api/host/display-name/suggestion")) {
+        return Response.json({ display_name: "pat1" });
       }
       if (url === "/api/participant/session") {
         return Response.json({
@@ -61,13 +73,17 @@ function server(state: Partial<Server> = {}): Server {
           email: s.participant ? PAT : null,
         });
       }
-      if (
-        url === "/api/participant/sign-up" ||
-        url === "/api/participant/sign-in"
-      ) {
+      if (url === "/api/participant/sign-in") {
+        if (!s.account)
+          return Response.json({ detail: "Wrong." }, { status: 401 });
+        s.participant = true;
+        return Response.json({ signed_in: true, email: PAT });
+      }
+      if (url === "/api/participant/sign-up") {
         if (s.refuse)
           return Response.json({ detail: s.refuse }, { status: 409 });
         s.participant = true;
+        s.account = true;
         return Response.json({ signed_in: true, email: PAT });
       }
       if (url === "/api/participant/sign-out") {
@@ -109,43 +125,52 @@ afterEach(() => {
   localStorage.clear();
 });
 
-test("a visitor has Sign up and Sign in; a signed-in host has neither", async () => {
+test("a visitor has one Sign in link; a signed-in host has none", async () => {
   server();
   window.location.hash = "#/chat";
   render(<App />);
   const bar = within(topBar());
-  expect(await bar.findByRole("link", { name: "Sign up" })).toHaveProperty(
-    "hash",
-    "#/sign-up",
-  );
-  expect(bar.getByRole("link", { name: "Sign in" })).toHaveProperty(
+  expect(await bar.findByRole("link", { name: "Sign in" })).toHaveProperty(
     "hash",
     "#/sign-in",
   );
+  expect(bar.queryByRole("link", { name: "Sign up" })).toBeNull();
   cleanup();
   server({ host: true });
   render(<App />);
   await within(topBar()).findByText("host@example.com");
-  expect(within(topBar()).queryByRole("link", { name: "Sign up" })).toBeNull();
+  expect(within(topBar()).queryByRole("link", { name: "Sign in" })).toBeNull();
 });
 
 test("signing up makes the account and opens the chat again as the account's", async () => {
   const s = server();
   window.location.hash = "#/sign-up";
   render(<App />);
-  await screen.findByRole("heading", { name: "Sign up" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText(/^Password \(at least/), {
+  fireEvent.blur(screen.getByLabelText("Email"));
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText(/^Display name/) as HTMLInputElement).value,
+    ).toBe("pat1"),
+  );
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
-  fireEvent.input(screen.getByLabelText("Password again"), {
+  fireEvent.input(screen.getByLabelText(/^Password again/), {
     target: { value: "a long secret" },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
-  expect(s.asked).toContain(
-    `POST /api/participant/sign-up {"email":"${PAT}","password":"a long secret"}`,
+  await waitFor(() =>
+    expect(s.asked).toContain(
+      `POST /api/participant/sign-up {"email":"${PAT}","password":"a long secret","display_name":"pat1"}`,
+    ),
+  );
+  // A site with a host makes participants, never hosts.
+  expect(s.asked.some((a) => a.startsWith("POST /api/host/sign-up"))).toBe(
+    false,
   );
   await waitFor(() => expect(reloaded).toHaveBeenCalled());
   expect(window.location.hash).toBe("#/chat");
@@ -157,16 +182,16 @@ test("a sign-up refused says why, and two passwords that differ are said at once
   });
   window.location.hash = "#/sign-up";
   render(<App />);
-  await screen.findByRole("heading", { name: "Sign up" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText(/^Password \(at least/), {
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
-  fireEvent.input(screen.getByLabelText("Password again"), {
+  fireEvent.input(screen.getByLabelText(/^Password again/), {
     target: { value: "another one" },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
   expect((await screen.findByRole("alert")).textContent).toBe(
     "The two passwords are different.",
@@ -174,11 +199,11 @@ test("a sign-up refused says why, and two passwords that differ are said at once
   expect(
     s.asked.some((a) => a.startsWith("POST /api/participant/sign-up")),
   ).toBe(false);
-  fireEvent.input(screen.getByLabelText("Password again"), {
+  fireEvent.input(screen.getByLabelText(/^Password again/), {
     target: { value: "a long secret" },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toBe(
@@ -189,21 +214,21 @@ test("a sign-up refused says why, and two passwords that differ are said at once
 });
 
 test("signing in opens the chat again", async () => {
-  const s = server();
+  const s = server({ account: true });
   window.location.hash = "#/sign-in";
   render(<App />);
   await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText("Password"), {
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
+  await waitFor(() => expect(reloaded).toHaveBeenCalled());
   expect(
     s.asked.some((a) => a.startsWith("POST /api/participant/sign-in")),
   ).toBe(true);
-  await waitFor(() => expect(reloaded).toHaveBeenCalled());
 });
 
 test("a signed-in participant's lesson comes from their account, and changes are sent", async () => {
@@ -211,7 +236,7 @@ test("a signed-in participant's lesson comes from their account, and changes are
   window.location.hash = "#/sign-in";
   render(<App />);
   // Signed in already: the page says so, and the top bar has their email and Sign out.
-  expect(await screen.findByText(/You are signed in with/)).toBeTruthy();
+  expect(await screen.findByText(/You are signed in as/)).toBeTruthy();
   expect(within(topBar()).getByText(PAT)).toBeTruthy();
   expect(JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null")).toEqual(
     LESSON,
@@ -248,16 +273,16 @@ test("a lesson begun just before signing up becomes the new account's", async ()
   const s = server();
   window.location.hash = "#/sign-up";
   render(<App />);
-  await screen.findByRole("heading", { name: "Sign up" });
+  await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText(/^Password \(at least/), {
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
-  fireEvent.input(screen.getByLabelText("Password again"), {
+  fireEvent.input(screen.getByLabelText(/^Password again/), {
     target: { value: "a long secret" },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   });
   await waitFor(() => expect(reloaded).toHaveBeenCalled());
   expect(s.kept).toEqual({ lesson: LESSON });
@@ -269,7 +294,7 @@ test("another person's lesson left on the browser never reaches an account (Code
   const s = server({ participant: true });
   window.location.hash = "#/sign-in";
   render(<App />);
-  await screen.findByText(/You are signed in with/);
+  await screen.findByText(/You are signed in as/);
   await waitFor(() => expect(localStorage.getItem(LESSON_KEY)).toBeNull());
   expect(s.kept).toEqual({});
   expect(
@@ -282,12 +307,12 @@ test("signing in to an account puts its lesson in place of the browser's", async
     LESSON_KEY,
     JSON.stringify({ topic: "Someone else's", part: 0 }),
   );
-  const s = server();
+  const s = server({ account: true });
   window.location.hash = "#/sign-in";
   render(<App />);
   await screen.findByRole("heading", { name: "Sign in" });
   fireEvent.input(screen.getByLabelText("Email"), { target: { value: PAT } });
-  fireEvent.input(screen.getByLabelText("Password"), {
+  fireEvent.input(screen.getByLabelText(/^Password$/), {
     target: { value: "a long secret" },
   });
   await act(async () => {

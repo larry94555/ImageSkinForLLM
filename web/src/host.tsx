@@ -1,6 +1,6 @@
-// Signing up, in and out as a host (roadmap R189, items 148 and 149): the top bar's Host sign up
-// and Host sign in links, or the signed-in host's email and Sign out, and the two pages at
-// #/host/sign-up and #/host/sign-in. The accounts are on the server (R188).
+// Signing up, in and out as a host (roadmap R189, items 148 and 149): the signed-in host's name
+// and Sign out in the top bar. Anyone signed out has the one Sign in link and page (R269, in
+// participant.tsx and sign-in.tsx). The accounts are on the server (R188).
 
 import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
@@ -15,9 +15,7 @@ import {
   changeEmail,
   forgotPassword,
   getHostSession,
-  hostPageOpened,
   type HostSession,
-  restartSite,
   setDisplayName,
   sendConfirmationAgain,
   ServerRefusal,
@@ -25,7 +23,6 @@ import {
   signInAsHost,
   signOutAsHost,
   signUpAsHost,
-  SiteWasDeleted,
   stopActing,
 } from "./api";
 
@@ -136,8 +133,8 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
   return <HostContext.Provider value={shared}>{children}</HostContext.Provider>;
 }
 
-// The top bar's host links: Host sign up and Host sign in, or Resources (R193), the host's display
-// name (R259) and Sign out.
+// The top bar's host links: Resources (R193), the host's display name (R259) and Sign out; none
+// for anyone signed out, who has the one Sign in link (R269).
 // Signing out returns to the participant view's page, the chat.
 export function HostLinks({ page }: { page?: string }) {
   const { session, signOut } = useHost();
@@ -174,17 +171,7 @@ export function HostLinks({ page }: { page?: string }) {
       </span>
     );
   }
-  const link = (to: string, href: string, label: string) => (
-    <a href={href} className={page === to ? "settings-link current" : "settings-link"}>
-      {label}
-    </a>
-  );
-  return (
-    <span className="host-links">
-      {link("host-sign-up", "#/host/sign-up", "Host sign up")}
-      {link("host-sign-in", "#/host/sign-in", "Host sign in")}
-    </span>
-  );
+  return null;
 }
 
 // Who hosts this site (R259), in the top bar of the participant view and for every visitor: the
@@ -348,173 +335,6 @@ export function ActAsFailedPage() {
   );
 }
 
-// The Host sign up page (kind "up") or the Host sign in page (kind "in"). Signed in, it goes to
-// the home page.
-export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
-  const { session, signUp, signIn } = useHost();
-  const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("");
-  const [again, setAgain] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // The host's site was deleted (R69a): Start my site again (R69c).
-  const [deleted, setDeleted] = useState(false);
-  const up = kind === "up";
-
-  useEffect(() => {
-    setError(null);
-    hostPageOpened(up ? "sign-up" : "sign-in").catch((e: unknown) =>
-      console.error("Could not log the host page opened", e),
-    );
-  }, [up]);
-
-  // A wrong field is said before asking the server; the server says the rest.
-  function problem(): string | null {
-    if (!up) return null;
-    if (password.length < MIN_PASSWORD) {
-      return `The password must be at least ${MIN_PASSWORD} characters.`;
-    }
-    if (password !== again) return "The two passwords are different.";
-    return null;
-  }
-
-  async function submit(e: Event) {
-    e.preventDefault();
-    const found = problem();
-    setError(found);
-    if (found) return;
-    setBusy(true);
-    setDeleted(false);
-    try {
-      const leaving = await (up ? signUp(email, password, displayName) : signIn(email, password));
-      if (!leaving) window.location.hash = "#/";
-    } catch (err) {
-      console.error(`Could not sign ${kind} as host`, err);
-      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-      setDeleted(err instanceof SiteWasDeleted);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // A new, empty site, at its old subdomain if still free, paused until Resume subscription
-  // pays for it (R69c, R69b). The browser goes there, signed in.
-  async function startAgain() {
-    setBusy(true);
-    try {
-      const link = await restartSite(email, password);
-      console.info("Site started again: going there");
-      navigation.goTo(link);
-    } catch (err) {
-      console.error("Could not start the site again", err);
-      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-      setDeleted(false);
-      setBusy(false);
-    }
-  }
-
-  const title = up ? "Host sign up" : "Host sign in";
-  if (session?.signed_in) {
-    return (
-      <div className="host-page host-account">
-        <h1>{title}</h1>
-        <p>
-          You are signed in as host with {session.email}. <a href="#/">Go to the home page</a>
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="host-page host-account">
-      <h1>{title}</h1>
-      <p className="lead">
-        {up
-          ? "Make a host account to set up the person and their content."
-          : "Sign in with the email and password of your host account."}
-      </p>
-      <form onSubmit={(e) => void submit(e)} noValidate>
-        <label>
-          Email
-          <input
-            type="email"
-            autoComplete="email"
-            value={email}
-            onInput={(e) => setEmail(e.currentTarget.value)}
-          />
-        </label>
-        {up && (
-          <label>
-            Display name
-            <input
-              type="text"
-              autoComplete="name"
-              maxLength={DISPLAY_NAME_MAX}
-              placeholder="Dr. Smith"
-              value={displayName}
-              onInput={(e) => setDisplayName(e.currentTarget.value)}
-            />
-            <span className="muted">
-              What participants and visitors see you called. Your email is never shown to them.
-            </span>
-          </label>
-        )}
-        <label>
-          Password{up && ` (at least ${MIN_PASSWORD} characters)`}
-          <input
-            type="password"
-            autoComplete={up ? "new-password" : "current-password"}
-            value={password}
-            onInput={(e) => setPassword(e.currentTarget.value)}
-          />
-        </label>
-        {up && (
-          <label>
-            Password again
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={again}
-              onInput={(e) => setAgain(e.currentTarget.value)}
-            />
-          </label>
-        )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        {deleted && (
-          <div className="switch">
-            <button type="button" disabled={busy} onClick={() => void startAgain()}>
-              Start my site again
-            </button>
-            <p className="muted">
-              A new, empty site, at your old address if it is still free. It starts once you
-              resume your subscription there.
-            </p>
-          </div>
-        )}
-        <button type="submit" disabled={busy || email.trim() === "" || password === ""}>
-          {up ? "Sign up" : "Sign in"}
-        </button>
-      </form>
-      <p className="muted">
-        {up ? (
-          <>
-            Already a host? <a href="#/host/sign-in">Host sign in</a>
-          </>
-        ) : (
-          <>
-            New here? <a href="#/host/sign-up">Host sign up</a> ·{" "}
-            <a href="#/host/forgot">Forgot your password?</a>
-          </>
-        )}
-      </p>
-    </div>
-  );
-}
-
 // A host page opened by anyone not signed in as a host (R190): what it is, and how to sign in.
 // Its calls to the server are refused too.
 export function HostOnlyPage() {
@@ -524,8 +344,8 @@ export function HostOnlyPage() {
       <h1>For the host only</h1>
       <p className="lead">This page is for the host, who sets up the person and their content.</p>
       <p>
-        <a className="button" href="#/host/sign-in">
-          Host sign in
+        <a className="button" href="#/sign-in">
+          Sign in
         </a>{" "}
         or <a href="#/chat">go to the chat</a>
       </p>
@@ -596,8 +416,8 @@ export function ConfirmFailedPage() {
         {LINK_FAILED}
       </p>
       <p>
-        <a className="button" href="#/host/sign-in">
-          Host sign in
+        <a className="button" href="#/sign-in">
+          Sign in
         </a>{" "}
         to send a new one.
       </p>
@@ -655,7 +475,7 @@ export function ForgotPasswordPage() {
         </button>
       </form>
       <p className="muted">
-        Remembered it? <a href="#/host/sign-in">Host sign in</a>
+        Remembered it? <a href="#/sign-in">Sign in</a>
       </p>
     </div>
   );
@@ -700,8 +520,8 @@ export function ResetPasswordPage({ token }: { token: string }) {
         <h1>Set a new password</h1>
         <p role="status">Your new password is set. Sign in with it.</p>
         <p>
-          <a className="button" href="#/host/sign-in">
-            Host sign in
+          <a className="button" href="#/sign-in">
+            Sign in
           </a>
         </p>
       </div>

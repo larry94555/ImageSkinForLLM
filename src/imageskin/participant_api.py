@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 Email = Annotated[str, Body(embed=True)]
 Password = Annotated[str, Body(embed=True)]
+DisplayName = Annotated[str | None, Body(embed=True)]
 NOT_SIGNED_IN = "Sign in to do this."
 
 
@@ -60,8 +61,12 @@ def participant_router(
         # A sign-in from before R260 is still good here; the app swaps its cookie on the way out.
         return accounts.token_in(request.cookies)[0]
 
-    def signed_in(request: Request, token: str, email: str) -> JSONResponse:
+    def signed_in(
+        request: Request, token: str, email: str, display_name: str | None = None
+    ) -> JSONResponse:
         body: dict[str, object] = {"signed_in": True, "email": email}
+        if display_name:
+            body["display_name"] = display_name
         go_to = landing(request, email)
         if go_to:
             body["go_to"] = go_to
@@ -70,29 +75,40 @@ def participant_router(
         give_cookie(response, request, accounts, token, cookie_domain(request))
         return response
 
-    def account(request: Request, up: bool, email: str, password: str) -> JSONResponse:
+    def account(
+        request: Request, up: bool, email: str, password: str, display_name: str | None = None
+    ) -> JSONResponse:
         try:
-            token = (accounts.sign_up if up else accounts.sign_in)(email, password)
+            if up:
+                token = accounts.sign_up(email, password, display_name)
+            else:
+                token = accounts.sign_in(email, password)
         except ParticipantRefused as e:
             status = 409 if e.reason == "email already signed up" else 400 if up else 401
             return JSONResponse({"detail": str(e)}, status_code=status)
         except ParticipantsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
         found = accounts.participant(token)
-        return signed_in(request, token, found.email if found else email)
+        if found is None:
+            return signed_in(request, token, email)
+        return signed_in(request, token, found.email, found.display_name)
 
     @router.get("/session")
     def session(request: Request) -> dict[str, object]:
         """Whether this browser is signed in as a participant of this site, and as whom."""
         found = accounts.participant(token_of(request))
         answer: dict[str, object] = {"signed_in": found is not None, "email": found and found.email}
+        if found is not None and found.display_name:
+            answer["display_name"] = found.display_name
         if found is not None and not allowed(request, found.email):
             answer["allowed"] = False  # the page says only that the site is not yet active
         return answer
 
     @router.post("/sign-up")
-    def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:
-        return account(request, True, email, password)
+    def sign_up(
+        request: Request, email: Email, password: Password, display_name: DisplayName = None
+    ) -> JSONResponse:
+        return account(request, True, email, password, display_name)
 
     @router.post("/sign-in")
     def sign_in(request: Request, email: Email, password: Password) -> JSONResponse:
