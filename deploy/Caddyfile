@@ -31,7 +31,7 @@
 # The bare domain, me0.ai, with its own certificate: it goes to www.me0.ai, where the main
 # address's home is (R270), keeping the path. www.me0.ai itself is served by *.me0.ai below.
 # A 302, so it can be changed later without browsers remembering it.
-# docs/guides/Setting-up-www-Guide.html says how to point me0.ai and www at the machine.
+# docs/guides/Setting-up-www-Guide.md says how to point me0.ai and www at the machine.
 {$MAIN_DOMAIN} {
 	redir https://www.{$MAIN_DOMAIN}{uri} 302
 	log

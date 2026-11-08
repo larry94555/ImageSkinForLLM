@@ -251,11 +251,11 @@ def test_the_bare_domain_goes_to_www() -> None:
 
 def test_the_setting_up_www_guide_is_there_and_linked() -> None:
     guides = ROOT / "docs" / "guides"
-    guide = text(guides / "Setting-up-www-Guide.html")
+    guide = text(guides / "Setting-up-www-Guide.md")
     for part in ("Squarespace", "Default Security List", "nslookup www.me0.ai", "caddy validate"):
         assert part in guide, part
     assert (guides / "Setting-up-www-Guide.pdf").read_bytes().startswith(b"%PDF")
-    assert "(../docs/guides/Setting-up-www-Guide.pdf)" in text(DEPLOY / "README.md")
+    assert "(../docs/guides/Setting-up-www-Guide.md)" in text(DEPLOY / "README.md")
 
 
 def test_the_main_domain_is_the_same_for_caddy_and_the_app() -> None:
