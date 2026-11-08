@@ -52,7 +52,8 @@ export function SignInPage() {
   const named = useRef(false);
   // The email the display name was last filled in for, so it is asked once per email.
   const suggestedFor = useRef("");
-  // Counts the suggestions asked for, so an answer for an email since changed is left out.
+  // Counts the suggestions asked for and the emails typed, so an answer for an email since
+  // changed is left out.
   const asked = useRef(0);
 
   useEffect(() => {
@@ -217,7 +218,12 @@ export function SignInPage() {
             type="email"
             autoComplete="email"
             value={email}
-            onInput={(e) => setEmail(e.currentTarget.value)}
+            onInput={(e) => {
+              // A suggestion still on its way is for the email before this one.
+              asked.current++;
+              suggestedFor.current = "";
+              setEmail(e.currentTarget.value);
+            }}
             onBlur={() => void suggest()}
           />
         </label>
