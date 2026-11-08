@@ -275,7 +275,8 @@ function Shell() {
       ),
       admin: <AdminPage section={adminTarget(hash)} />,
       "sign-in": <SignInPage />,
-      "host-only": <HostOnlyPage />,
+      // A host's site says nothing of a host to anyone else (R270): its host pages aren't there.
+      "host-only": hostSession?.participant_only ? <NotFoundPage /> : <HostOnlyPage />,
       "confirm-failed": <ConfirmFailedPage />,
       "no-longer-active": <NoLongerActivePage />,
       "host-forgot": <ForgotPasswordPage />,

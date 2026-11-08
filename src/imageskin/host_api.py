@@ -220,6 +220,10 @@ def host_router(
             answer["trial"] = True  # its host can cancel it (R66)
         if paused(site):
             answer["paused"] = True  # visitors see a notice (R66, R69)
+        if site != DEFAULT_SITE:
+            # A host's site signs up participants only, and shows no host's pages to anyone
+            # else (Larry, 2026-11-08); its host still signs in there.
+            answer["participant_only"] = True
         return answer
 
     def send_confirmation(request: Request, email: str, token: str, site_path: str) -> bool:

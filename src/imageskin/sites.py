@@ -1164,6 +1164,30 @@ def trial_mover(sites: SiteDirectory, main_domain: str) -> Callable[[Scope], str
     return moved
 
 
+def main_redirect(main_domain: str) -> Callable[[Scope], str | None]:
+    """Where a page at a subdomain with no site goes (Larry, 2026-11-08): the main address's
+    www, `https://www.me0.ai/` on the hosted service and `http://localhost:<port>/` locally, with
+    the scheme and port kept. None for any other address with no site, which stays Site not
+    found, and for an API call, which no page of the main address would make there."""
+    domain = main_domain.strip(".").lower()
+
+    def redirect(scope: Scope) -> str | None:
+        address = address_of(scope).lower()
+        local = address.endswith(".localhost")
+        if not (local or address.endswith(f".{domain}")) or scope["type"] != "http":
+            return None
+        if scope.get("method") not in ("GET", "HEAD") or str(scope.get("path")).startswith("/api/"):
+            return None
+        headers = dict(scope.get("headers") or [])
+        host = bytes(headers.get(b"host", b"")).decode("latin-1")
+        port = host[len(address) :] if host.lower().startswith(address) else ""
+        proto = bytes(headers.get(b"x-forwarded-proto", b"")).decode("latin-1")
+        scheme = "https" if "https" in (proto, scope.get("scheme")) else "http"
+        return f"{scheme}://{'localhost' if local else f'www.{domain}'}{port}/"
+
+    return redirect
+
+
 def trial_code(scope: Scope) -> str | None:
     """The trial code the request's path starts with (`/t/<code>`), if any."""
     found = TRIAL_PATH.match(str(scope.get("path", "")))
@@ -1329,8 +1353,11 @@ class SiteApps:
         make: Callable[[str], Asgi],
         site_of: Callable[[Scope], str | None] = one_site,
         moved: Callable[[Scope], str | None] = lambda scope: None,
+        unknown: Callable[[Scope], str | None] = lambda scope: None,
     ):
         self._make = make
+        # A subdomain with no site goes to the main address (`main_redirect`).
+        self._unknown = unknown
         # A trial path whose site moved to its subdomain (R63) goes there.
         self._moved = moved
         self._matched: set[str] = set()  # the sites already logged at info level
@@ -1394,6 +1421,14 @@ class SiteApps:
         site = self._site_of(scope)
         address = address_of(scope)
         if site is None:
+            to = self._unknown(scope)
+            if to is not None:
+                logger.info(
+                    "Unknown subdomain sent to the main address",
+                    extra={"address": address, "to": to},
+                )
+                await self._found_at(send, to)
+                return
             logger.warning("Site not found", extra={"address": address, "path": scope.get("path")})
             await self._not_found(scope, send)
             return
@@ -1432,6 +1467,19 @@ class SiteApps:
                 "type": "http.response.start",
                 "status": 308,
                 "headers": [(b"location", target.encode("latin-1")), (b"content-length", b"0")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
+
+    @staticmethod
+    async def _found_at(send: Send, location: str) -> None:
+        """A temporary redirect (302): the subdomain may be set up later, so browsers keep
+        asking it."""
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 302,
+                "headers": [(b"location", location.encode("latin-1")), (b"content-length", b"0")],
             }
         )
         await send({"type": "http.response.body", "body": b""})

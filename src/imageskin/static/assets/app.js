@@ -11442,6 +11442,7 @@ function testSignUp(email) {
 function SignInPage() {
 	const host = useHost();
 	const participant = useParticipant();
+	const participantOnly = host.session?.participant_only === true;
 	const [email, setEmail] = d("");
 	const [displayName, setDisplayName] = d("");
 	const [password, setPassword] = d("");
@@ -11513,7 +11514,7 @@ function SignInPage() {
 			setBusy(false);
 			return;
 		}
-		const asParticipant = Boolean(host.session?.host_name) && !testSignUp(email);
+		const asParticipant = participantOnly;
 		console.info(`New account: ${asParticipant ? "participant" : "host"}`);
 		try {
 			if (asParticipant) participantIn((await participant.signUp(email, password, displayName)).go_to);
@@ -11647,7 +11648,7 @@ function SignInPage() {
 					})
 				]
 			}),
-			/* @__PURE__ */ u("p", {
+			!participantOnly && /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: /* @__PURE__ */ u("a", {
 					href: "#/host/forgot",
@@ -14312,7 +14313,7 @@ function Shell() {
 		}),
 		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
 		"sign-in": /* @__PURE__ */ u(SignInPage, {}),
-		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
+		"host-only": hostSession?.participant_only ? /* @__PURE__ */ u(NotFoundPage, {}) : /* @__PURE__ */ u(HostOnlyPage, {}),
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
 		"no-longer-active": /* @__PURE__ */ u(NoLongerActivePage, {}),
 		"host-forgot": /* @__PURE__ */ u(ForgotPasswordPage, {}),

@@ -508,6 +508,7 @@ def serve(settings: Settings) -> None:
     from imageskin.sites import (
         DEFAULT_SITE,
         SiteApps,
+        main_redirect,
         make_service,
         site_home,
         site_matcher,
@@ -567,6 +568,8 @@ def serve(settings: Settings) -> None:
         site_matcher(service.sites, settings.main_domain, service.sign_in_returns),
         # A trial path goes to the subdomain its host picked (R63).
         trial_mover(service.sites, settings.main_domain),
+        # A subdomain with no site goes to the main address (Larry, 2026-11-08).
+        main_redirect(settings.main_domain),
     )
     # A deleted site's app is dropped, and a site paused 30 days is deleted (R69a).
     service.sites.on_deleted.append(sites.forget)

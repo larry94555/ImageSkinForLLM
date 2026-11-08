@@ -2,8 +2,8 @@
 // up and Host sign in. It has the fields Host sign up had: email, display name, password and
 // the password again. An email and password that match a host's account sign the host in; else
 // ones that match a participant's account here sign the participant in. Otherwise, with the
-// password typed twice, it makes a new account: a host's at an address with no host yet (the
-// main address, where hosts sign up), a participant's on a host's site. The display name is
+// password typed twice, it makes a new account: a host's at the main address, a participant's
+// on a host's site (R270), where the page says nothing of hosts. The display name is
 // filled in from the email, before the @, with a number that makes it unlike every other, and
 // can be changed.
 
@@ -38,6 +38,8 @@ function testSignUp(email: string): boolean {
 export function SignInPage() {
   const host = useHost();
   const participant = useParticipant();
+  // On a host's site, only participants sign up, and nothing names a host (R270).
+  const participantOnly = host.session?.participant_only === true;
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -125,8 +127,8 @@ export function SignInPage() {
       setBusy(false);
       return;
     }
-    // A site with a host takes participants; one without, such as the main address, hosts.
-    const asParticipant = Boolean(host.session?.host_name) && !testSignUp(email);
+    // A host's site takes participants (R270); the main address, hosts.
+    const asParticipant = participantOnly;
     console.info(`New account: ${asParticipant ? "participant" : "host"}`);
     try {
       if (asParticipant) {
@@ -264,9 +266,12 @@ export function SignInPage() {
           Sign in
         </button>
       </form>
-      <p className="muted">
-        <a href="#/host/forgot">Forgot your password?</a>
-      </p>
+      {/* Forgot password is for hosts' accounts, which a host's site never mentions (R270). */}
+      {!participantOnly && (
+        <p className="muted">
+          <a href="#/host/forgot">Forgot your password?</a>
+        </p>
+      )}
     </div>
   );
 }
