@@ -46,6 +46,8 @@ import {
   pageFor,
   resetToken,
   resolve,
+  SETTINGS_DELETE,
+  settingsTarget,
   setupTarget,
   useHash,
   wikiTarget,
@@ -213,7 +215,6 @@ function Shell() {
         <main>
           <NotActivePage />
         </main>
-        <footer>Photos and recordings stay on the computer that runs this app.</footer>
       </>
     );
   }
@@ -269,6 +270,7 @@ function Shell() {
       ) : (
         <SettingsPage
           back={back.current ?? (participant ? "#/chat" : "#/")}
+          section={settingsTarget(hash)}
           // Delete my data removed the consent (R31): setup starts again there.
           onDataDeleted={() => setConsented(false)}
         />
@@ -327,8 +329,20 @@ function Shell() {
           {route && READ_ONLY_PAGES.includes(route.page) ? <ReadOnly>{content}</ReadOnly> : content}
         </CustomUseProvider>
       </main>
-      <footer>Photos and recordings stay on the computer that runs this app.</footer>
+      {/* Only the host has photos and recordings to keep or delete (Larry, 2026-11-08), so the
+          note shows only to a signed-in host in the host view. */}
+      {!visitor && !participant && <StorageNote />}
     </>
+  );
+}
+
+// Where the host's photos and recordings are kept, with a link to delete them in Settings.
+export function StorageNote() {
+  return (
+    <footer>
+      Photos and recordings stay on the computer that runs this app.{" "}
+      <a href={SETTINGS_DELETE}>Delete them in Settings</a>
+    </footer>
   );
 }
 

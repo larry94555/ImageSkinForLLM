@@ -2390,6 +2390,7 @@ var PAGES = {
 	"/guide": "guide",
 	"/wiki": "wiki",
 	"/settings": "settings",
+	"/settings/delete": "settings",
 	"/admin": "admin",
 	"/admin/settings": "admin",
 	"/admin/guidelines": "admin",
@@ -2420,6 +2421,10 @@ function pathOf(hash) {
 var RESET = /^\/host\/reset\/([A-Za-z0-9_-]+)$/;
 function resetToken(hash) {
 	return RESET.exec(pathOf(hash))?.[1];
+}
+var SETTINGS_DELETE = "#/settings/delete";
+function settingsTarget(hash) {
+	return pathOf(hash) === "/settings/delete" ? "delete" : void 0;
 }
 function adminTarget(hash) {
 	const path = pathOf(hash);
@@ -3733,11 +3738,24 @@ function SettingsLink({ current }) {
 		children: [ICON, "Settings"]
 	});
 }
-function SettingsPage({ back, onDataDeleted }) {
+function SettingsPage({ back, section, onDataDeleted }) {
 	const { settings, change } = x(SettingsContext);
 	const [failed, setFailed] = d(false);
 	const page = A(null);
 	h(() => console.info(`Settings page opened, returning to ${back}`), [back]);
+	h(() => {
+		if (section !== "delete") return;
+		const target = document.getElementById("settings-delete");
+		if (!target) {
+			console.warn("Settings opened at Delete my data, but it isn't on the page");
+			return;
+		}
+		console.info("Settings opened at Delete my data");
+		target.scrollIntoView?.({
+			behavior: "smooth",
+			block: "start"
+		});
+	}, [section]);
 	async function save(changes, undo) {
 		setFailed(false);
 		try {
@@ -14268,21 +14286,17 @@ function Shell() {
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	if (inactiveAccount.shown || pageFor(hash) === "no-longer-active") return /* @__PURE__ */ u(NoLongerActivePage, {});
-	if (participantSession?.signed_in === true && participantSession.allowed === false && hostSession?.signed_in !== true) return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("header", {
-			ref: header,
-			children: [/* @__PURE__ */ u("a", {
-				className: "brand",
-				href: "#/",
-				children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
-			}), /* @__PURE__ */ u("span", {
-				className: "header-end",
-				children: /* @__PURE__ */ u(ParticipantLinks, {})
-			})]
-		}),
-		/* @__PURE__ */ u("main", { children: /* @__PURE__ */ u(NotActivePage, {}) }),
-		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
-	] });
+	if (participantSession?.signed_in === true && participantSession.allowed === false && hostSession?.signed_in !== true) return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("header", {
+		ref: header,
+		children: [/* @__PURE__ */ u("a", {
+			className: "brand",
+			href: "#/",
+			children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
+		}), /* @__PURE__ */ u("span", {
+			className: "header-end",
+			children: /* @__PURE__ */ u(ParticipantLinks, {})
+		})]
+	}), /* @__PURE__ */ u("main", { children: /* @__PURE__ */ u(NotActivePage, {}) })] });
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (hostSession?.paused && visitor && !PAUSED_OPEN.includes(pageFor(hash))) content = /* @__PURE__ */ u(PausedPage, {});
 	else if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {
@@ -14319,6 +14333,7 @@ function Shell() {
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
 		settings: !settingsShown ? settingsShown === null ? /* @__PURE__ */ u("p", { children: "Loading…" }) : /* @__PURE__ */ u(NotFoundPage, {}) : /* @__PURE__ */ u(SettingsPage, {
 			back: back.current ?? (participant ? "#/chat" : "#/"),
+			section: settingsTarget(hash),
 			onDataDeleted: () => setConsented(false)
 		}),
 		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
@@ -14372,7 +14387,17 @@ function Shell() {
 				children: route && READ_ONLY_PAGES.includes(route.page) ? /* @__PURE__ */ u(ReadOnly, { children: content }) : content
 			})
 		] }),
-		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
+		!visitor && !participant && /* @__PURE__ */ u(StorageNote, {})
+	] });
+}
+function StorageNote() {
+	return /* @__PURE__ */ u("footer", { children: [
+		"Photos and recordings stay on the computer that runs this app.",
+		" ",
+		/* @__PURE__ */ u("a", {
+			href: SETTINGS_DELETE,
+			children: "Delete them in Settings"
+		})
 	] });
 }
 function useDefaultPerson(hash, host) {
