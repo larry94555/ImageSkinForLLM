@@ -2836,6 +2836,7 @@ Every merged pull request is linked from its PR's entry above, or listed here. T
 | [#256](https://github.com/larry94555/ImageSkinForLLM/pull/256) | Roadmap: host custom image and voice controls (13f) and admin guidelines (13a) |
 | [#257](https://github.com/larry94555/ImageSkinForLLM/pull/257) | Roadmap: add Milestone 13g, Optimize LLM latencies |
 | [#296](https://github.com/larry94555/ImageSkinForLLM/pull/296) | Keep the Stripe price ID in .env, so the server never edits config.toml |
+| [#326](https://github.com/larry94555/ImageSkinForLLM/pull/326) | Add ProjectRules.md, the project's process as a reusable guide for any project |
 
 ## About this plan
 
